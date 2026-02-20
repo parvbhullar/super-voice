@@ -40,6 +40,7 @@ pub struct RtcTrackConfig {
     pub codecs: Vec<CodecType>,
     pub payload_type: Option<u8>,
     pub enable_latching: Option<bool>,
+    pub enable_ice_lite: Option<bool>,
 }
 
 impl Default for RtcTrackConfig {
@@ -54,6 +55,7 @@ impl Default for RtcTrackConfig {
             codecs: Vec::new(),
             payload_type: None,
             enable_latching: None,
+            enable_ice_lite: None,
         }
     }
 }
@@ -134,7 +136,6 @@ impl RtcTrack {
         }
 
         let mut config = RtcConfiguration::default();
-        config.enable_ice_lite = true;
         if self.ssrc != 0 {
             config.ssrc_start = self.ssrc;
         }
@@ -154,7 +155,7 @@ impl RtcTrack {
             config.rtp_start_port = Some(rtp_start_port);
             config.rtp_end_port = Some(rtp_end_port);
         }
-
+        config.enable_ice_lite = self.rtc_config.enable_ice_lite.unwrap_or(false);
         config.enable_latching = self
             .rtc_config
             .enable_latching

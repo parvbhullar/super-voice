@@ -199,6 +199,7 @@ pub struct Config {
     pub rtp_end_port: Option<u16>,
     #[serde(default = "default_config_rtp_latching")]
     pub enable_rtp_latching: Option<bool>,
+    pub enable_ice_lite: Option<bool>,
     pub rtp_bind_ip: Option<String>,
 
     pub callrecord: Option<CallRecordConfig>,

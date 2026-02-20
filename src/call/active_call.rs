@@ -1599,6 +1599,7 @@ impl ActiveCall {
         }
 
         rtc_config.enable_latching = self.app_state.config.enable_rtp_latching;
+        rtc_config.enable_ice_lite = self.app_state.config.enable_ice_lite;
 
         let mut track = RtcTrack::new(
             self.cancel_token.child_token(),
@@ -2218,6 +2219,7 @@ impl ActiveCall {
                 rtc_config.bind_ip = Some(bind_ip.clone());
             }
             rtc_config.enable_latching = self.app_state.config.enable_rtp_latching;
+            rtc_config.enable_ice_lite = self.app_state.config.enable_ice_lite;
 
             let webrtc_track = RtcTrack::new(
                 self.cancel_token.child_token(),
