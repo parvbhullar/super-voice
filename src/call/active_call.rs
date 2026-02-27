@@ -2174,16 +2174,56 @@ impl ActiveCall {
         }
 
         let answer = match answer {
-            Some(answer) => String::from_utf8_lossy(&answer).to_string(),
+            Some(answer) => {
+                let s = String::from_utf8_lossy(&answer).to_string();
+                if s.trim().is_empty() {
+                    // 200 OK had no body — this is valid per RFC 3261 when the answer was
+                    // already negotiated in a 183 Session Progress (early media).
+                    // Fall back to the early SDP stored by the Early handler.
+                    let cs = call_state_ref.read().await;
+                    match cs.answer.clone() {
+                        Some(early_sdp) if !early_sdp.is_empty() => {
+                            info!(
+                                session_id = self.session_id,
+                                "200 OK has empty body; using early-media SDP from 183"
+                            );
+                            (early_sdp, true /* already applied */)
+                        }
+                        _ => {
+                            warn!(
+                                session_id = self.session_id,
+                                "200 OK has empty body and no early-media SDP available"
+                            );
+                            (s, false)
+                        }
+                    }
+                } else {
+                    (s, false)
+                }
+            }
             None => {
-                warn!(session_id = self.session_id, "no answer received");
-                return Err(rsipstack::Error::DialogError(
-                    "No answer received".to_string(),
-                    dialog_id,
-                    rsip::StatusCode::NotAcceptableHere,
-                ));
+                // No answer body at all — check if early media SDP is available before failing
+                let cs = call_state_ref.read().await;
+                match cs.answer.clone() {
+                    Some(early_sdp) if !early_sdp.is_empty() => {
+                        info!(
+                            session_id = self.session_id,
+                            "200 OK had no answer; using early-media SDP from 183"
+                        );
+                        (early_sdp, true /* already applied */)
+                    }
+                    _ => {
+                        warn!(session_id = self.session_id, "no answer received");
+                        return Err(rsipstack::Error::DialogError(
+                            "No answer received".to_string(),
+                            dialog_id,
+                            rsip::StatusCode::NotAcceptableHere,
+                        ));
+                    }
+                }
             }
         };
+        let (answer, remote_description_already_applied) = answer;
 
         {
             let mut cs = call_state_ref.write().await;
@@ -2194,11 +2234,12 @@ impl ActiveCall {
                 cs.auto_hangup = Some((ssrc, CallRecordHangupReason::ByRefer));
             }
         }
-
-        self.media_stream
-            .update_remote_description(&track_id, &answer)
-            .await
-            .ok();
+        if !remote_description_already_applied {
+            self.media_stream
+                .update_remote_description(&track_id, &answer)
+                .await
+                .ok();
+        }
 
         Ok(answer)
     }

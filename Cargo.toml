@@ -1,6 +1,6 @@
 [package]
 name = "active-call"
-version = "0.3.39"
+version = "0.3.40"
 edition = "2024"
 authors = ["jinti<shenjindi@fourz.cn>"]
 description = "A SIP/WebRTC voice agent"
@@ -28,7 +28,7 @@ libc = "0.2"
 opusic-sys = { version = "0.5.8", optional = true }
 audio-codec = { version = "0.3.30", features = ["opus"] }
 #rustrtc = { path = "../rustrtc" }
-rustrtc = "0.3.22"
+rustrtc = "0.3.24"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 minijinja = { version = "2.6.0", features = ["loader", "json"] }
@@ -54,7 +54,7 @@ tracing-subscriber = { version = "0.3.22", features = ["env-filter"] }
 tracing-appender = "0.2.4"
 toml = "0.9.8"
 rsip = "0.4.0"
-rsipstack = "0.4.7"
+rsipstack = "0.4.10"
 #rsipstack = { path = "../rsipstack" }
 uuid = { version = "1.20.0", features = ["v4"] }
 reqwest = { version = "0.13.1", features = [
@@ -74,7 +74,7 @@ lru = "0.16.3"
 md5 = { package = "md-5", version = "0.10.6" }
 sha2 = "0.10.9"
 serde_yaml = "0.9.33"
-regex = "1.12.2"
+regex = "1.12.3"
 once_cell = "1.21.3"
 hex = "0.4.3"
 nnnoiseless = "0.5.2"
