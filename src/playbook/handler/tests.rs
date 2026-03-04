@@ -807,6 +807,7 @@ async fn test_eou_early_response() -> Result<()> {
         timestamp: 0,
         completed: true,
         interrupt_point: None,
+        text: Some("User's final utterance".to_string()),
     };
     let commands = handler.on_event(&event).await?;
     assert_eq!(commands.len(), 1);

@@ -109,6 +109,7 @@ pub enum SessionEvent {
         timestamp: u64,
         completed: bool,
         interrupt_point: Option<String>,
+        text: Option<String>,
     },
     ///Inactivity timeout
     Inactivity {
