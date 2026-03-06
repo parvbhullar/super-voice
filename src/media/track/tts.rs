@@ -109,6 +109,7 @@ pub fn strip_emoji_chars(text: &str) -> String {
 
 impl TtsTask {
     async fn run(mut self) -> Result<()> {
+        let start_time = crate::media::get_timestamp();
         let mut stream;
         match self.client.start().await {
             Ok(s) => stream = s,
@@ -121,6 +122,16 @@ impl TtsTask {
                     error = %e,
                     "failed to start tts task"
                 );
+                // Send TrackEnd event even when start fails
+                self.event_sender
+                    .send(SessionEvent::TrackEnd {
+                        track_id: self.track_id.clone(),
+                        timestamp: crate::media::get_timestamp(),
+                        duration: crate::media::get_timestamp() - start_time,
+                        ssrc: self.ssrc,
+                        play_id: self.play_id.clone(),
+                    })
+                    .ok();
                 return Err(e);
             }
         };
@@ -449,7 +460,22 @@ impl TtsTask {
                 ssrc: self.ssrc,
                 play_id: self.play_id.clone(),
             })
+            .inspect_err(|e| {
+                tracing::warn!(
+                    session_id = %self.session_id,
+                    track_id = %self.track_id,
+                    play_id = ?self.play_id,
+                    error = %e,
+                    "failed to send TrackEnd event"
+                );
+            })
             .ok();
+        tracing::info!(
+            session_id = %self.session_id,
+            track_id = %self.track_id,
+            play_id = ?self.play_id,
+            "tts track ended"
+        );
         Ok(())
     }
 
