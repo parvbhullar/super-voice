@@ -12,7 +12,7 @@ This roadmap transforms Super Voice from an AI voice agent into a carrier-grade 
 
 Decimal phases appear between their surrounding integers in numeric order.
 
-- [ ] **Phase 1: FFI Foundation & Build** - Sofia-SIP and SpanDSP C bindings with Cargo workspace and feature flags
+- [x] **Phase 1: FFI Foundation & Build** - Sofia-SIP and SpanDSP C bindings with Cargo workspace and feature flags (completed 2026-03-28)
 - [ ] **Phase 2: Redis State Layer** - Redis-backed config storage, runtime state, pub/sub, engagement tracking, API auth
 - [ ] **Phase 3: Endpoints & Gateways** - SIP listener endpoints (Sofia + rsipstack) and outbound gateways with health monitoring
 - [ ] **Phase 4: Trunks, DIDs & Entity API** - Trunk grouping with capacity/codec/ACL, DID number management, REST CRUD for all entities
@@ -36,7 +36,7 @@ Decimal phases appear between their surrounding integers in numeric order.
   3. Sofia-SIP event loop can be started and receives a SIP message in a tokio test (dedicated OS thread + mpsc bridge works)
   4. SpanDSP processors (dtmf, echo) can be instantiated in a Rust test using FFI bindings
   5. Docker multi-stage build produces a runnable single image and binary starts in under 1 second
-**Plans:** 2/4 plans executed
+**Plans:** 4/4 plans complete
 Plans:
 - [ ] 01-01-PLAN.md — Cargo workspace restructure, -sys crates, feature flags
 - [ ] 01-02-PLAN.md — Sofia-SIP safe wrapper with Tokio event loop bridge
@@ -166,7 +166,7 @@ Note: Phase 8 depends on Phase 3 (not Phase 7), so it can proceed in parallel af
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. FFI Foundation & Build | 2/4 | In Progress|  |
+| 1. FFI Foundation & Build | 4/4 | Complete   | 2026-03-28 |
 | 2. Redis State Layer | 0/? | Not started | - |
 | 3. Endpoints & Gateways | 0/? | Not started | - |
 | 4. Trunks, DIDs & Entity API | 0/? | Not started | - |

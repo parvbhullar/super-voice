@@ -151,8 +151,8 @@
 
 - [x] **BLDP-01**: Cargo workspace with separate crates (sofia-sip-sys, sofia-sip, spandsp-sys, spandsp)
 - [x] **BLDP-02**: Feature flags: carrier (with C FFI) and minimal (pure Rust)
-- [ ] **BLDP-03**: Docker multi-stage build produces single runtime image
-- [ ] **BLDP-04**: Binary starts in <1 second
+- [x] **BLDP-03**: Docker multi-stage build produces single runtime image
+- [x] **BLDP-04**: Binary starts in <1 second
 
 ## v2 Requirements
 
@@ -200,8 +200,8 @@ Which phases cover which requirements. Updated during roadmap creation.
 | FFND-05 | Phase 1 | Complete |
 | BLDP-01 | Phase 1 | Complete |
 | BLDP-02 | Phase 1 | Complete |
-| BLDP-03 | Phase 1 | Pending |
-| BLDP-04 | Phase 1 | Pending |
+| BLDP-03 | Phase 1 | Complete |
+| BLDP-04 | Phase 1 | Complete |
 | RDIS-01 | Phase 2 | Pending |
 | RDIS-02 | Phase 2 | Pending |
 | RDIS-03 | Phase 2 | Pending |
