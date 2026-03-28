@@ -1,0 +1,11 @@
+[package]
+name = "spandsp"
+version = "0.1.0"
+edition = "2024"
+description = "Safe Rust wrapper for the SpanDSP DSP library"
+
+[dependencies]
+spandsp-sys = { path = "../spandsp-sys" }
+anyhow = "1"
+tracing = "0.1"
+libc = "0.2"

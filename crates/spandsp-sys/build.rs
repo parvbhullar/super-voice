@@ -35,6 +35,7 @@ fn main() {
     let mut builder = bindgen::Builder::default()
         .header_contents("spandsp_wrapper.h", "#include <spandsp.h>\n")
         // Allowlist functions
+        .allowlist_function("dtmf_rx")
         .allowlist_function("dtmf_rx_.*")
         .allowlist_function("echo_can_.*")
         .allowlist_function("super_tone_rx_.*")
@@ -49,15 +50,20 @@ fn main() {
         .allowlist_type("fax_state_t")
         .allowlist_type("t38_terminal_state_t")
         .allowlist_type("plc_state_t")
-        // Suppress warnings for generated code
+        // Suppress warnings for generated code via outer attribute
         .raw_line(
-            "#![allow(non_upper_case_globals, non_camel_case_types, \
+            "#[allow(non_upper_case_globals, non_camel_case_types, \
              non_snake_case, dead_code)]",
         );
 
     // Add include paths from pkg-config
     for include_path in &lib.include_paths {
         builder = builder.clang_arg(format!("-I{}", include_path.display()));
+    }
+
+    // Add Homebrew include path for libtiff (required by spandsp.h on macOS)
+    if cfg!(target_os = "macos") {
+        builder = builder.clang_arg("-I/opt/homebrew/include");
     }
 
     let bindings = builder
