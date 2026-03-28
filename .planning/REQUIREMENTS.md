@@ -193,13 +193,110 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| (populated by roadmapper) | | |
+| FFND-01 | Phase 1 | Pending |
+| FFND-02 | Phase 1 | Pending |
+| FFND-03 | Phase 1 | Pending |
+| FFND-04 | Phase 1 | Pending |
+| FFND-05 | Phase 1 | Pending |
+| BLDP-01 | Phase 1 | Pending |
+| BLDP-02 | Phase 1 | Pending |
+| BLDP-03 | Phase 1 | Pending |
+| BLDP-04 | Phase 1 | Pending |
+| RDIS-01 | Phase 2 | Pending |
+| RDIS-02 | Phase 2 | Pending |
+| RDIS-03 | Phase 2 | Pending |
+| RDIS-04 | Phase 2 | Pending |
+| RAPI-15 | Phase 2 | Pending |
+| ENDP-01 | Phase 3 | Pending |
+| ENDP-02 | Phase 3 | Pending |
+| ENDP-03 | Phase 3 | Pending |
+| ENDP-04 | Phase 3 | Pending |
+| ENDP-05 | Phase 3 | Pending |
+| ENDP-06 | Phase 3 | Pending |
+| ENDP-07 | Phase 3 | Pending |
+| GTWY-01 | Phase 3 | Pending |
+| GTWY-02 | Phase 3 | Pending |
+| GTWY-03 | Phase 3 | Pending |
+| GTWY-04 | Phase 3 | Pending |
+| GTWY-05 | Phase 3 | Pending |
+| RAPI-01 | Phase 3 | Pending |
+| RAPI-02 | Phase 3 | Pending |
+| TRNK-01 | Phase 4 | Pending |
+| TRNK-02 | Phase 4 | Pending |
+| TRNK-03 | Phase 4 | Pending |
+| TRNK-04 | Phase 4 | Pending |
+| TRNK-05 | Phase 4 | Pending |
+| TRNK-06 | Phase 4 | Pending |
+| TRNK-07 | Phase 4 | Pending |
+| TRNK-08 | Phase 4 | Pending |
+| DIDN-01 | Phase 4 | Pending |
+| DIDN-02 | Phase 4 | Pending |
+| DIDN-03 | Phase 4 | Pending |
+| RAPI-03 | Phase 4 | Pending |
+| RAPI-04 | Phase 4 | Pending |
+| RAPI-14 | Phase 4 | Pending |
+| ROUT-01 | Phase 5 | Pending |
+| ROUT-02 | Phase 5 | Pending |
+| ROUT-03 | Phase 5 | Pending |
+| ROUT-04 | Phase 5 | Pending |
+| ROUT-05 | Phase 5 | Pending |
+| ROUT-06 | Phase 5 | Pending |
+| ROUT-07 | Phase 5 | Pending |
+| ROUT-08 | Phase 5 | Pending |
+| ROUT-09 | Phase 5 | Pending |
+| TRNS-01 | Phase 5 | Pending |
+| TRNS-02 | Phase 5 | Pending |
+| TRNS-03 | Phase 5 | Pending |
+| MANP-01 | Phase 5 | Pending |
+| MANP-02 | Phase 5 | Pending |
+| MANP-03 | Phase 5 | Pending |
+| RAPI-05 | Phase 5 | Pending |
+| RAPI-06 | Phase 5 | Pending |
+| RAPI-07 | Phase 5 | Pending |
+| PRXY-01 | Phase 6 | Pending |
+| PRXY-02 | Phase 6 | Pending |
+| PRXY-03 | Phase 6 | Pending |
+| PRXY-04 | Phase 6 | Pending |
+| PRXY-05 | Phase 6 | Pending |
+| PRXY-06 | Phase 6 | Pending |
+| PRXY-07 | Phase 6 | Pending |
+| PRXY-08 | Phase 6 | Pending |
+| RAPI-09 | Phase 6 | Pending |
+| BRDG-01 | Phase 7 | Pending |
+| BRDG-02 | Phase 7 | Pending |
+| BRDG-03 | Phase 7 | Pending |
+| CAPC-01 | Phase 8 | Pending |
+| CAPC-02 | Phase 8 | Pending |
+| CAPC-03 | Phase 8 | Pending |
+| CAPC-04 | Phase 8 | Pending |
+| CAPC-05 | Phase 8 | Pending |
+| SECU-01 | Phase 8 | Pending |
+| SECU-02 | Phase 8 | Pending |
+| SECU-03 | Phase 8 | Pending |
+| SECU-04 | Phase 8 | Pending |
+| SECU-05 | Phase 8 | Pending |
+| SECU-06 | Phase 8 | Pending |
+| RAPI-11 | Phase 8 | Pending |
+| CDRE-01 | Phase 9 | Pending |
+| CDRE-02 | Phase 9 | Pending |
+| CDRE-03 | Phase 9 | Pending |
+| CDRE-04 | Phase 9 | Pending |
+| CDRE-05 | Phase 9 | Pending |
+| RAPI-08 | Phase 9 | Pending |
+| RAPI-10 | Phase 9 | Pending |
+| DSPP-01 | Phase 10 | Pending |
+| DSPP-02 | Phase 10 | Pending |
+| DSPP-03 | Phase 10 | Pending |
+| DSPP-04 | Phase 10 | Pending |
+| DSPP-05 | Phase 10 | Pending |
+| RAPI-12 | Phase 11 | Pending |
+| RAPI-13 | Phase 11 | Pending |
 
 **Coverage:**
-- v1 requirements: 79 total
-- Mapped to phases: 0
-- Unmapped: 79
+- v1 requirements: 98 total
+- Mapped to phases: 98
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-03-28*
-*Last updated: 2026-03-28 after initial definition*
+*Last updated: 2026-03-27 after roadmap creation (11 phases)*
