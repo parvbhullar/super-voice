@@ -9,8 +9,8 @@
 
 - [ ] **FFND-01**: System can load Sofia-SIP via C FFI bindings (nua.h, sdp.h, auth_module.h)
 - [ ] **FFND-02**: Sofia-SIP event loop integrates with Tokio via spawn_blocking bridge
-- [ ] **FFND-03**: System can load SpanDSP via C FFI bindings (dtmf, echo, fax, tone, plc)
-- [ ] **FFND-04**: SpanDSP processors integrate into StreamEngine registry
+- [x] **FFND-03**: System can load SpanDSP via C FFI bindings (dtmf, echo, fax, tone, plc)
+- [x] **FFND-04**: SpanDSP processors integrate into StreamEngine registry
 - [x] **FFND-05**: Build system discovers C libraries via pkg-config with feature-flag gating
 
 ### Endpoints
@@ -195,8 +195,8 @@ Which phases cover which requirements. Updated during roadmap creation.
 |-------------|-------|--------|
 | FFND-01 | Phase 1 | Pending |
 | FFND-02 | Phase 1 | Pending |
-| FFND-03 | Phase 1 | Pending |
-| FFND-04 | Phase 1 | Pending |
+| FFND-03 | Phase 1 | Complete |
+| FFND-04 | Phase 1 | Complete |
 | FFND-05 | Phase 1 | Complete |
 | BLDP-01 | Phase 1 | Complete |
 | BLDP-02 | Phase 1 | Complete |
