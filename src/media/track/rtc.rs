@@ -174,6 +174,8 @@ impl RtcTrack {
                     CodecType::TelephoneEvent => AudioCapability::telephone_event(),
                     #[cfg(feature = "opus")]
                     CodecType::Opus => AudioCapability::opus(),
+                    #[cfg(not(feature = "opus"))]
+                    CodecType::Opus => AudioCapability::pcmu(),
                 };
                 caps.audio.push(cap);
             }

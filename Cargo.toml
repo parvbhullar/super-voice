@@ -1,3 +1,7 @@
+[workspace]
+members = ["crates/*"]
+resolver = "2"
+
 [package]
 name = "active-call"
 version = "0.3.48"
@@ -11,7 +15,9 @@ keywords = ["sip", "voip", "telephony", "voice-agent", "webrtc"]
 categories = ["network-programming", "multimedia"]
 
 [features]
-default = ["opus", "offline"]
+default = ["carrier", "opus", "offline"]
+carrier = ["dep:sofia-sip-sys", "dep:spandsp-sys"]
+minimal = []
 opus = ["dep:opusic-sys"]
 offline = [
     "dep:symphonia",
@@ -24,6 +30,8 @@ cross = ["opus", "offline", "aws-lc-rs/bindgen"]
 not_vad = []
 
 [dependencies]
+sofia-sip-sys = { path = "crates/sofia-sip-sys", optional = true }
+spandsp-sys = { path = "crates/spandsp-sys", optional = true }
 libc = "0.2"
 opusic-sys = { version = "0.5.8", optional = true }
 audio-codec = { version = "0.3.30", features = ["opus"] }
