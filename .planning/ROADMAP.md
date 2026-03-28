@@ -33,7 +33,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 **Success Criteria** (what must be TRUE):
   1. `cargo build --features carrier` completes without errors and links Sofia-SIP and SpanDSP via pkg-config
   2. `cargo build --features minimal` compiles the pure-Rust path without any C library dependencies
-  3. Sofia-SIP event loop can be started and receives a SIP message in a tokio test (spawn_blocking bridge works)
+  3. Sofia-SIP event loop can be started and receives a SIP message in a tokio test (dedicated OS thread + mpsc bridge works)
   4. SpanDSP processors (dtmf, echo) can be instantiated in a Rust test using FFI bindings
   5. Docker multi-stage build produces a runnable single image and binary starts in under 1 second
 **Plans:** 4 plans
