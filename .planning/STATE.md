@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: planning
-stopped_at: Phase 1 context gathered
-last_updated: "2026-03-28T21:01:31.917Z"
+stopped_at: Completed 01-ffi-foundation-build/01-01-PLAN.md
+last_updated: "2026-03-28T21:26:50.814Z"
 last_activity: 2026-03-27 — Roadmap created for v1.0 Carrier Edition (11 phases, 98 requirements mapped)
 progress:
   total_phases: 11
   completed_phases: 0
-  total_plans: 0
-  completed_plans: 0
+  total_plans: 4
+  completed_plans: 1
   percent: 0
 ---
 
@@ -50,6 +50,7 @@ Progress: [░░░░░░░░░░] 0%
 - Trend: --
 
 *Updated after each plan completion*
+| Phase 01-ffi-foundation-build P01 | 15 | 3 tasks | 8 files |
 
 ## Accumulated Context
 
@@ -62,6 +63,9 @@ Recent decisions affecting current work:
 - [Pre-planning]: Redis for all dynamic state (config, runtime counters, CDR queue, clustering)
 - [Pre-planning]: Feature flags — `carrier` (with C FFI) and `minimal` (pure Rust, no C deps)
 - [Pre-planning]: Trunk is bidirectional by default; "Endpoint" replaces "SIP Profile"
+- [Phase 01-ffi-foundation-build]: carrier feature initially points to -sys crates directly; will redirect to safe wrappers in Plans 02/03
+- [Phase 01-ffi-foundation-build]: opaque_type('.*') for Sofia-SIP — callback-based opaque-pointer API is naturally opaque
+- [Phase 01-ffi-foundation-build]: SpanDSP version fallback: probe >=3.0 first, fall back to any version — dtmf_rx_* API stable since 0.0.6
 
 ### Pending Todos
 
@@ -75,6 +79,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-28T21:01:31.914Z
-Stopped at: Phase 1 context gathered
-Resume file: .planning/phases/01-ffi-foundation-build/01-CONTEXT.md
+Last session: 2026-03-28T21:26:50.811Z
+Stopped at: Completed 01-ffi-foundation-build/01-01-PLAN.md
+Resume file: None

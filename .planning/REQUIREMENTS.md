@@ -11,7 +11,7 @@
 - [ ] **FFND-02**: Sofia-SIP event loop integrates with Tokio via spawn_blocking bridge
 - [ ] **FFND-03**: System can load SpanDSP via C FFI bindings (dtmf, echo, fax, tone, plc)
 - [ ] **FFND-04**: SpanDSP processors integrate into StreamEngine registry
-- [ ] **FFND-05**: Build system discovers C libraries via pkg-config with feature-flag gating
+- [x] **FFND-05**: Build system discovers C libraries via pkg-config with feature-flag gating
 
 ### Endpoints
 
@@ -149,8 +149,8 @@
 
 ### Build & Package
 
-- [ ] **BLDP-01**: Cargo workspace with separate crates (sofia-sip-sys, sofia-sip, spandsp-sys, spandsp)
-- [ ] **BLDP-02**: Feature flags: carrier (with C FFI) and minimal (pure Rust)
+- [x] **BLDP-01**: Cargo workspace with separate crates (sofia-sip-sys, sofia-sip, spandsp-sys, spandsp)
+- [x] **BLDP-02**: Feature flags: carrier (with C FFI) and minimal (pure Rust)
 - [ ] **BLDP-03**: Docker multi-stage build produces single runtime image
 - [ ] **BLDP-04**: Binary starts in <1 second
 
@@ -197,9 +197,9 @@ Which phases cover which requirements. Updated during roadmap creation.
 | FFND-02 | Phase 1 | Pending |
 | FFND-03 | Phase 1 | Pending |
 | FFND-04 | Phase 1 | Pending |
-| FFND-05 | Phase 1 | Pending |
-| BLDP-01 | Phase 1 | Pending |
-| BLDP-02 | Phase 1 | Pending |
+| FFND-05 | Phase 1 | Complete |
+| BLDP-01 | Phase 1 | Complete |
+| BLDP-02 | Phase 1 | Complete |
 | BLDP-03 | Phase 1 | Pending |
 | BLDP-04 | Phase 1 | Pending |
 | RDIS-01 | Phase 2 | Pending |
