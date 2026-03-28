@@ -23,15 +23,18 @@ fn main() {
         println!("cargo:rustc-link-lib={lib_name}");
     }
 
+    // Build include path args first so the physical header can resolve includes.
+    let include_args: Vec<String> = lib
+        .include_paths
+        .iter()
+        .map(|p| format!("-I{}", p.display()))
+        .collect();
+
+    let manifest_dir = env::var("CARGO_MANIFEST_DIR").unwrap();
+    let wrapper_path = PathBuf::from(&manifest_dir).join("sofia_sip_wrapper.h");
+
     let mut builder = bindgen::Builder::default()
-        .header_contents(
-            "sofia_sip_wrapper.h",
-            "#include <sofia-sip/nua.h>\n\
-             #include <sofia-sip/sdp.h>\n\
-             #include <sofia-sip/su_root.h>\n\
-             #include <sofia-sip/nta.h>\n\
-             #include <sofia-sip/auth_module.h>\n",
-        )
+        .header(wrapper_path.to_str().unwrap())
         // Allowlist functions
         .allowlist_function("nua_.*")
         .allowlist_function("su_root_.*")
@@ -39,23 +42,30 @@ fn main() {
         .allowlist_function("sdp_.*")
         .allowlist_function("nta_.*")
         .allowlist_function("tport_.*")
-        // Allowlist types
+        // Allowlist types and variables (tag system uses extern variables)
         .allowlist_type("nua_.*")
         .allowlist_type("su_root_t")
+        .allowlist_type("su_duration_t")
         .allowlist_type("sip_.*")
         .allowlist_type("sdp_.*")
         .allowlist_type("nta_.*")
         .allowlist_type("tport_.*")
+        .allowlist_type("tagi_t")
+        .allowlist_type("tag_.*")
         .allowlist_type("msg_t")
         .allowlist_type("su_home_t")
+        .allowlist_type("url_t")
+        .allowlist_type("url_string_t")
+        .allowlist_var("nutag_.*")
+        .allowlist_var("tag_null.*")
+        .allowlist_var("tag_end.*")
         // Treat all types as opaque
-        .opaque_type(".*")
-        // Suppress warnings for generated code
-        .raw_line("#![allow(non_upper_case_globals, non_camel_case_types, non_snake_case, dead_code)]");
+        .opaque_type(".*");
+    // Note: lib.rs has #![allow(...)] at crate root covering the included bindings.
 
     // Add include paths from pkg-config
-    for include_path in &lib.include_paths {
-        builder = builder.clang_arg(format!("-I{}", include_path.display()));
+    for arg in &include_args {
+        builder = builder.clang_arg(arg);
     }
 
     let bindings = builder
