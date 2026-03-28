@@ -1,0 +1,15 @@
+[package]
+name = "sofia-sip"
+version = "0.1.0"
+edition = "2024"
+description = "Safe Rust wrapper for the Sofia-SIP library"
+
+[dependencies]
+sofia-sip-sys = { path = "../sofia-sip-sys" }
+tokio = { version = "1", features = ["sync", "rt"] }
+tracing = "0.1"
+anyhow = "1"
+libc = "0.2"
+
+[dev-dependencies]
+tokio = { version = "1", features = ["full"] }
