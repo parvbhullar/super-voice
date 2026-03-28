@@ -71,11 +71,15 @@ pub type CreateProcessorsHook = Box<
         + Sync,
 >;
 
+/// Factory function type for generic DSP processors registered by name.
+pub type FnCreateProcessor = fn() -> Result<Box<dyn Processor>>;
+
 pub struct StreamEngine {
     vad_creators: HashMap<VadType, FnCreateVadProcessor>,
     eou_creators: HashMap<String, FnCreateEouProcessor>,
     asr_creators: HashMap<TranscriptionType, FnCreateAsrClient>,
     tts_creators: HashMap<SynthesisType, FnCreateTtsClient>,
+    processor_factories: HashMap<String, FnCreateProcessor>,
     create_processors_hook: Arc<CreateProcessorsHook>,
 }
 
@@ -111,6 +115,16 @@ impl Default for StreamEngine {
         #[cfg(feature = "offline")]
         engine.register_tts(SynthesisType::Supertonic, SupertonicTtsClient::create);
 
+        #[cfg(feature = "carrier")]
+        {
+            use crate::media::spandsp_adapters::{
+                SpanDspDtmfDetector, SpanDspEchoCancelProcessor, SpanDspPlcProcessor,
+            };
+            engine.register_processor("spandsp_dtmf", SpanDspDtmfDetector::create);
+            engine.register_processor("spandsp_echo", SpanDspEchoCancelProcessor::create);
+            engine.register_processor("spandsp_plc", SpanDspPlcProcessor::create);
+        }
+
         engine
     }
 }
@@ -122,8 +136,26 @@ impl StreamEngine {
             asr_creators: HashMap::new(),
             tts_creators: HashMap::new(),
             eou_creators: HashMap::new(),
+            processor_factories: HashMap::new(),
             create_processors_hook: Arc::new(Box::new(Self::default_create_procesors_hook)),
         }
+    }
+
+    /// Register a named DSP processor factory.
+    ///
+    /// Registered factories can be instantiated by name via [`create_processor`].
+    pub fn register_processor(&mut self, name: &str, factory: FnCreateProcessor) -> &mut Self {
+        self.processor_factories.insert(name.to_string(), factory);
+        self
+    }
+
+    /// Instantiate a previously registered processor by name.
+    pub fn create_processor(&self, name: &str) -> Result<Box<dyn Processor>> {
+        let factory = self
+            .processor_factories
+            .get(name)
+            .ok_or_else(|| anyhow::anyhow!("Processor factory not found: {}", name))?;
+        factory()
     }
 
     pub fn register_vad(&mut self, vad_type: VadType, creator: FnCreateVadProcessor) -> &mut Self {

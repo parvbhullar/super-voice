@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
 
+#[cfg(feature = "carrier")]
+pub mod spandsp_adapters;
 pub mod ambiance;
 pub mod asr_processor;
 pub mod cache;
