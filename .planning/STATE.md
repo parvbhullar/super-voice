@@ -4,7 +4,7 @@ milestone: v1.0
 milestone_name: milestone
 status: planning
 stopped_at: "Checkpoint: 01-04 Task 2 — awaiting human verify of FFI foundation end-to-end"
-last_updated: "2026-03-28T22:48:14.481Z"
+last_updated: "2026-03-28T23:09:23.423Z"
 last_activity: 2026-03-27 — Roadmap created for v1.0 Carrier Edition (11 phases, 98 requirements mapped)
 progress:
   total_phases: 11
