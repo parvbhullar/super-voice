@@ -327,11 +327,29 @@ fn sofia_thread_main(
         }
     };
 
-    // Cast the trampoline to the nua_callback_f type (u64 in generated bindings).
-    // The C prototype is `void (*)(nua_event_t, int, char*, nua_t*, nua_magic_t*, ...)`.
-    // We transmute our extern "C" fn pointer to the expected u64 ABI type.
+    // nua_callback_f is typed as u64 in the generated bindings (bindgen opaque treatment).
+    // The real C type is: void (*)(nua_event_t, int, char const*, nua_t*, nua_magic_t*,
+    //                              nua_handle_t*, nua_hmagic_t*, sip_t const*, tagi_t[])
+    // We transmute our extern "C" fn to the u64 alias to satisfy the type checker.
+    // On 64-bit platforms, function pointer == usize == u64 in representation.
+    //
+    // We define the actual function pointer type here to bypass the opaque alias.
+    type NuaCallbackRaw = unsafe extern "C" fn(
+        nua_event_e,
+        c_int,
+        *const libc::c_char,
+        *mut nua_t,
+        *mut nua_magic_t,
+        *mut nua_handle_t,
+        *mut nua_hmagic_t,
+        *const sip_t,
+        *mut sofia_sip_sys::tagi_t,
+    );
+
+    let callback_raw: NuaCallbackRaw = sofia_event_trampoline;
+    // Transmute function pointer to the u64 alias used in bindings.
     let callback_u64: sofia_sip_sys::nua_callback_f =
-        unsafe { std::mem::transmute(sofia_event_trampoline as usize) };
+        unsafe { std::mem::transmute::<NuaCallbackRaw, u64>(callback_raw) };
 
     // Create the NUA object with NUTAG_URL(bind_url), TAG_END.
     // nua_create signature: (root, callback, magic, tag_type, tag_value, ...) -> *mut nua_t
@@ -349,7 +367,7 @@ fn sofia_thread_main(
     };
 
     if nua_ptr.is_null() {
-        error!("nua_create returned null — is Sofia-SIP installed and bind URL valid?");
+        error!("nua_create returned null — check bind URL and Sofia-SIP transport support");
         unsafe { drop(Box::from_raw(magic_ptr as *mut CallbackState)) };
         return;
     }
