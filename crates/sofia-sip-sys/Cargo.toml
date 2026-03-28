@@ -1,0 +1,10 @@
+[package]
+name = "sofia-sip-sys"
+version = "0.1.0"
+edition = "2024"
+description = "Raw FFI bindings for the Sofia-SIP library"
+links = "sofia-sip-ua"
+
+[build-dependencies]
+bindgen = "0.71"
+pkg-config = "0.3"
