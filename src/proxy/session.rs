@@ -279,6 +279,48 @@ impl ProxyCallSession {
     }
 }
 
+/// Direction attribute extracted from an SDP body.
+///
+/// Maps the `a=` attribute to one of four standard directions.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SdpDirection {
+    /// `a=sendrecv` — bidirectional media (normal call).
+    SendRecv,
+    /// `a=sendonly` — caller is sending but not receiving (hold from caller).
+    SendOnly,
+    /// `a=recvonly` — caller is receiving but not sending (hold from callee).
+    RecvOnly,
+    /// `a=inactive` — no media in either direction (full hold).
+    Inactive,
+}
+
+/// Parse the media direction from an SDP string.
+///
+/// Scans for `a=sendonly`, `a=recvonly`, `a=inactive`, or `a=sendrecv`.
+/// The last matching attribute wins (to handle session-level vs media-level
+/// attributes). Defaults to `SendRecv` when no direction attribute is found.
+pub fn parse_sdp_direction(sdp: &str) -> SdpDirection {
+    let mut result = SdpDirection::SendRecv;
+    for line in sdp.lines() {
+        let trimmed = line.trim();
+        match trimmed {
+            "a=sendonly" => result = SdpDirection::SendOnly,
+            "a=recvonly" => result = SdpDirection::RecvOnly,
+            "a=inactive" => result = SdpDirection::Inactive,
+            "a=sendrecv" => result = SdpDirection::SendRecv,
+            _ => {}
+        }
+    }
+    result
+}
+
+/// Return true when the SDP direction indicates a hold state.
+///
+/// Hold is signalled by `a=sendonly`, `a=recvonly`, or `a=inactive`.
+pub fn is_hold_direction(dir: SdpDirection) -> bool {
+    matches!(dir, SdpDirection::SendOnly | SdpDirection::RecvOnly | SdpDirection::Inactive)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -397,5 +439,81 @@ mod tests {
         assert!(!cancel.is_cancelled());
         cancel.cancel();
         assert!(child.is_cancelled());
+    }
+
+    // ------------------------------------------------------------------ //
+    // Test: SDP direction parsing — hold/resume detection                  //
+    // ------------------------------------------------------------------ //
+
+    const SDP_SENDONLY: &str = "v=0\r\n\
+        o=- 0 0 IN IP4 127.0.0.1\r\n\
+        s=-\r\n\
+        t=0 0\r\n\
+        m=audio 9 RTP/AVP 0\r\n\
+        a=sendonly\r\n";
+
+    const SDP_RECVONLY: &str = "v=0\r\n\
+        o=- 0 0 IN IP4 127.0.0.1\r\n\
+        s=-\r\n\
+        t=0 0\r\n\
+        m=audio 9 RTP/AVP 0\r\n\
+        a=recvonly\r\n";
+
+    const SDP_SENDRECV: &str = "v=0\r\n\
+        o=- 0 0 IN IP4 127.0.0.1\r\n\
+        s=-\r\n\
+        t=0 0\r\n\
+        m=audio 9 RTP/AVP 0\r\n\
+        a=sendrecv\r\n";
+
+    const SDP_INACTIVE: &str = "v=0\r\n\
+        o=- 0 0 IN IP4 127.0.0.1\r\n\
+        s=-\r\n\
+        t=0 0\r\n\
+        m=audio 9 RTP/AVP 0\r\n\
+        a=inactive\r\n";
+
+    /// Test 1: SDP with a=sendonly is detected as hold.
+    #[test]
+    fn test_sdp_sendonly_is_hold() {
+        assert_eq!(parse_sdp_direction(SDP_SENDONLY), SdpDirection::SendOnly);
+        assert!(is_hold_direction(SdpDirection::SendOnly));
+    }
+
+    /// Test 2: SDP with a=recvonly is detected as hold.
+    #[test]
+    fn test_sdp_recvonly_is_hold() {
+        assert_eq!(parse_sdp_direction(SDP_RECVONLY), SdpDirection::RecvOnly);
+        assert!(is_hold_direction(SdpDirection::RecvOnly));
+    }
+
+    /// Test 3: SDP with a=sendrecv after hold is detected as resume.
+    #[test]
+    fn test_sdp_sendrecv_is_resume() {
+        assert_eq!(parse_sdp_direction(SDP_SENDRECV), SdpDirection::SendRecv);
+        assert!(!is_hold_direction(SdpDirection::SendRecv));
+    }
+
+    /// Test 4: SDP with a=inactive is detected as hold.
+    #[test]
+    fn test_sdp_inactive_is_hold() {
+        assert_eq!(parse_sdp_direction(SDP_INACTIVE), SdpDirection::Inactive);
+        assert!(is_hold_direction(SdpDirection::Inactive));
+    }
+
+    /// Test 5: parse_sdp_direction extracts direction from SDP correctly.
+    #[test]
+    fn test_parse_sdp_direction_extracts_correctly() {
+        // No direction attribute defaults to SendRecv.
+        let sdp_no_dir = "v=0\r\nm=audio 9 RTP/AVP 0\r\n";
+        assert_eq!(parse_sdp_direction(sdp_no_dir), SdpDirection::SendRecv);
+
+        // Last direction attribute wins when multiple present.
+        let sdp_multi = "v=0\r\na=sendonly\r\nm=audio 9\r\na=sendrecv\r\n";
+        assert_eq!(parse_sdp_direction(sdp_multi), SdpDirection::SendRecv);
+
+        // Works with LF-only line endings (not just CRLF).
+        let sdp_lf_only = "v=0\na=inactive\n";
+        assert_eq!(parse_sdp_direction(sdp_lf_only), SdpDirection::Inactive);
     }
 }
