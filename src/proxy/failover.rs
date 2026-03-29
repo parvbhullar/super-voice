@@ -9,9 +9,6 @@ use crate::redis_state::types::TrunkConfig;
 use anyhow::Result;
 use rsipstack::dialog::dialog::{DialogState, TerminatedReason};
 use rsipstack::dialog::dialog_layer::DialogLayer;
-use rsipstack::dialog::invitation::InviteOption;
-use rsipstack::transport::SipAddr;
-use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio_util::sync::CancellationToken;
 use tracing::{info, warn};
@@ -87,8 +84,7 @@ impl FailoverLoop {
                 "failover: trying gateway"
             );
 
-            let (state_sender, state_receiver) =
-                self.dialog_layer.new_dialog_state_channel();
+            let (state_sender, state_receiver) = self.dialog_layer.new_dialog_state_channel();
 
             let callee_sip_uri: rsip::Uri = match callee_uri.try_into() {
                 Ok(u) => u,
@@ -243,7 +239,10 @@ impl FailoverLoop {
                         Some(String::from_utf8_lossy(body).to_string())
                     };
                     info!(gateway=%gateway_name, has_sdp=%sdp.is_some(), "failover: call connected");
-                    return WaitOutcome::Connected { sdp, dialog_guard: guard };
+                    return WaitOutcome::Connected {
+                        sdp,
+                        dialog_guard: guard,
+                    };
                 }
                 DialogState::Terminated(_dialog_id, ref reason) => {
                     let code = terminated_reason_to_code(reason);
@@ -378,11 +377,12 @@ mod tests {
         assert_eq!(terminated_reason_to_code(&TerminatedReason::Timeout), 408);
         assert_eq!(terminated_reason_to_code(&TerminatedReason::UacCancel), 487);
         assert_eq!(terminated_reason_to_code(&TerminatedReason::UacBusy), 486);
-        assert_eq!(terminated_reason_to_code(&TerminatedReason::UasDecline), 603);
         assert_eq!(
-            terminated_reason_to_code(&TerminatedReason::ProxyError(
-                rsip::StatusCode::Forbidden
-            )),
+            terminated_reason_to_code(&TerminatedReason::UasDecline),
+            603
+        );
+        assert_eq!(
+            terminated_reason_to_code(&TerminatedReason::ProxyError(rsip::StatusCode::Forbidden)),
             403
         );
         assert_eq!(

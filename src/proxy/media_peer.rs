@@ -1,8 +1,4 @@
-use crate::media::{
-    TrackId,
-    stream::MediaStream,
-    track::Track,
-};
+use crate::media::{TrackId, stream::MediaStream, track::Track};
 use anyhow::Result;
 use async_trait::async_trait;
 use audio_codec::CodecType;

@@ -366,11 +366,7 @@ mod tests {
             vec![]
         }
 
-        async fn update_remote_description(
-            &self,
-            _track_id: &str,
-            _remote: &str,
-        ) -> Result<()> {
+        async fn update_remote_description(&self, _track_id: &str, _remote: &str) -> Result<()> {
             Ok(())
         }
 
