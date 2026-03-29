@@ -14,7 +14,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 
 - [x] **Phase 1: FFI Foundation & Build** - Sofia-SIP and SpanDSP C bindings with Cargo workspace and feature flags (completed 2026-03-28)
 - [x] **Phase 2: Redis State Layer** - Redis-backed config storage, runtime state, pub/sub, engagement tracking, API auth (completed 2026-03-29)
-- [ ] **Phase 3: Endpoints & Gateways** - SIP listener endpoints (Sofia + rsipstack) and outbound gateways with health monitoring
+- [x] **Phase 3: Endpoints & Gateways** - SIP listener endpoints (Sofia + rsipstack) and outbound gateways with health monitoring (completed 2026-03-29)
 - [ ] **Phase 4: Trunks, DIDs & Entity API** - Trunk grouping with capacity/codec/ACL, DID number management, REST CRUD for all entities
 - [ ] **Phase 5: Routing, Translation & Manipulation** - LPM/regex/HTTP routing tables, number translation classes, SIP header manipulation
 - [ ] **Phase 6: Proxy Call (B2BUA)** - Dual-dialog SIP bridge with RTP media relay, failover, call transfer, and active call API
@@ -172,7 +172,7 @@ Note: Phase 8 depends on Phase 3 (not Phase 7), so it can proceed in parallel af
 |-------|----------------|--------|-----------|
 | 1. FFI Foundation & Build | 4/4 | Complete    | 2026-03-28 |
 | 2. Redis State Layer | 2/3 | Complete    | 2026-03-29 |
-| 3. Endpoints & Gateways | 1/3 | In Progress|  |
+| 3. Endpoints & Gateways | 3/3 | Complete   | 2026-03-29 |
 | 4. Trunks, DIDs & Entity API | 0/? | Not started | - |
 | 5. Routing, Translation & Manipulation | 0/? | Not started | - |
 | 6. Proxy Call (B2BUA) | 0/? | Not started | - |

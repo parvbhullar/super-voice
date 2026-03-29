@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: planning
-stopped_at: Completed 03-endpoints-gateways 03-02-PLAN.md
-last_updated: "2026-03-29T09:20:44.335Z"
+stopped_at: Completed 03-endpoints-gateways 03-03-PLAN.md
+last_updated: "2026-03-29T09:31:09.001Z"
 last_activity: 2026-03-27 — Roadmap created for v1.0 Carrier Edition (11 phases, 98 requirements mapped)
 progress:
   total_phases: 11
-  completed_phases: 2
+  completed_phases: 3
   total_plans: 10
-  completed_plans: 9
+  completed_plans: 10
   percent: 0
 ---
 
@@ -58,6 +58,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 02-redis-state-layer P03 | 21 | 2 tasks | 9 files |
 | Phase 03-endpoints-gateways P01 | 440 | 2 tasks | 6 files |
 | Phase 03-endpoints-gateways P02 | 10 | 2 tasks | 6 files |
+| Phase 03-endpoints-gateways P03 | 15 | 2 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -93,6 +94,8 @@ Recent decisions affecting current work:
 - [Phase 03-endpoints-gateways]: check_threshold exported as pure fn for unit testing threshold logic without Redis
 - [Phase 03-endpoints-gateways]: TLS OPTIONS ping uses AcceptAny ServerCertVerifier: carrier gateways often use self-signed TLS certs
 - [Phase 03-endpoints-gateways]: GatewayHealthMonitor polls every 1s with per-gateway Instant tracking map for interval gating
+- [Phase 03-endpoints-gateways]: gateway_manager is Option in AppStateInner; requires Redis; handlers return 503 when not configured
+- [Phase 03-endpoints-gateways]: TDD route tests check 401 not 404 to verify route existence without full Redis/auth integration
 
 ### Pending Todos
 
@@ -106,6 +109,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-29T09:20:44.331Z
-Stopped at: Completed 03-endpoints-gateways 03-02-PLAN.md
+Last session: 2026-03-29T09:31:08.999Z
+Stopped at: Completed 03-endpoints-gateways 03-03-PLAN.md
 Resume file: None

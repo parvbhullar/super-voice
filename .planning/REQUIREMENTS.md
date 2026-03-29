@@ -124,8 +124,8 @@
 
 ### REST API
 
-- [ ] **RAPI-01**: API provides CRUD for Endpoints (5 endpoints)
-- [ ] **RAPI-02**: API provides CRUD for Gateways (5 endpoints)
+- [x] **RAPI-01**: API provides CRUD for Endpoints (5 endpoints)
+- [x] **RAPI-02**: API provides CRUD for Gateways (5 endpoints)
 - [ ] **RAPI-03**: API provides CRUD for Trunks + sub-resources (18 endpoints)
 - [ ] **RAPI-04**: API provides CRUD for DID Numbers (5 endpoints)
 - [ ] **RAPI-05**: API provides CRUD for Routing Tables & Rules (9 endpoints)
@@ -219,8 +219,8 @@ Which phases cover which requirements. Updated during roadmap creation.
 | GTWY-03 | Phase 3 | Complete |
 | GTWY-04 | Phase 3 | Complete |
 | GTWY-05 | Phase 3 | Complete |
-| RAPI-01 | Phase 3 | Pending |
-| RAPI-02 | Phase 3 | Pending |
+| RAPI-01 | Phase 3 | Complete |
+| RAPI-02 | Phase 3 | Complete |
 | TRNK-01 | Phase 4 | Pending |
 | TRNK-02 | Phase 4 | Pending |
 | TRNK-03 | Phase 4 | Pending |
