@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: planning
-stopped_at: Completed 09-cdr-engine-webhooks 09-01-PLAN.md
-last_updated: "2026-03-29T21:40:07.432Z"
+stopped_at: Completed 09-cdr-engine-webhooks 09-03-PLAN.md
+last_updated: "2026-03-29T21:50:51.436Z"
 last_activity: 2026-03-27 — Roadmap created for v1.0 Carrier Edition (11 phases, 98 requirements mapped)
 progress:
   total_phases: 11
   completed_phases: 8
   total_plans: 30
-  completed_plans: 28
+  completed_plans: 29
   percent: 0
 ---
 
@@ -77,6 +77,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 08-capacity-security P01 | 254 | 2 tasks | 6 files |
 | Phase 08-capacity-security P03 | 12 | 3 tasks | 7 files |
 | Phase 09-cdr-engine-webhooks P01 | 11 | 2 tasks | 7 files |
+| Phase 09-cdr-engine-webhooks P03 | 7 | 2 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -151,6 +152,7 @@ Recent decisions affecting current work:
 - [Phase 09-cdr-engine-webhooks]: CdrQueue::with_queue_key for test isolation: UUID queue key per test prevents parallel test cross-contamination
 - [Phase 09-cdr-engine-webhooks]: Non-fatal CDR enqueue: warn on failure but do not fail call dispatch — CDR loss is preferable to call failure
 - [Phase 09-cdr-engine-webhooks]: Spawn event collector task before session.run() to capture ring/answer timestamps from ProxyCallEvent channel
+- [Phase 09-cdr-engine-webhooks]: Persistent CDR storage (no TTL): CdrStore uses SET without expiry for billing/compliance; separate sorted-set indexes per filter dimension enable O(log N) ZREVRANGEBYSCORE queries
 
 ### Pending Todos
 
@@ -164,6 +166,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-29T21:40:07.428Z
-Stopped at: Completed 09-cdr-engine-webhooks 09-01-PLAN.md
+Last session: 2026-03-29T21:50:51.431Z
+Stopped at: Completed 09-cdr-engine-webhooks 09-03-PLAN.md
 Resume file: None

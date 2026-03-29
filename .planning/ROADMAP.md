@@ -160,7 +160,7 @@ Plans:
   3. When the webhook endpoint is unreachable, CDR is written to a disk JSON file in the configured fallback directory
   4. GET /cdrs returns paginated CDR list filterable by trunk, DID, date range, and call status
   5. Operator registers a webhook via POST /webhooks and receives test event; DELETE /webhooks/{id} stops delivery
-**Plans:** 1/3 plans executed
+**Plans:** 2/3 plans executed
 Plans:
 - [ ] 09-01-PLAN.md — CarrierCdr types, Redis queue, CDR generation from proxy dispatch
 - [ ] 09-02-PLAN.md — Webhook registration API, HTTP delivery with retry, disk fallback, background processor
@@ -204,6 +204,6 @@ Note: Phase 8 depends on Phase 3 (not Phase 7), so it can proceed in parallel af
 | 6. Proxy Call (B2BUA) | 5/5 | Complete    | 2026-03-29 |
 | 7. Bridge Modes | 2/2 | Complete    | 2026-03-29 |
 | 8. Capacity & Security | 2/3 | Complete    | 2026-03-29 |
-| 9. CDR Engine & Webhooks | 1/3 | In Progress|  |
+| 9. CDR Engine & Webhooks | 2/3 | In Progress|  |
 | 10. DSP Processing | 0/? | Not started | - |
 | 11. API Completion & Hardening | 0/? | Not started | - |

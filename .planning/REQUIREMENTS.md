@@ -131,7 +131,7 @@
 - [x] **RAPI-05**: API provides CRUD for Routing Tables & Rules (9 endpoints)
 - [x] **RAPI-06**: API provides CRUD for Translation Classes (5 endpoints)
 - [x] **RAPI-07**: API provides CRUD for Manipulation Classes (5 endpoints)
-- [ ] **RAPI-08**: API provides CDR query, detail, recording stream, SIP flow (5 endpoints)
+- [x] **RAPI-08**: API provides CDR query, detail, recording stream, SIP flow (5 endpoints)
 - [x] **RAPI-09**: API provides active call list, detail, hangup, transfer, mute (6 endpoints)
 - [ ] **RAPI-10**: API provides webhook registration (4 endpoints)
 - [x] **RAPI-11**: API provides security management (6 endpoints)
@@ -282,7 +282,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | CDRE-03 | Phase 9 | Complete |
 | CDRE-04 | Phase 9 | Pending |
 | CDRE-05 | Phase 9 | Pending |
-| RAPI-08 | Phase 9 | Pending |
+| RAPI-08 | Phase 9 | Complete |
 | RAPI-10 | Phase 9 | Pending |
 | DSPP-01 | Phase 10 | Pending |
 | DSPP-02 | Phase 10 | Pending |
