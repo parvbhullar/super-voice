@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: planning
-stopped_at: Completed 04-trunks-dids-entity-api 04-02-PLAN.md
-last_updated: "2026-03-29T10:09:41.677Z"
+stopped_at: Completed 04-trunks-dids-entity-api 04-03-PLAN.md
+last_updated: "2026-03-29T10:34:48.310Z"
 last_activity: 2026-03-27 — Roadmap created for v1.0 Carrier Edition (11 phases, 98 requirements mapped)
 progress:
   total_phases: 11
-  completed_phases: 3
+  completed_phases: 4
   total_plans: 13
-  completed_plans: 12
+  completed_plans: 13
   percent: 0
 ---
 
@@ -61,6 +61,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 03-endpoints-gateways P03 | 15 | 2 tasks | 6 files |
 | Phase 04-trunks-dids-entity-api P01 | 7 | 2 tasks | 5 files |
 | Phase 04-trunks-dids-entity-api P02 | 4 | 2 tasks | 6 files |
+| Phase 04-trunks-dids-entity-api P03 | 15 | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -103,6 +104,8 @@ Recent decisions affecting current work:
 - [Phase 04-trunks-dids-entity-api]: DistributionAlgorithm::from_str() defaults to WeightBased for unknown values; accepts hyphen and underscore variants for round_robin/hash aliases
 - [Phase 04-trunks-dids-entity-api]: PATCH trunk merge strategy: serialize TrunkConfig to Value, overlay patch fields, deserialize back — JSON Merge Patch without per-field Option complexity
 - [Phase 04-trunks-dids-entity-api]: require_config_store! macro eliminates boilerplate across all 23 trunk/DID handlers for consistent 503 response when Redis not configured
+- [Phase 04-trunks-dids-entity-api]: UUID trunk/DID names for test isolation: unique names per test avoids custom-prefix ConfigStore complexity
+- [Phase 04-trunks-dids-entity-api]: urlencoding for E.164 path params: phone numbers with + must be percent-encoded in URL paths
 
 ### Pending Todos
 
@@ -116,6 +119,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-29T10:09:41.674Z
-Stopped at: Completed 04-trunks-dids-entity-api 04-02-PLAN.md
+Last session: 2026-03-29T10:34:48.305Z
+Stopped at: Completed 04-trunks-dids-entity-api 04-03-PLAN.md
 Resume file: None
