@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: planning
-stopped_at: Completed 06-proxy-call-b2bua 06-02-PLAN.md
-last_updated: "2026-03-29T13:12:49.301Z"
+stopped_at: Completed 06-proxy-call-b2bua 06-04-PLAN.md
+last_updated: "2026-03-29T13:25:49.751Z"
 last_activity: 2026-03-27 — Roadmap created for v1.0 Carrier Edition (11 phases, 98 requirements mapped)
 progress:
   total_phases: 11
   completed_phases: 5
   total_plans: 22
-  completed_plans: 19
+  completed_plans: 20
   percent: 0
 ---
 
@@ -68,6 +68,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 05-routing-translation-manipulation P03 | 12 | 2 tasks | 5 files |
 | Phase 06-proxy-call-b2bua P01 | 10 | 2 tasks | 7 files |
 | Phase 06-proxy-call-b2bua P02 | 43 | 2 tasks | 3 files |
+| Phase 06-proxy-call-b2bua P04 | 10 | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -125,6 +126,8 @@ Recent decisions affecting current work:
 - [Phase 06-proxy-call-b2bua]: terminated_reason_to_code is pub fn: needed by session.rs bridge_loop for cross-module use
 - [Phase 06-proxy-call-b2bua]: FailoverLoop uses do_invite_async for non-blocking per-gateway dialing with 30s timeout
 - [Phase 06-proxy-call-b2bua]: Gateway name used directly as proxy_addr:5060 SocketAddr in failover loop — defers GatewayConfig lookup to Plan 03
+- [Phase 06-proxy-call-b2bua]: CallSummary/CallDetail read caller/callee from extras map to avoid coupling to ProxyCallContext fields not yet on ActiveCallState
+- [Phase 06-proxy-call-b2bua]: Transfer caller field passed as empty string — API callers provide only target; caller resolved by SIP stack
 
 ### Pending Todos
 
@@ -138,6 +141,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-29T13:12:49.297Z
-Stopped at: Completed 06-proxy-call-b2bua 06-02-PLAN.md
+Last session: 2026-03-29T13:25:49.748Z
+Stopped at: Completed 06-proxy-call-b2bua 06-04-PLAN.md
 Resume file: None

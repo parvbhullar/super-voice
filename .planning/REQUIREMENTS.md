@@ -132,7 +132,7 @@
 - [x] **RAPI-06**: API provides CRUD for Translation Classes (5 endpoints)
 - [x] **RAPI-07**: API provides CRUD for Manipulation Classes (5 endpoints)
 - [ ] **RAPI-08**: API provides CDR query, detail, recording stream, SIP flow (5 endpoints)
-- [ ] **RAPI-09**: API provides active call list, detail, hangup, transfer, mute (6 endpoints)
+- [x] **RAPI-09**: API provides active call list, detail, hangup, transfer, mute (6 endpoints)
 - [ ] **RAPI-10**: API provides webhook registration (4 endpoints)
 - [ ] **RAPI-11**: API provides security management (6 endpoints)
 - [ ] **RAPI-12**: API provides diagnostics (trunk test, route evaluate, registration lookup) (5 endpoints)
@@ -261,7 +261,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | PRXY-06 | Phase 6 | Pending |
 | PRXY-07 | Phase 6 | Pending |
 | PRXY-08 | Phase 6 | Complete |
-| RAPI-09 | Phase 6 | Pending |
+| RAPI-09 | Phase 6 | Complete |
 | BRDG-01 | Phase 7 | Pending |
 | BRDG-02 | Phase 7 | Pending |
 | BRDG-03 | Phase 7 | Pending |
