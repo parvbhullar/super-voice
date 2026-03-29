@@ -1,5 +1,5 @@
 use crate::{
-    call::{ActiveCallRef, sip::Invitation},
+    call::{ActiveCallRef, sip::{DialogStateReceiverGuard, Invitation}},
     callrecord::{
         CallRecordFormatter, CallRecordManagerBuilder, CallRecordSender, DefaultCallRecordFormatter,
     },
@@ -357,6 +357,76 @@ impl AppStateInner {
                             continue;
                         }
                     };
+
+                    // -------------------------------------------------- //
+                    // sip_proxy DID routing check                          //
+                    // -------------------------------------------------- //
+                    // If this DID is configured for sip_proxy mode, bypass
+                    // the normal invitation handler and dispatch to a
+                    // ProxyCallSession instead.
+                    //
+                    // Wrap state_receiver in Option so that ownership can be
+                    // transferred to the sip_proxy branch while still allowing
+                    // the non-proxy path below to use it.
+                    let mut state_receiver_opt = Some(state_receiver);
+
+                    {
+                        let called_number = tx.original.uri.auth.as_ref()
+                            .map(|auth| auth.user.clone())
+                            .unwrap_or_default();
+
+                        let is_proxy = if let Some(ref cs) = self.config_store {
+                            match cs.get_did(&called_number).await {
+                                Ok(Some(did_cfg)) if did_cfg.routing.mode == "sip_proxy" => {
+                                    let caller_uri = tx.original
+                                        .from_header()
+                                        .ok()
+                                        .and_then(|h| h.uri().ok())
+                                        .map(|u| u.to_string())
+                                        .unwrap_or_else(|| "sip:unknown@unknown".to_string());
+                                    let callee_uri = format!("sip:{}", called_number);
+                                    let caller_sdp =
+                                        String::from_utf8_lossy(tx.original.body()).to_string();
+                                    let session_id = uuid::Uuid::new_v4().to_string();
+                                    let receiver = state_receiver_opt.take().unwrap();
+                                    let caller_guard = DialogStateReceiverGuard::new(
+                                        dialog_layer.clone(),
+                                        receiver,
+                                        None,
+                                    );
+                                    let app_clone = self.clone();
+                                    crate::spawn(async move {
+                                        if let Err(e) =
+                                            crate::proxy::dispatch::dispatch_proxy_call(
+                                                app_clone,
+                                                session_id,
+                                                caller_guard,
+                                                caller_sdp,
+                                                caller_uri,
+                                                callee_uri,
+                                                &did_cfg,
+                                            )
+                                            .await
+                                        {
+                                            warn!("proxy dispatch error: {e}");
+                                        }
+                                    });
+                                    true
+                                }
+                                _ => false,
+                            }
+                        } else {
+                            false
+                        };
+
+                        if is_proxy {
+                            continue;
+                        }
+                    }
+                    // -------------------------------------------------- //
+
+                    // Non-proxy path: unwrap state_receiver (not consumed above).
+                    let state_receiver = state_receiver_opt.unwrap();
 
                     let dialog_id = dialog.id();
                     let dialog_id_str = dialog_id.to_string();
