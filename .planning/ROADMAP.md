@@ -15,7 +15,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 1: FFI Foundation & Build** - Sofia-SIP and SpanDSP C bindings with Cargo workspace and feature flags (completed 2026-03-28)
 - [x] **Phase 2: Redis State Layer** - Redis-backed config storage, runtime state, pub/sub, engagement tracking, API auth (completed 2026-03-29)
 - [x] **Phase 3: Endpoints & Gateways** - SIP listener endpoints (Sofia + rsipstack) and outbound gateways with health monitoring (completed 2026-03-29)
-- [ ] **Phase 4: Trunks, DIDs & Entity API** - Trunk grouping with capacity/codec/ACL, DID number management, REST CRUD for all entities
+- [x] **Phase 4: Trunks, DIDs & Entity API** - Trunk grouping with capacity/codec/ACL, DID number management, REST CRUD for all entities (completed 2026-03-29)
 - [ ] **Phase 5: Routing, Translation & Manipulation** - LPM/regex/HTTP routing tables, number translation classes, SIP header manipulation
 - [ ] **Phase 6: Proxy Call (B2BUA)** - Dual-dialog SIP bridge with RTP media relay, failover, call transfer, and active call API
 - [ ] **Phase 7: Bridge Modes** - SIP-to-WebRTC and SIP-to-WebSocket bridges with per-route mode selection
@@ -80,7 +80,7 @@ Plans:
   3. An INVITE from an IP not in the trunk's ACL is rejected with 403
   4. Operator updates trunk max concurrent calls to 5 via PATCH /trunks/{id}; the change is reflected immediately in GET response
   5. Bearer token authentication is enforced on all CRUD endpoints; missing or invalid token returns 401
-**Plans:** 2/3 plans executed
+**Plans:** 3/3 plans complete
 Plans:
 - [ ] 04-01-PLAN.md — Expand types (TrunkConfig sub-resources, DidConfig), distribution algorithms, DID ConfigStore CRUD
 - [ ] 04-02-PLAN.md — Trunk API handlers (18 endpoints) + DID API handlers (5 endpoints), wire into carrier_admin_router
@@ -177,7 +177,7 @@ Note: Phase 8 depends on Phase 3 (not Phase 7), so it can proceed in parallel af
 | 1. FFI Foundation & Build | 4/4 | Complete    | 2026-03-28 |
 | 2. Redis State Layer | 2/3 | Complete    | 2026-03-29 |
 | 3. Endpoints & Gateways | 3/3 | Complete    | 2026-03-29 |
-| 4. Trunks, DIDs & Entity API | 2/3 | In Progress|  |
+| 4. Trunks, DIDs & Entity API | 2/3 | Complete    | 2026-03-29 |
 | 5. Routing, Translation & Manipulation | 0/? | Not started | - |
 | 6. Proxy Call (B2BUA) | 0/? | Not started | - |
 | 7. Bridge Modes | 0/? | Not started | - |
