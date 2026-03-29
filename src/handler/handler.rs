@@ -4,7 +4,10 @@ use crate::{
         ActiveCall, ActiveCallType, Command,
         active_call::{ActiveCallGuard, CallParams},
     },
-    handler::{dids_api, endpoints_api, gateways_api, playbook, trunks_api},
+    handler::{
+        dids_api, endpoints_api, gateways_api, manipulations_api, playbook, routing_api,
+        translations_api, trunks_api,
+    },
     playbook::{Playbook, PlaybookRunner},
     redis_state::auth::auth_middleware,
 };
@@ -149,6 +152,53 @@ pub fn carrier_admin_router(app_state: AppState) -> Router<AppState> {
             get(dids_api::get_did)
                 .put(dids_api::update_did)
                 .delete(dids_api::delete_did),
+        )
+        // ── Routing Tables ──────────────────────────────────────────────────
+        .route(
+            "/api/v1/routing/tables",
+            get(routing_api::list_routing_tables).post(routing_api::create_routing_table),
+        )
+        .route(
+            "/api/v1/routing/tables/{name}",
+            get(routing_api::get_routing_table)
+                .put(routing_api::update_routing_table)
+                .delete(routing_api::delete_routing_table),
+        )
+        .route(
+            "/api/v1/routing/tables/{name}/records",
+            get(routing_api::list_routing_records).post(routing_api::add_routing_record),
+        )
+        .route(
+            "/api/v1/routing/tables/{name}/records/{index}",
+            axum::routing::delete(routing_api::delete_routing_record),
+        )
+        .route(
+            "/api/v1/routing/resolve",
+            axum::routing::post(routing_api::resolve_route),
+        )
+        // ── Translation Classes ─────────────────────────────────────────────
+        .route(
+            "/api/v1/translations",
+            get(translations_api::list_translation_classes)
+                .post(translations_api::create_translation_class),
+        )
+        .route(
+            "/api/v1/translations/{name}",
+            get(translations_api::get_translation_class)
+                .put(translations_api::update_translation_class)
+                .delete(translations_api::delete_translation_class),
+        )
+        // ── Manipulation Classes ────────────────────────────────────────────
+        .route(
+            "/api/v1/manipulations",
+            get(manipulations_api::list_manipulation_classes)
+                .post(manipulations_api::create_manipulation_class),
+        )
+        .route(
+            "/api/v1/manipulations/{name}",
+            get(manipulations_api::get_manipulation_class)
+                .put(manipulations_api::update_manipulation_class)
+                .delete(manipulations_api::delete_manipulation_class),
         )
         .route_layer(middleware::from_fn_with_state(app_state, auth_middleware))
 }
@@ -665,5 +715,90 @@ mod tests {
             Some(&json!("value")),
             "session-scoped extras should be preserved"
         );
+    }
+
+    // ── Route existence tests ─────────────────────────────────────────────────
+    //
+    // These tests verify that each new route is wired into carrier_admin_router
+    // and that the Bearer auth middleware fires (returns 401, not 404).
+
+    async fn make_test_app() -> axum::Router {
+        use crate::app::AppStateBuilder;
+        use crate::config::Config;
+
+        let mut config = Config::default();
+        config.udp_port = 0;
+        let app_state = AppStateBuilder::new()
+            .with_config(config)
+            .build()
+            .await
+            .expect("build app state");
+        let admin = carrier_admin_router(app_state.clone());
+        admin.with_state(app_state)
+    }
+
+    async fn assert_route_401(
+        app: &axum::Router,
+        method: &str,
+        uri: &str,
+    ) {
+        use axum::body::Body;
+        use axum::http::{Method, Request, StatusCode};
+        use tower::ServiceExt;
+
+        let method = Method::from_bytes(method.as_bytes()).expect("valid method");
+        let req = Request::builder()
+            .method(&method)
+            .uri(uri)
+            .body(Body::empty())
+            .unwrap();
+        let resp = app.clone().oneshot(req).await.unwrap();
+        assert_eq!(
+            resp.status(),
+            StatusCode::UNAUTHORIZED,
+            "expected 401 for {} {}, got {}",
+            method,
+            uri,
+            resp.status()
+        );
+    }
+
+    #[tokio::test]
+    async fn test_routing_tables_routes_exist() {
+        let app = make_test_app().await;
+        assert_route_401(&app, "GET", "/api/v1/routing/tables").await;
+        assert_route_401(&app, "POST", "/api/v1/routing/tables").await;
+        assert_route_401(&app, "GET", "/api/v1/routing/tables/default").await;
+        assert_route_401(&app, "PUT", "/api/v1/routing/tables/default").await;
+        assert_route_401(&app, "DELETE", "/api/v1/routing/tables/default").await;
+        assert_route_401(&app, "GET", "/api/v1/routing/tables/default/records").await;
+        assert_route_401(&app, "POST", "/api/v1/routing/tables/default/records").await;
+        assert_route_401(
+            &app,
+            "DELETE",
+            "/api/v1/routing/tables/default/records/0",
+        )
+        .await;
+        assert_route_401(&app, "POST", "/api/v1/routing/resolve").await;
+    }
+
+    #[tokio::test]
+    async fn test_translation_routes_exist() {
+        let app = make_test_app().await;
+        assert_route_401(&app, "GET", "/api/v1/translations").await;
+        assert_route_401(&app, "POST", "/api/v1/translations").await;
+        assert_route_401(&app, "GET", "/api/v1/translations/norm").await;
+        assert_route_401(&app, "PUT", "/api/v1/translations/norm").await;
+        assert_route_401(&app, "DELETE", "/api/v1/translations/norm").await;
+    }
+
+    #[tokio::test]
+    async fn test_manipulation_routes_exist() {
+        let app = make_test_app().await;
+        assert_route_401(&app, "GET", "/api/v1/manipulations").await;
+        assert_route_401(&app, "POST", "/api/v1/manipulations").await;
+        assert_route_401(&app, "GET", "/api/v1/manipulations/headers").await;
+        assert_route_401(&app, "PUT", "/api/v1/manipulations/headers").await;
+        assert_route_401(&app, "DELETE", "/api/v1/manipulations/headers").await;
     }
 }
