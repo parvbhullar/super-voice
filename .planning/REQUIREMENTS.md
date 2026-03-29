@@ -119,8 +119,8 @@
 - [x] **CDRE-01**: System generates carrier CDR with dual-leg correlation
 - [x] **CDRE-02**: CDR includes timing (start, ring, answer, end, billsec)
 - [x] **CDRE-03**: CDR queued to Redis for cluster-wide processing
-- [ ] **CDRE-04**: CDR delivered to HTTP webhook endpoints with retry
-- [ ] **CDRE-05**: CDR falls back to disk (JSON files) when webhook/Redis unavailable
+- [x] **CDRE-04**: CDR delivered to HTTP webhook endpoints with retry
+- [x] **CDRE-05**: CDR falls back to disk (JSON files) when webhook/Redis unavailable
 
 ### REST API
 
@@ -133,7 +133,7 @@
 - [x] **RAPI-07**: API provides CRUD for Manipulation Classes (5 endpoints)
 - [x] **RAPI-08**: API provides CDR query, detail, recording stream, SIP flow (5 endpoints)
 - [x] **RAPI-09**: API provides active call list, detail, hangup, transfer, mute (6 endpoints)
-- [ ] **RAPI-10**: API provides webhook registration (4 endpoints)
+- [x] **RAPI-10**: API provides webhook registration (4 endpoints)
 - [x] **RAPI-11**: API provides security management (6 endpoints)
 - [ ] **RAPI-12**: API provides diagnostics (trunk test, route evaluate, registration lookup) (5 endpoints)
 - [ ] **RAPI-13**: API provides system info, health, reload, cluster (6 endpoints)
@@ -280,10 +280,10 @@ Which phases cover which requirements. Updated during roadmap creation.
 | CDRE-01 | Phase 9 | Complete |
 | CDRE-02 | Phase 9 | Complete |
 | CDRE-03 | Phase 9 | Complete |
-| CDRE-04 | Phase 9 | Pending |
-| CDRE-05 | Phase 9 | Pending |
+| CDRE-04 | Phase 9 | Complete |
+| CDRE-05 | Phase 9 | Complete |
 | RAPI-08 | Phase 9 | Complete |
-| RAPI-10 | Phase 9 | Pending |
+| RAPI-10 | Phase 9 | Complete |
 | DSPP-01 | Phase 10 | Pending |
 | DSPP-02 | Phase 10 | Pending |
 | DSPP-03 | Phase 10 | Pending |
