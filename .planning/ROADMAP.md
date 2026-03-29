@@ -190,7 +190,7 @@ Note: Phase 8 depends on Phase 3 (not Phase 7), so it can proceed in parallel af
 | 3. Endpoints & Gateways | 3/3 | Complete    | 2026-03-29 |
 | 4. Trunks, DIDs & Entity API | 2/3 | Complete    | 2026-03-29 |
 | 5. Routing, Translation & Manipulation | 4/4 | Complete    | 2026-03-29 |
-| 6. Proxy Call (B2BUA) | 5/5 | Complete   | 2026-03-29 |
+| 6. Proxy Call (B2BUA) | 5/5 | Complete    | 2026-03-29 |
 | 7. Bridge Modes | 0/? | Not started | - |
 | 8. Capacity & Security | 0/? | Not started | - |
 | 9. CDR Engine & Webhooks | 0/? | Not started | - |
