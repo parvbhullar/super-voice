@@ -99,12 +99,12 @@
 
 ### SIP Security
 
-- [ ] **SECU-01**: System detects SIP flooding per source IP and auto-blocks
-- [ ] **SECU-02**: System supports IP whitelist/blacklist (IPv4 + IPv6)
-- [ ] **SECU-03**: System blocks known scanner user-agents (regex patterns)
-- [ ] **SECU-04**: System tracks auth failures per IP and auto-blocks after threshold
-- [ ] **SECU-05**: System validates SIP messages (Max-Forwards, Content-Length, known CVEs)
-- [ ] **SECU-06**: System hides internal topology (strips Via/Record-Route internals)
+- [x] **SECU-01**: System detects SIP flooding per source IP and auto-blocks
+- [x] **SECU-02**: System supports IP whitelist/blacklist (IPv4 + IPv6)
+- [x] **SECU-03**: System blocks known scanner user-agents (regex patterns)
+- [x] **SECU-04**: System tracks auth failures per IP and auto-blocks after threshold
+- [x] **SECU-05**: System validates SIP messages (Max-Forwards, Content-Length, known CVEs)
+- [x] **SECU-06**: System hides internal topology (strips Via/Record-Route internals)
 
 ### DSP Processing
 
@@ -270,12 +270,12 @@ Which phases cover which requirements. Updated during roadmap creation.
 | CAPC-03 | Phase 8 | Pending |
 | CAPC-04 | Phase 8 | Pending |
 | CAPC-05 | Phase 8 | Pending |
-| SECU-01 | Phase 8 | Pending |
-| SECU-02 | Phase 8 | Pending |
-| SECU-03 | Phase 8 | Pending |
-| SECU-04 | Phase 8 | Pending |
-| SECU-05 | Phase 8 | Pending |
-| SECU-06 | Phase 8 | Pending |
+| SECU-01 | Phase 8 | Complete |
+| SECU-02 | Phase 8 | Complete |
+| SECU-03 | Phase 8 | Complete |
+| SECU-04 | Phase 8 | Complete |
+| SECU-05 | Phase 8 | Complete |
+| SECU-06 | Phase 8 | Complete |
 | RAPI-11 | Phase 8 | Pending |
 | CDRE-01 | Phase 9 | Pending |
 | CDRE-02 | Phase 9 | Pending |

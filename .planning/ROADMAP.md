@@ -144,7 +144,7 @@ Plans:
   3. A source IP sending 100 REGISTER attempts per second is auto-blocked within 5 seconds; GET /security/blocks shows the entry
   4. A source IP that fails auth 5 times within 60 seconds is auto-blocked; GET /security/blocks shows the entry with failure count
   5. When Redis is unreachable, calls are still processed (graceful degradation) and capacity limits are enforced locally
-**Plans:** 3 plans
+**Plans:** 1/3 plans executed
 Plans:
 - [ ] 08-01-PLAN.md — CapacityGuard: per-trunk CPS token bucket, concurrent call gating, auto-block with escalation, local fallback, wire into dispatch
 - [ ] 08-02-PLAN.md — SipSecurityModule: IP firewall (whitelist/blacklist CIDR), flood tracker, brute-force tracker, UA blacklist, message validation, topology hiding
@@ -199,7 +199,7 @@ Note: Phase 8 depends on Phase 3 (not Phase 7), so it can proceed in parallel af
 | 5. Routing, Translation & Manipulation | 4/4 | Complete    | 2026-03-29 |
 | 6. Proxy Call (B2BUA) | 5/5 | Complete    | 2026-03-29 |
 | 7. Bridge Modes | 2/2 | Complete    | 2026-03-29 |
-| 8. Capacity & Security | 0/3 | Not started | - |
+| 8. Capacity & Security | 1/3 | In Progress|  |
 | 9. CDR Engine & Webhooks | 0/? | Not started | - |
 | 10. DSP Processing | 0/? | Not started | - |
 | 11. API Completion & Hardening | 0/? | Not started | - |

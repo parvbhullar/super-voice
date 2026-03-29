@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: planning
-stopped_at: Completed 07-bridge-modes 07-02-PLAN.md
-last_updated: "2026-03-29T18:54:42.414Z"
+stopped_at: Completed 08-capacity-security 08-02-PLAN.md
+last_updated: "2026-03-29T20:10:46.336Z"
 last_activity: 2026-03-27 — Roadmap created for v1.0 Carrier Edition (11 phases, 98 requirements mapped)
 progress:
   total_phases: 11
   completed_phases: 7
-  total_plans: 24
-  completed_plans: 24
+  total_plans: 27
+  completed_plans: 25
   percent: 0
 ---
 
@@ -73,6 +73,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 06-proxy-call-b2bua P05 | 4 | 2 tasks | 1 files |
 | Phase 07-bridge-modes P01 | 7 | 2 tasks | 5 files |
 | Phase 07-bridge-modes P02 | 8 | 2 tasks | 3 files |
+| Phase 08-capacity-security P02 | 3 | 2 tasks | 7 files |
 
 ## Accumulated Context
 
@@ -138,6 +139,7 @@ Recent decisions affecting current work:
 - [Phase 07-bridge-modes]: Default STUN server (stun.l.google.com:19302) used when webrtc_config.ice_servers is empty
 - [Phase 07-bridge-modes]: broadcast::channel(16) satisfies Track EventSender type without full event loop
 - [Phase 07-bridge-modes]: dispatch_bridge_call uses match on mode string to delegate to sip_proxy/webrtc_bridge/ws_bridge; ai_agent falls through to playbook handler upstream
+- [Phase 08-capacity-security]: Manual CIDR bit-matching avoids ipnetwork crate dependency; VecDeque sliding window for flood/brute-force tracking; SipSecurityModule facade priority: whitelist > blacklist > UA regex > flood > brute-force; substring matching for topology hiding performance
 
 ### Pending Todos
 
@@ -151,6 +153,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-29T18:54:08.485Z
-Stopped at: Completed 07-bridge-modes 07-02-PLAN.md
+Last session: 2026-03-29T20:10:46.333Z
+Stopped at: Completed 08-capacity-security 08-02-PLAN.md
 Resume file: None
