@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: planning
-stopped_at: Completed 02-redis-state-layer 02-01-PLAN.md
-last_updated: "2026-03-29T07:54:41.257Z"
+stopped_at: Completed 02-redis-state-layer 02-02-PLAN.md
+last_updated: "2026-03-29T08:09:49.879Z"
 last_activity: 2026-03-27 — Roadmap created for v1.0 Carrier Edition (11 phases, 98 requirements mapped)
 progress:
   total_phases: 11
   completed_phases: 1
   total_plans: 7
-  completed_plans: 5
+  completed_plans: 6
   percent: 0
 ---
 
@@ -54,6 +54,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 01-ffi-foundation-build P03 | 35 | 2 tasks | 12 files |
 | Phase 01-ffi-foundation-build P04 | 15 | 1 tasks | 3 files |
 | Phase 02-redis-state-layer P01 | 6 | 2 tasks | 7 files |
+| Phase 02-redis-state-layer P02 | 25 | 2 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -78,6 +79,9 @@ Recent decisions affecting current work:
 - [Phase 02-redis-state-layer]: KEYS pattern scan over cursor-based SCAN for list_entities: config-scale data, simplicity wins
 - [Phase 02-redis-state-layer]: ConfigStore::with_prefix for test isolation: UUID prefix per test run prevents key collisions in parallel tests
 - [Phase 02-redis-state-layer]: ConnectionManager is cheaply cloneable: RedisPool::get() returns clone-per-operation, no separate pool layer needed
+- [Phase 02-redis-state-layer]: ConfigPubSub::with_channel for test isolation: UUID channels per test prevent parallel test cross-contamination on shared Redis
+- [Phase 02-redis-state-layer]: publish_or_warn pattern: pub/sub publish failures are non-fatal in ConfigStore mutations — log warning and continue
+- [Phase 02-redis-state-layer]: Dedicated Redis connection for pub/sub subscribe: ConnectionManager cannot be used for blocking subscribe mode
 
 ### Pending Todos
 
@@ -91,6 +95,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-29T07:54:41.255Z
-Stopped at: Completed 02-redis-state-layer 02-01-PLAN.md
+Last session: 2026-03-29T08:09:49.876Z
+Stopped at: Completed 02-redis-state-layer 02-02-PLAN.md
 Resume file: None
