@@ -142,7 +142,7 @@
 
 ### Redis State
 
-- [ ] **RDIS-01**: All dynamic config stored in Redis (endpoints, gateways, trunks, routing, classes)
+- [x] **RDIS-01**: All dynamic config stored in Redis (endpoints, gateways, trunks, routing, classes)
 - [ ] **RDIS-02**: Runtime state in Redis (concurrent calls, CPS buckets, gateway health)
 - [ ] **RDIS-03**: Config changes propagate via Redis pub/sub
 - [ ] **RDIS-04**: Engagement tracking prevents deleting in-use resources
@@ -202,7 +202,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | BLDP-02 | Phase 1 | Complete |
 | BLDP-03 | Phase 1 | Complete |
 | BLDP-04 | Phase 1 | Complete |
-| RDIS-01 | Phase 2 | Pending |
+| RDIS-01 | Phase 2 | Complete |
 | RDIS-02 | Phase 2 | Pending |
 | RDIS-03 | Phase 2 | Pending |
 | RDIS-04 | Phase 2 | Pending |

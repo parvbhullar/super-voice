@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: planning
-stopped_at: "Checkpoint: 01-04 Task 2 — awaiting human verify of FFI foundation end-to-end"
-last_updated: "2026-03-28T23:09:23.423Z"
+stopped_at: Completed 02-redis-state-layer 02-01-PLAN.md
+last_updated: "2026-03-29T07:54:41.257Z"
 last_activity: 2026-03-27 — Roadmap created for v1.0 Carrier Edition (11 phases, 98 requirements mapped)
 progress:
   total_phases: 11
   completed_phases: 1
-  total_plans: 4
-  completed_plans: 4
+  total_plans: 7
+  completed_plans: 5
   percent: 0
 ---
 
@@ -53,6 +53,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 01-ffi-foundation-build P01 | 15 | 3 tasks | 8 files |
 | Phase 01-ffi-foundation-build P03 | 35 | 2 tasks | 12 files |
 | Phase 01-ffi-foundation-build P04 | 15 | 1 tasks | 3 files |
+| Phase 02-redis-state-layer P01 | 6 | 2 tasks | 7 files |
 
 ## Accumulated Context
 
@@ -74,6 +75,9 @@ Recent decisions affecting current work:
 - [Phase 01-ffi-foundation-build]: Sofia-SIP built from source in Docker: bookworm repos lack libsofia-sip-ua-dev; SpanDSP also built from source for 3.x compatibility
 - [Phase 01-ffi-foundation-build]: Coexistence test uses rsipstack+SpanDSP (not two NuaAgents): Sofia-SIP global C state prevents sequential NuaAgent instances in same test process
 - [Phase 01-ffi-foundation-build]: check_startup.sh uses perl Time::HiRes fallback: macOS BSD date lacks nanosecond support (+%s%N)
+- [Phase 02-redis-state-layer]: KEYS pattern scan over cursor-based SCAN for list_entities: config-scale data, simplicity wins
+- [Phase 02-redis-state-layer]: ConfigStore::with_prefix for test isolation: UUID prefix per test run prevents key collisions in parallel tests
+- [Phase 02-redis-state-layer]: ConnectionManager is cheaply cloneable: RedisPool::get() returns clone-per-operation, no separate pool layer needed
 
 ### Pending Todos
 
@@ -87,6 +91,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-28T22:48:14.476Z
-Stopped at: Checkpoint: 01-04 Task 2 — awaiting human verify of FFI foundation end-to-end
+Last session: 2026-03-29T07:54:41.255Z
+Stopped at: Completed 02-redis-state-layer 02-01-PLAN.md
 Resume file: None
