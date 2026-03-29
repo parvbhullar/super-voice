@@ -110,7 +110,7 @@ Plans:
 **Success Criteria** (what must be TRUE):
   1. A SIP-to-SIP call completes end-to-end with audio flowing bidirectionally; RTP is relayed zero-copy when both legs use G.711
   2. A call where legs negotiate different codecs has media transcoded transparently; audio is intelligible on both ends
-  3. An in-progress call appears in GET /calls with correct trunk, DID, and duration; DELETE /calls/{id} terminates it
+  3. An in-progress call appears in GET /api/v1/calls with correct trunk, DID, and duration; POST /api/v1/calls/{id}/hangup terminates it
   4. Early media (183 Session Progress with SDP) is passed through to the calling leg without waiting for 200 OK
   5. When the first route fails (5xx or no answer), the proxy automatically tries the next route in the table and the call succeeds
 **Plans:** 5 plans
@@ -180,7 +180,7 @@ Plans:
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 → 9 → 10 → 11
+Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10 -> 11
 Note: Phase 8 depends on Phase 3 (not Phase 7), so it can proceed in parallel after Phase 3 completes.
 
 | Phase | Plans Complete | Status | Completed |
