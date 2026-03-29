@@ -52,7 +52,11 @@ Plans:
   2. A config change published via Redis pub/sub is picked up by all subscribers within 100ms
   3. Attempting to delete a resource that is referenced by another active resource returns an error with the dependent resource named
   4. API requests authenticated with a valid Bearer token succeed; requests without a token return 401
-**Plans**: TBD
+**Plans:** 3 plans
+Plans:
+- [ ] 02-01-PLAN.md — Redis connection pool, entity types, ConfigStore CRUD
+- [ ] 02-02-PLAN.md — Pub/sub config propagation, runtime state tracking
+- [ ] 02-03-PLAN.md — Engagement tracking, Bearer token API auth middleware
 
 ### Phase 3: Endpoints & Gateways
 **Goal**: Operators can create SIP listener endpoints (carrier-facing Sofia-SIP or internal rsipstack) and outbound gateways with automatic health monitoring and failover.
@@ -167,7 +171,7 @@ Note: Phase 8 depends on Phase 3 (not Phase 7), so it can proceed in parallel af
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. FFI Foundation & Build | 4/4 | Complete    | 2026-03-28 |
-| 2. Redis State Layer | 0/? | Not started | - |
+| 2. Redis State Layer | 0/3 | Planning | - |
 | 3. Endpoints & Gateways | 0/? | Not started | - |
 | 4. Trunks, DIDs & Entity API | 0/? | Not started | - |
 | 5. Routing, Translation & Manipulation | 0/? | Not started | - |
