@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: planning
-stopped_at: Completed 05-routing-translation-manipulation 05-01-PLAN.md
-last_updated: "2026-03-29T11:56:41.389Z"
+stopped_at: Completed 05-routing-translation-manipulation 05-04-PLAN.md
+last_updated: "2026-03-29T12:05:20.249Z"
 last_activity: 2026-03-27 — Roadmap created for v1.0 Carrier Edition (11 phases, 98 requirements mapped)
 progress:
   total_phases: 11
   completed_phases: 4
   total_plans: 17
-  completed_plans: 15
+  completed_plans: 16
   percent: 0
 ---
 
@@ -64,6 +64,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 04-trunks-dids-entity-api P03 | 15 | 2 tasks | 3 files |
 | Phase 05-routing-translation-manipulation P02 | 505 | 2 tasks | 7 files |
 | Phase 05-routing-translation-manipulation P01 | 25 | 1 tasks | 7 files |
+| Phase 05-routing-translation-manipulation P04 | 6 | 1 tasks | 1 files |
 
 ## Accumulated Context
 
@@ -112,6 +113,8 @@ Recent decisions affecting current work:
 - [Phase 05-routing-translation-manipulation]: ManipulationEngine legacy rule: empty conditions + header/action fields treated as unconditional set_header for backward compat
 - [Phase 05-routing-translation-manipulation]: BoxFuture for recursive async resolve_with_depth: Rust requires explicit boxing for async recursion
 - [Phase 05-routing-translation-manipulation]: RoutingTableConfig.records replaces .rules with serde alias for backward compat; LPM pre-pass avoids redundant calls; HTTP query returns trunk directly inline
+- [Phase 05-routing-translation-manipulation]: Integration tests exercise RoutingEngine::resolve() end-to-end via Redis; TranslationEngine and ManipulationEngine tested directly without Redis
+- [Phase 05-routing-translation-manipulation]: SC5 jump test uses sc5-ok-*/sc5-err-* table name prefixes to avoid collisions with routing/engine.rs unit tests
 
 ### Pending Todos
 
@@ -125,6 +128,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-29T11:56:41.387Z
-Stopped at: Completed 05-routing-translation-manipulation 05-01-PLAN.md
+Last session: 2026-03-29T12:05:20.244Z
+Stopped at: Completed 05-routing-translation-manipulation 05-04-PLAN.md
 Resume file: None
