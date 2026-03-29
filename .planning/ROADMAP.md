@@ -17,7 +17,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 3: Endpoints & Gateways** - SIP listener endpoints (Sofia + rsipstack) and outbound gateways with health monitoring (completed 2026-03-29)
 - [x] **Phase 4: Trunks, DIDs & Entity API** - Trunk grouping with capacity/codec/ACL, DID number management, REST CRUD for all entities (completed 2026-03-29)
 - [x] **Phase 5: Routing, Translation & Manipulation** - LPM/regex/HTTP routing tables, number translation classes, SIP header manipulation (completed 2026-03-29)
-- [ ] **Phase 6: Proxy Call (B2BUA)** - Dual-dialog SIP bridge with RTP media relay, failover, call transfer, and active call API
+- [x] **Phase 6: Proxy Call (B2BUA)** - Dual-dialog SIP bridge with RTP media relay, failover, call transfer, and active call API (completed 2026-03-29)
 - [ ] **Phase 7: Bridge Modes** - SIP-to-WebRTC and SIP-to-WebSocket bridges with per-route mode selection
 - [ ] **Phase 8: Capacity & Security** - Token bucket CPS limits, concurrent call enforcement, anti-flood, IP ACL, brute-force protection
 - [ ] **Phase 9: CDR Engine & Webhooks** - Carrier CDR with Redis queue, HTTP webhook delivery, disk fallback, CDR query API
@@ -113,7 +113,7 @@ Plans:
   3. An in-progress call appears in GET /api/v1/calls with correct trunk, DID, and duration; POST /api/v1/calls/{id}/hangup terminates it
   4. Early media (183 Session Progress with SDP) is passed through to the calling leg without waiting for 200 OK
   5. When the first route fails (5xx or no answer), the proxy automatically tries the next route in the table and the call succeeds
-**Plans:** 2/5 plans executed
+**Plans:** 5/5 plans complete
 Plans:
 - [ ] 06-01-PLAN.md — ProxyCall types, MediaPeer trait, MediaBridge with zero-copy relay and transcoding
 - [ ] 06-02-PLAN.md — ProxyCallSession dual-dialog B2BUA, failover loop with nofailover codes
@@ -190,7 +190,7 @@ Note: Phase 8 depends on Phase 3 (not Phase 7), so it can proceed in parallel af
 | 3. Endpoints & Gateways | 3/3 | Complete    | 2026-03-29 |
 | 4. Trunks, DIDs & Entity API | 2/3 | Complete    | 2026-03-29 |
 | 5. Routing, Translation & Manipulation | 4/4 | Complete    | 2026-03-29 |
-| 6. Proxy Call (B2BUA) | 2/5 | In Progress|  |
+| 6. Proxy Call (B2BUA) | 5/5 | Complete   | 2026-03-29 |
 | 7. Bridge Modes | 0/? | Not started | - |
 | 8. Capacity & Security | 0/? | Not started | - |
 | 9. CDR Engine & Webhooks | 0/? | Not started | - |

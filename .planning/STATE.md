@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: planning
-stopped_at: Completed 06-proxy-call-b2bua 06-03-PLAN.md
-last_updated: "2026-03-29T13:26:46.060Z"
+stopped_at: Completed 06-proxy-call-b2bua 06-05-PLAN.md
+last_updated: "2026-03-29T13:33:15.394Z"
 last_activity: 2026-03-27 — Roadmap created for v1.0 Carrier Edition (11 phases, 98 requirements mapped)
 progress:
   total_phases: 11
-  completed_phases: 5
+  completed_phases: 6
   total_plans: 22
-  completed_plans: 21
+  completed_plans: 22
   percent: 0
 ---
 
@@ -70,6 +70,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 06-proxy-call-b2bua P02 | 43 | 2 tasks | 3 files |
 | Phase 06-proxy-call-b2bua P04 | 10 | 2 tasks | 3 files |
 | Phase 06-proxy-call-b2bua P03 | 627 | 2 tasks | 4 files |
+| Phase 06-proxy-call-b2bua P05 | 4 | 2 tasks | 1 files |
 
 ## Accumulated Context
 
@@ -131,6 +132,7 @@ Recent decisions affecting current work:
 - [Phase 06-proxy-call-b2bua]: Transfer caller field passed as empty string — API callers provide only target; caller resolved by SIP stack
 - [Phase 06-proxy-call-b2bua]: dispatch_proxy_call wraps state_receiver in Option for Rust borrow checker compatibility when branching between sip_proxy and normal INVITE handler paths
 - [Phase 06-proxy-call-b2bua]: parse_sdp_direction uses last-match-wins semantics to handle session-level vs media-level SDP direction attributes
+- [Phase 06-proxy-call-b2bua]: Full SIP-stack end-to-end tests not feasible without real SIP infrastructure — mock-based tests per plan specification; is_nofailover/optimize_codecs/API handlers tested at component level
 
 ### Pending Todos
 
@@ -144,6 +146,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-29T13:26:46.057Z
-Stopped at: Completed 06-proxy-call-b2bua 06-03-PLAN.md
+Last session: 2026-03-29T13:33:15.359Z
+Stopped at: Completed 06-proxy-call-b2bua 06-05-PLAN.md
 Resume file: None
