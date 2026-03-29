@@ -6,7 +6,7 @@ use crate::redis_state::{
     pool::RedisPool,
     pubsub::{publish_or_warn, ConfigChangeEvent, ConfigPubSub},
     types::{
-        EndpointConfig, GatewayConfig, ManipulationClassConfig, RoutingTableConfig,
+        DidConfig, EndpointConfig, GatewayConfig, ManipulationClassConfig, RoutingTableConfig,
         TranslationClassConfig, TrunkConfig,
     },
 };
@@ -242,7 +242,11 @@ impl ConfigStore {
     }
 
     /// Delete a trunk and clean up its engagement references.
+    ///
+    /// Returns `Err` if the trunk is currently referenced by a DID or other
+    /// resource (engagement check).
     pub async fn delete_trunk(&self, name: &str) -> Result<bool> {
+        self.check_not_engaged("trunk", name).await?;
         let deleted = self.delete_entity("trunk", name).await?;
         if deleted {
             if let Some(eng) = &self.engagement {
@@ -333,6 +337,43 @@ impl ConfigStore {
     pub async fn delete_manipulation_class(&self, name: &str) -> Result<bool> {
         self.delete_entity("manipulation_class", name).await
     }
+
+    // --- DID ---
+
+    /// Persist a DID configuration.
+    ///
+    /// If an `EngagementTracker` is attached, clears stale trunk references
+    /// for this DID and tracks the new trunk reference.
+    pub async fn set_did(&self, config: &DidConfig) -> Result<()> {
+        self.set_entity("did", &config.number, config).await?;
+        if let Some(eng) = &self.engagement {
+            let source = format!("did:{}", config.number);
+            eng.untrack_all(&source).await?;
+            let target = format!("trunk:{}", config.trunk);
+            eng.track(&source, &target).await?;
+        }
+        Ok(())
+    }
+
+    pub async fn get_did(&self, number: &str) -> Result<Option<DidConfig>> {
+        self.get_entity("did", number).await
+    }
+
+    pub async fn list_dids(&self) -> Result<Vec<DidConfig>> {
+        self.list_entities("did").await
+    }
+
+    /// Delete a DID and clean up its engagement references.
+    pub async fn delete_did(&self, number: &str) -> Result<bool> {
+        let deleted = self.delete_entity("did", number).await?;
+        if deleted {
+            if let Some(eng) = &self.engagement {
+                let source = format!("did:{number}");
+                eng.untrack_all(&source).await?;
+            }
+        }
+        Ok(deleted)
+    }
 }
 
 #[cfg(test)]
@@ -340,7 +381,7 @@ mod tests {
     use super::*;
     use crate::redis_state::{
         pubsub::ConfigPubSub,
-        types::{GatewayRef, ManipulationRule, RoutingRule, TranslationRule},
+        types::{DidConfig, DidRouting, GatewayRef, ManipulationRule, RoutingRule, TranslationRule},
     };
     use std::time::Duration;
     use tokio::time::timeout;
@@ -763,5 +804,113 @@ mod tests {
         // gw2 should still be blocked
         let result = store.delete_gateway("gw-stale2").await;
         assert!(result.is_err(), "gw2 should still be engaged by trunk");
+    }
+
+    // --- DID CRUD tests ---
+
+    fn sample_did(number: &str, trunk: &str) -> DidConfig {
+        DidConfig {
+            number: number.to_string(),
+            trunk: trunk.to_string(),
+            routing: DidRouting {
+                mode: "ai_agent".to_string(),
+                playbook: Some("pb-inbound".to_string()),
+            },
+            caller_name: Some("Test Corp".to_string()),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_did_crud() {
+        let store = make_store().await;
+        let did = sample_did("+15551234567", "trunk1");
+
+        // set and get
+        store.set_did(&did).await.expect("set_did");
+        let fetched = store.get_did("+15551234567").await.expect("get_did");
+        assert_eq!(fetched, Some(did.clone()));
+
+        // list
+        let list = store.list_dids().await.expect("list_dids");
+        assert!(list.contains(&did));
+
+        // delete
+        let deleted = store.delete_did("+15551234567").await.expect("delete_did");
+        assert!(deleted);
+
+        // get after delete returns None
+        let after = store.get_did("+15551234567").await.expect("get after delete");
+        assert_eq!(after, None);
+
+        // delete again returns false
+        let deleted_again = store.delete_did("+15551234567").await.expect("delete again");
+        assert!(!deleted_again);
+    }
+
+    #[tokio::test]
+    async fn test_did_get_nonexistent_returns_none() {
+        let store = make_store().await;
+        let result = store.get_did("+19999999999").await.expect("get nonexistent DID");
+        assert_eq!(result, None);
+    }
+
+    #[tokio::test]
+    async fn test_did_sip_proxy_routing_crud() {
+        let store = make_store().await;
+        let did = DidConfig {
+            number: "+15559876543".to_string(),
+            trunk: "trunk-proxy".to_string(),
+            routing: DidRouting {
+                mode: "sip_proxy".to_string(),
+                playbook: None,
+            },
+            caller_name: None,
+        };
+
+        store.set_did(&did).await.expect("set_did sip_proxy");
+        let fetched = store.get_did("+15559876543").await.expect("get_did sip_proxy");
+        assert_eq!(fetched, Some(did));
+    }
+
+    #[tokio::test]
+    async fn test_engagement_did_references_trunk() {
+        let store = make_store_with_engagement().await;
+        let trunk = sample_trunk("trunk-did-eng");
+        let did = sample_did("+15551110000", "trunk-did-eng");
+
+        store.set_trunk(&trunk).await.expect("set_trunk");
+        store.set_did(&did).await.expect("set_did");
+
+        // Deleting the trunk while a DID references it should fail
+        let result = store.delete_trunk("trunk-did-eng").await;
+        assert!(
+            result.is_err(),
+            "delete trunk should fail while DID references it"
+        );
+        let err = result.unwrap_err().to_string();
+        assert!(
+            err.contains("did:+15551110000"),
+            "error should name the dependent DID, got: {err}"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_engagement_delete_did_then_trunk_succeeds() {
+        let store = make_store_with_engagement().await;
+        let trunk = sample_trunk("trunk-did-del");
+        let did = sample_did("+15552220000", "trunk-did-del");
+
+        store.set_trunk(&trunk).await.expect("set_trunk");
+        store.set_did(&did).await.expect("set_did");
+
+        // Delete DID first — clears engagement ref to trunk
+        store.delete_did("+15552220000").await.expect("delete_did");
+
+        // Now trunk can be deleted
+        let deleted = store
+            .delete_trunk("trunk-did-del")
+            .await
+            .expect("delete_trunk after DID removed");
+        assert!(deleted, "trunk should be deletable after DID is removed");
     }
 }

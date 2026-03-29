@@ -18,6 +18,7 @@ pub mod call;
 pub mod endpoint;
 pub mod gateway;
 pub mod redis_state;
+pub mod trunk;
 pub mod callrecord;
 pub mod config;
 pub mod event;
