@@ -15,6 +15,7 @@ use crate::{
 
 pub mod app;
 pub mod call;
+pub mod capacity;
 pub mod endpoint;
 pub mod gateway;
 pub mod redis_state;
@@ -29,6 +30,7 @@ pub mod handler;
 pub mod locator;
 pub mod media;
 pub mod net_tool;
+pub mod security;
 
 #[cfg(feature = "offline")]
 pub mod offline;
