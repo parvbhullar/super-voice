@@ -150,6 +150,69 @@ pub struct TrunkConfig {
     pub nofailover_sip_codes: Option<Vec<u16>>,
 }
 
+/// Match type for routing rules.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum MatchType {
+    /// Longest prefix match against destination number.
+    Lpm,
+    /// Exact string comparison.
+    ExactMatch,
+    /// PCRE-style regex match.
+    Regex,
+    /// Numeric or string comparison operators (eq, ne, gt, lt, gte, lte).
+    Compare,
+    /// External HTTP API lookup returns the trunk name.
+    HttpQuery,
+}
+
+/// A target trunk with optional weighted load distribution.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct RoutingTarget {
+    /// Name of the trunk to route to.
+    pub trunk: String,
+    /// Weight for proportional load distribution (0-100).
+    #[serde(default)]
+    pub load_percent: Option<u32>,
+}
+
+fn default_match_field() -> String {
+    "destination_number".to_string()
+}
+
+fn default_priority() -> u32 {
+    100
+}
+
+/// A single routing record within a routing table.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct RoutingRecord {
+    /// Match type determining how `value` is compared.
+    pub match_type: MatchType,
+    /// The value/pattern to match against (prefix for LPM, regex for Regex,
+    /// URL for HttpQuery, etc.).
+    pub value: String,
+    /// Optional comparison operator for Compare match type: "eq", "ne", "gt",
+    /// "lt", "gte", "lte".
+    #[serde(default)]
+    pub compare_op: Option<String>,
+    /// Which SIP field to match against. Default is "destination_number".
+    #[serde(default = "default_match_field")]
+    pub match_field: String,
+    /// Primary target(s) with optional load distribution.
+    #[serde(default)]
+    pub targets: Vec<RoutingTarget>,
+    /// If set, jump to another routing table instead of using targets.
+    #[serde(default)]
+    pub jump_to: Option<String>,
+    /// Priority for ordering (lower = higher priority). Default 100.
+    #[serde(default = "default_priority")]
+    pub priority: u32,
+    /// Whether this is the default/fallback record.
+    #[serde(default)]
+    pub is_default: bool,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct RoutingRule {
     pub pattern: String,
@@ -160,13 +223,47 @@ pub struct RoutingRule {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct RoutingTableConfig {
     pub name: String,
-    pub rules: Vec<RoutingRule>,
+    /// Routing records using the expanded match-type system.
+    #[serde(default, alias = "rules")]
+    pub records: Vec<RoutingRecord>,
+    #[serde(default)]
+    pub description: Option<String>,
 }
 
+fn default_direction() -> String {
+    "both".to_string()
+}
+
+/// A rule for rewriting caller number, destination number, or caller name.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct TranslationRule {
-    pub match_pattern: String,
-    pub replace: String,
+    /// Regex pattern for caller number. If matched, apply caller_replace.
+    #[serde(default)]
+    pub caller_pattern: Option<String>,
+    /// Replacement string for caller number (supports $1, $2 capture groups).
+    #[serde(default)]
+    pub caller_replace: Option<String>,
+    /// Regex pattern for destination number. If matched, apply destination_replace.
+    #[serde(default)]
+    pub destination_pattern: Option<String>,
+    /// Replacement string for destination number.
+    #[serde(default)]
+    pub destination_replace: Option<String>,
+    /// Regex pattern for caller name.
+    #[serde(default)]
+    pub caller_name_pattern: Option<String>,
+    /// Replacement string for caller name.
+    #[serde(default)]
+    pub caller_name_replace: Option<String>,
+    /// Direction this rule applies to: "inbound", "outbound", or "both". Default "both".
+    #[serde(default = "default_direction")]
+    pub direction: String,
+    /// Legacy field: match_pattern (treated as destination_pattern for backward compat).
+    #[serde(default, rename = "match_pattern")]
+    pub legacy_match: Option<String>,
+    /// Legacy field: replace (treated as destination_replace for backward compat).
+    #[serde(default, rename = "replace")]
+    pub legacy_replace: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -175,10 +272,55 @@ pub struct TranslationClassConfig {
     pub rules: Vec<TranslationRule>,
 }
 
+fn default_condition_mode() -> String {
+    "and".to_string()
+}
+
+/// A condition to evaluate against call properties.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ManipulationCondition {
+    /// SIP field or variable to check (e.g. "P-Asserted-Identity", "destination_number").
+    pub field: String,
+    /// Regex pattern to match against the field value.
+    pub pattern: String,
+}
+
+/// An action to execute when conditions match (or anti-action when they don't).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ManipulationAction {
+    /// Action type: "set_header", "remove_header", "set_var", "log", "hangup", "sleep".
+    pub action_type: String,
+    /// Target name (header name for set_header/remove_header, variable name for set_var).
+    #[serde(default)]
+    pub name: Option<String>,
+    /// Value to set (header value, variable value, log message, sleep duration in ms).
+    #[serde(default)]
+    pub value: Option<String>,
+}
+
+/// A manipulation rule with conditions, actions, and anti-actions.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ManipulationRule {
-    pub header: String,
-    pub action: String,
+    /// How conditions are combined: "and" (all must match) or "or" (any must match).
+    #[serde(default = "default_condition_mode")]
+    pub condition_mode: String,
+    /// Conditions to evaluate.
+    #[serde(default)]
+    pub conditions: Vec<ManipulationCondition>,
+    /// Actions executed when conditions evaluate to true.
+    #[serde(default)]
+    pub actions: Vec<ManipulationAction>,
+    /// Anti-actions executed when conditions evaluate to false.
+    #[serde(default)]
+    pub anti_actions: Vec<ManipulationAction>,
+    /// Legacy field: header name for unconditional set_header.
+    #[serde(default)]
+    pub header: Option<String>,
+    /// Legacy field: action type for simple unconditional rule.
+    #[serde(default)]
+    pub action: Option<String>,
+    /// Legacy field: header value.
+    #[serde(default)]
     pub value: Option<String>,
 }
 
@@ -263,11 +405,20 @@ mod tests {
     fn sample_routing_table() -> RoutingTableConfig {
         RoutingTableConfig {
             name: "default".to_string(),
-            rules: vec![RoutingRule {
-                pattern: r"^\+1\d{10}$".to_string(),
-                destination: "trunk1".to_string(),
-                priority: Some(10),
+            records: vec![RoutingRecord {
+                match_type: MatchType::Lpm,
+                value: "+1".to_string(),
+                compare_op: None,
+                match_field: "destination_number".to_string(),
+                targets: vec![RoutingTarget {
+                    trunk: "trunk1".to_string(),
+                    load_percent: None,
+                }],
+                jump_to: None,
+                priority: 10,
+                is_default: false,
             }],
+            description: None,
         }
     }
 
@@ -275,8 +426,15 @@ mod tests {
         TranslationClassConfig {
             name: "normalize-us".to_string(),
             rules: vec![TranslationRule {
-                match_pattern: r"^1(\d{10})$".to_string(),
-                replace: r"+1\1".to_string(),
+                caller_pattern: None,
+                caller_replace: None,
+                destination_pattern: Some(r"^1(\d{10})$".to_string()),
+                destination_replace: Some(r"+1$1".to_string()),
+                caller_name_pattern: None,
+                caller_name_replace: None,
+                direction: "both".to_string(),
+                legacy_match: None,
+                legacy_replace: None,
             }],
         }
     }
@@ -285,8 +443,12 @@ mod tests {
         ManipulationClassConfig {
             name: "add-headers".to_string(),
             rules: vec![ManipulationRule {
-                header: "X-Carrier".to_string(),
-                action: "set".to_string(),
+                condition_mode: "and".to_string(),
+                conditions: vec![],
+                actions: vec![],
+                anti_actions: vec![],
+                header: Some("X-Carrier".to_string()),
+                action: Some("set".to_string()),
                 value: Some("carrier1".to_string()),
             }],
         }

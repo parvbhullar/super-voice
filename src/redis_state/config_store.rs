@@ -268,9 +268,12 @@ impl ConfigStore {
         if let Some(eng) = &self.engagement {
             let source = format!("routing_table:{}", config.name);
             eng.untrack_all(&source).await?;
-            for rule in &config.rules {
-                let target = format!("trunk:{}", rule.destination);
-                eng.track(&source, &target).await?;
+            for record in &config.records {
+                // Track trunk targets from routing records
+                for target in &record.targets {
+                    let t = format!("trunk:{}", target.trunk);
+                    eng.track(&source, &t).await?;
+                }
             }
         }
         Ok(())
@@ -381,7 +384,10 @@ mod tests {
     use super::*;
     use crate::redis_state::{
         pubsub::ConfigPubSub,
-        types::{DidConfig, DidRouting, GatewayRef, ManipulationRule, RoutingRule, TranslationRule},
+        types::{
+            DidConfig, DidRouting, GatewayRef, ManipulationRule, MatchType, RoutingRecord,
+            RoutingTarget, TranslationRule,
+        },
     };
     use std::time::Duration;
     use tokio::time::timeout;
@@ -469,11 +475,20 @@ mod tests {
     fn sample_routing_table(name: &str) -> RoutingTableConfig {
         RoutingTableConfig {
             name: name.to_string(),
-            rules: vec![RoutingRule {
-                pattern: r"^\+1\d{10}$".to_string(),
-                destination: "trunk1".to_string(),
-                priority: Some(10),
+            records: vec![RoutingRecord {
+                match_type: MatchType::Lpm,
+                value: "+1".to_string(),
+                compare_op: None,
+                match_field: "destination_number".to_string(),
+                targets: vec![RoutingTarget {
+                    trunk: "trunk1".to_string(),
+                    load_percent: None,
+                }],
+                jump_to: None,
+                priority: 10,
+                is_default: false,
             }],
+            description: None,
         }
     }
 
@@ -481,8 +496,15 @@ mod tests {
         TranslationClassConfig {
             name: name.to_string(),
             rules: vec![TranslationRule {
-                match_pattern: r"^1(\d{10})$".to_string(),
-                replace: r"+1\1".to_string(),
+                caller_pattern: None,
+                caller_replace: None,
+                destination_pattern: Some(r"^1(\d{10})$".to_string()),
+                destination_replace: Some(r"+1$1".to_string()),
+                caller_name_pattern: None,
+                caller_name_replace: None,
+                direction: "both".to_string(),
+                legacy_match: None,
+                legacy_replace: None,
             }],
         }
     }
@@ -491,8 +513,12 @@ mod tests {
         ManipulationClassConfig {
             name: name.to_string(),
             rules: vec![ManipulationRule {
-                header: "X-Carrier".to_string(),
-                action: "set".to_string(),
+                condition_mode: "and".to_string(),
+                conditions: vec![],
+                actions: vec![],
+                anti_actions: vec![],
+                header: Some("X-Carrier".to_string()),
+                action: Some("set".to_string()),
                 value: Some("carrier1".to_string()),
             }],
         }
