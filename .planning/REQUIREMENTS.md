@@ -134,7 +134,7 @@
 - [ ] **RAPI-08**: API provides CDR query, detail, recording stream, SIP flow (5 endpoints)
 - [x] **RAPI-09**: API provides active call list, detail, hangup, transfer, mute (6 endpoints)
 - [ ] **RAPI-10**: API provides webhook registration (4 endpoints)
-- [ ] **RAPI-11**: API provides security management (6 endpoints)
+- [x] **RAPI-11**: API provides security management (6 endpoints)
 - [ ] **RAPI-12**: API provides diagnostics (trunk test, route evaluate, registration lookup) (5 endpoints)
 - [ ] **RAPI-13**: API provides system info, health, reload, cluster (6 endpoints)
 - [x] **RAPI-14**: API uses Bearer token / API key authentication
@@ -276,7 +276,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | SECU-04 | Phase 8 | Complete |
 | SECU-05 | Phase 8 | Complete |
 | SECU-06 | Phase 8 | Complete |
-| RAPI-11 | Phase 8 | Pending |
+| RAPI-11 | Phase 8 | Complete |
 | CDRE-01 | Phase 9 | Pending |
 | CDRE-02 | Phase 9 | Pending |
 | CDRE-03 | Phase 9 | Pending |
