@@ -138,14 +138,14 @@
 - [ ] **RAPI-12**: API provides diagnostics (trunk test, route evaluate, registration lookup) (5 endpoints)
 - [ ] **RAPI-13**: API provides system info, health, reload, cluster (6 endpoints)
 - [ ] **RAPI-14**: API uses Bearer token / API key authentication
-- [ ] **RAPI-15**: API uses Redis-backed storage with engagement tracking
+- [x] **RAPI-15**: API uses Redis-backed storage with engagement tracking
 
 ### Redis State
 
 - [x] **RDIS-01**: All dynamic config stored in Redis (endpoints, gateways, trunks, routing, classes)
 - [x] **RDIS-02**: Runtime state in Redis (concurrent calls, CPS buckets, gateway health)
 - [x] **RDIS-03**: Config changes propagate via Redis pub/sub
-- [ ] **RDIS-04**: Engagement tracking prevents deleting in-use resources
+- [x] **RDIS-04**: Engagement tracking prevents deleting in-use resources
 
 ### Build & Package
 
@@ -205,8 +205,8 @@ Which phases cover which requirements. Updated during roadmap creation.
 | RDIS-01 | Phase 2 | Complete |
 | RDIS-02 | Phase 2 | Complete |
 | RDIS-03 | Phase 2 | Complete |
-| RDIS-04 | Phase 2 | Pending |
-| RAPI-15 | Phase 2 | Pending |
+| RDIS-04 | Phase 2 | Complete |
+| RAPI-15 | Phase 2 | Complete |
 | ENDP-01 | Phase 3 | Pending |
 | ENDP-02 | Phase 3 | Pending |
 | ENDP-03 | Phase 3 | Pending |

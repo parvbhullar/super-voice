@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: planning
-stopped_at: Completed 02-redis-state-layer 02-02-PLAN.md
-last_updated: "2026-03-29T08:09:49.879Z"
+stopped_at: Completed 02-redis-state-layer 02-03-PLAN.md
+last_updated: "2026-03-29T08:18:58.794Z"
 last_activity: 2026-03-27 — Roadmap created for v1.0 Carrier Edition (11 phases, 98 requirements mapped)
 progress:
   total_phases: 11
-  completed_phases: 1
+  completed_phases: 2
   total_plans: 7
-  completed_plans: 6
+  completed_plans: 7
   percent: 0
 ---
 
@@ -55,6 +55,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 01-ffi-foundation-build P04 | 15 | 1 tasks | 3 files |
 | Phase 02-redis-state-layer P01 | 6 | 2 tasks | 7 files |
 | Phase 02-redis-state-layer P02 | 25 | 2 tasks | 5 files |
+| Phase 02-redis-state-layer P03 | 21 | 2 tasks | 9 files |
 
 ## Accumulated Context
 
@@ -82,6 +83,8 @@ Recent decisions affecting current work:
 - [Phase 02-redis-state-layer]: ConfigPubSub::with_channel for test isolation: UUID channels per test prevent parallel test cross-contamination on shared Redis
 - [Phase 02-redis-state-layer]: publish_or_warn pattern: pub/sub publish failures are non-fatal in ConfigStore mutations — log warning and continue
 - [Phase 02-redis-state-layer]: Dedicated Redis connection for pub/sub subscribe: ConnectionManager cannot be used for blocking subscribe mode
+- [Phase 02-redis-state-layer]: EngagementTracker uses two Redis sets per relationship (refs + deps) for O(1) bidirectional lookups; ConfigStore.with_engagement is optional opt-in
+- [Phase 02-redis-state-layer]: ApiKeyStore stores {name}:{sha256_hash} in a single Redis SET sv:api_keys; auth_middleware in AppState.api_key_store; carrier_admin_router uses route_layer for isolated auth
 
 ### Pending Todos
 
@@ -95,6 +98,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-29T08:09:49.876Z
-Stopped at: Completed 02-redis-state-layer 02-02-PLAN.md
+Last session: 2026-03-29T08:18:58.790Z
+Stopped at: Completed 02-redis-state-layer 02-03-PLAN.md
 Resume file: None
