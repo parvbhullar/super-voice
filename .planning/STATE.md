@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: planning
-stopped_at: Completed 08-capacity-security 08-02-PLAN.md
-last_updated: "2026-03-29T20:10:46.336Z"
+stopped_at: Completed 08-capacity-security 08-01-PLAN.md
+last_updated: "2026-03-29T20:11:22.225Z"
 last_activity: 2026-03-27 — Roadmap created for v1.0 Carrier Edition (11 phases, 98 requirements mapped)
 progress:
   total_phases: 11
   completed_phases: 7
   total_plans: 27
-  completed_plans: 25
+  completed_plans: 26
   percent: 0
 ---
 
@@ -74,6 +74,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 07-bridge-modes P01 | 7 | 2 tasks | 5 files |
 | Phase 07-bridge-modes P02 | 8 | 2 tasks | 3 files |
 | Phase 08-capacity-security P02 | 3 | 2 tasks | 7 files |
+| Phase 08-capacity-security P01 | 254 | 2 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -140,6 +141,9 @@ Recent decisions affecting current work:
 - [Phase 07-bridge-modes]: broadcast::channel(16) satisfies Track EventSender type without full event loop
 - [Phase 07-bridge-modes]: dispatch_bridge_call uses match on mode string to delegate to sip_proxy/webrtc_bridge/ws_bridge; ai_agent falls through to playbook handler upstream
 - [Phase 08-capacity-security]: Manual CIDR bit-matching avoids ipnetwork crate dependency; VecDeque sliding window for flood/brute-force tracking; SipSecurityModule facade priority: whitelist > blacklist > UA regex > flood > brute-force; substring matching for topology hiding performance
+- [Phase 08-capacity-security]: Two-step CPS check acceptable for now; Lua atomic script deferred as TODO
+- [Phase 08-capacity-security]: capacity_guard always Some in AppState: local-only fallback when Redis absent
+- [Phase 08-capacity-security]: release_call decrements both Redis and local fallback for safe counter drift prevention
 
 ### Pending Todos
 
@@ -153,6 +157,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-29T20:10:46.333Z
-Stopped at: Completed 08-capacity-security 08-02-PLAN.md
+Last session: 2026-03-29T20:11:22.222Z
+Stopped at: Completed 08-capacity-security 08-01-PLAN.md
 Resume file: None

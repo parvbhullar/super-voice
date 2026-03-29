@@ -91,11 +91,11 @@
 
 ### Capacity Management
 
-- [ ] **CAPC-01**: System enforces per-trunk CPS limit via token bucket (Redis ZSET)
-- [ ] **CAPC-02**: System enforces per-trunk concurrent call limit (Redis SET)
-- [ ] **CAPC-03**: CPS violation auto-blocks trunk for configurable duration (escalating)
-- [ ] **CAPC-04**: Capacity is distributed across cluster via Redis
-- [ ] **CAPC-05**: System degrades gracefully when Redis is unavailable
+- [x] **CAPC-01**: System enforces per-trunk CPS limit via token bucket (Redis ZSET)
+- [x] **CAPC-02**: System enforces per-trunk concurrent call limit (Redis SET)
+- [x] **CAPC-03**: CPS violation auto-blocks trunk for configurable duration (escalating)
+- [x] **CAPC-04**: Capacity is distributed across cluster via Redis
+- [x] **CAPC-05**: System degrades gracefully when Redis is unavailable
 
 ### SIP Security
 
@@ -265,11 +265,11 @@ Which phases cover which requirements. Updated during roadmap creation.
 | BRDG-01 | Phase 7 | Complete |
 | BRDG-02 | Phase 7 | Complete |
 | BRDG-03 | Phase 7 | Complete |
-| CAPC-01 | Phase 8 | Pending |
-| CAPC-02 | Phase 8 | Pending |
-| CAPC-03 | Phase 8 | Pending |
-| CAPC-04 | Phase 8 | Pending |
-| CAPC-05 | Phase 8 | Pending |
+| CAPC-01 | Phase 8 | Complete |
+| CAPC-02 | Phase 8 | Complete |
+| CAPC-03 | Phase 8 | Complete |
+| CAPC-04 | Phase 8 | Complete |
+| CAPC-05 | Phase 8 | Complete |
 | SECU-01 | Phase 8 | Complete |
 | SECU-02 | Phase 8 | Complete |
 | SECU-03 | Phase 8 | Complete |
