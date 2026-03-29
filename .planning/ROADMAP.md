@@ -19,7 +19,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 5: Routing, Translation & Manipulation** - LPM/regex/HTTP routing tables, number translation classes, SIP header manipulation (completed 2026-03-29)
 - [x] **Phase 6: Proxy Call (B2BUA)** - Dual-dialog SIP bridge with RTP media relay, failover, call transfer, and active call API (completed 2026-03-29)
 - [x] **Phase 7: Bridge Modes** - SIP-to-WebRTC and SIP-to-WebSocket bridges with per-route mode selection (completed 2026-03-29)
-- [ ] **Phase 8: Capacity & Security** - Token bucket CPS limits, concurrent call enforcement, anti-flood, IP ACL, brute-force protection
+- [x] **Phase 8: Capacity & Security** - Token bucket CPS limits, concurrent call enforcement, anti-flood, IP ACL, brute-force protection (completed 2026-03-29)
 - [ ] **Phase 9: CDR Engine & Webhooks** - Carrier CDR with Redis queue, HTTP webhook delivery, disk fallback, CDR query API
 - [ ] **Phase 10: DSP Processing** - Echo cancellation, inband DTMF, T.38 fax, tone detection, PLC via SpanDSP
 - [ ] **Phase 11: API Completion & Hardening** - Diagnostics, system health, integration testing, performance validation
@@ -144,7 +144,7 @@ Plans:
   3. A source IP sending 100 REGISTER attempts per second is auto-blocked within 5 seconds; GET /security/blocks shows the entry
   4. A source IP that fails auth 5 times within 60 seconds is auto-blocked; GET /security/blocks shows the entry with failure count
   5. When Redis is unreachable, calls are still processed (graceful degradation) and capacity limits are enforced locally
-**Plans:** 2/3 plans executed
+**Plans:** 3/3 plans complete
 Plans:
 - [ ] 08-01-PLAN.md — CapacityGuard: per-trunk CPS token bucket, concurrent call gating, auto-block with escalation, local fallback, wire into dispatch
 - [ ] 08-02-PLAN.md — SipSecurityModule: IP firewall (whitelist/blacklist CIDR), flood tracker, brute-force tracker, UA blacklist, message validation, topology hiding
@@ -199,7 +199,7 @@ Note: Phase 8 depends on Phase 3 (not Phase 7), so it can proceed in parallel af
 | 5. Routing, Translation & Manipulation | 4/4 | Complete    | 2026-03-29 |
 | 6. Proxy Call (B2BUA) | 5/5 | Complete    | 2026-03-29 |
 | 7. Bridge Modes | 2/2 | Complete    | 2026-03-29 |
-| 8. Capacity & Security | 2/3 | In Progress|  |
+| 8. Capacity & Security | 2/3 | Complete    | 2026-03-29 |
 | 9. CDR Engine & Webhooks | 0/? | Not started | - |
 | 10. DSP Processing | 0/? | Not started | - |
 | 11. API Completion & Hardening | 0/? | Not started | - |
