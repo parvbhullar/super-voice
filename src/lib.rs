@@ -34,6 +34,7 @@ pub mod net_tool;
 pub mod offline;
 
 pub mod playbook;
+pub mod proxy;
 pub mod synthesis;
 pub mod transcription;
 pub mod useragent;
