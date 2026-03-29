@@ -129,7 +129,10 @@ Plans:
   1. A SIP INVITE routed to a WebRTC-mode DID produces an ICE/DTLS session; a browser WebRTC client can receive audio from the SIP caller
   2. A SIP INVITE routed to a WebSocket-mode DID opens an outbound WebSocket connection and streams audio frames bidirectionally
   3. A routing table with routes configured as ai_agent, sip_proxy, webrtc_bridge, and ws_bridge each dispatch to the correct handler for their respective DIDs
-**Plans**: TBD
+**Plans:** 2 plans
+Plans:
+- [ ] 07-01-PLAN.md — Bridge primitives: extend DidRouting types, WebRTC and WebSocket bridge functions
+- [ ] 07-02-PLAN.md — Wire dispatch for all 4 DID routing modes, integration tests
 
 ### Phase 8: Capacity & Security
 **Goal**: The system enforces per-trunk CPS and concurrent call limits via Redis token buckets, and protects SIP endpoints from flooding, scanning, and brute-force attacks — with distributed enforcement across a cluster.
@@ -191,7 +194,7 @@ Note: Phase 8 depends on Phase 3 (not Phase 7), so it can proceed in parallel af
 | 4. Trunks, DIDs & Entity API | 2/3 | Complete    | 2026-03-29 |
 | 5. Routing, Translation & Manipulation | 4/4 | Complete    | 2026-03-29 |
 | 6. Proxy Call (B2BUA) | 5/5 | Complete    | 2026-03-29 |
-| 7. Bridge Modes | 0/? | Not started | - |
+| 7. Bridge Modes | 0/2 | Not started | - |
 | 8. Capacity & Security | 0/? | Not started | - |
 | 9. CDR Engine & Webhooks | 0/? | Not started | - |
 | 10. DSP Processing | 0/? | Not started | - |
