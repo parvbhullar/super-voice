@@ -6,6 +6,7 @@ pub mod handler;
 pub mod manipulations_api;
 pub mod playbook;
 pub mod routing_api;
+pub mod security_api;
 pub mod translations_api;
 pub mod trunks_api;
 pub use handler::call_router;

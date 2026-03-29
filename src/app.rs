@@ -77,6 +77,8 @@ pub struct AppStateInner {
     pub runtime_state: Option<Arc<RuntimeState>>,
     /// Capacity enforcement guard (always present; uses Redis when available).
     pub capacity_guard: Option<Arc<crate::capacity::guard::CapacityGuard>>,
+    /// SIP security module (always present; local-only, no Redis dependency).
+    pub security_module: Option<Arc<tokio::sync::RwLock<crate::security::SipSecurityModule>>>,
 }
 
 pub type AppState = Arc<AppStateInner>;
@@ -1107,6 +1109,11 @@ impl AppStateBuilder {
             crate::capacity::guard::CapacityGuard::new(runtime_state.clone()),
         ));
 
+        // Initialize security module (always present; local-only, no Redis dependency).
+        let security_module = Some(Arc::new(tokio::sync::RwLock::new(
+            crate::security::SipSecurityModule::new(crate::security::SecurityConfig::default()),
+        )));
+
         let app_state = Arc::new(AppStateInner {
             config,
             token,
@@ -1132,6 +1139,7 @@ impl AppStateBuilder {
             config_store,
             runtime_state,
             capacity_guard,
+            security_module,
         });
 
         Ok(app_state)

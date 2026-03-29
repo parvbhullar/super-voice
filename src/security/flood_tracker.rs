@@ -107,6 +107,11 @@ impl FloodTracker {
             .collect()
     }
 
+    /// Return the number of IPs currently tracked (any activity in the sliding window).
+    pub fn tracked_count(&self) -> usize {
+        self.entries.read().unwrap().len()
+    }
+
     /// Remove the block on an IP. Returns true if an entry existed.
     pub fn unblock(&self, ip: &IpAddr) -> bool {
         let mut map = self.entries.write().unwrap();

@@ -70,6 +70,7 @@ pub struct BlockedIpEntry {
 
 /// Facade composing all security sub-modules.
 pub struct SipSecurityModule {
+    config: std::sync::RwLock<SecurityConfig>,
     firewall: IpFirewall,
     flood_tracker: FloodTracker,
     brute_force: BruteForceTracker,
@@ -103,11 +104,17 @@ impl SipSecurityModule {
             .collect();
 
         Self {
+            config: std::sync::RwLock::new(config),
             firewall,
             flood_tracker,
             brute_force,
             ua_patterns,
         }
+    }
+
+    /// Return the current SecurityConfig (whitelist, blacklist, ua_blacklist, thresholds).
+    pub fn get_config(&self) -> SecurityConfig {
+        self.config.read().unwrap().clone()
     }
 
     /// Check a request against all security rules.
@@ -170,6 +177,40 @@ impl SipSecurityModule {
         }
     }
 
+    /// Update the firewall lists (whitelist, blacklist, ua_blacklist) and recompile.
+    /// Returns the new SecurityConfig.
+    pub fn update_firewall(
+        &mut self,
+        whitelist: Option<Vec<String>>,
+        blacklist: Option<Vec<String>>,
+        ua_blacklist: Option<Vec<String>>,
+    ) -> SecurityConfig {
+        let mut cfg = self.config.write().unwrap();
+        if let Some(wl) = whitelist {
+            cfg.whitelist = wl;
+        }
+        if let Some(bl) = blacklist {
+            cfg.blacklist = bl;
+        }
+        if let Some(ua) = ua_blacklist {
+            cfg.ua_blacklist = ua;
+        }
+        // Rebuild firewall and UA patterns from new config
+        self.firewall = IpFirewall::new(&cfg.whitelist, &cfg.blacklist);
+        self.ua_patterns = cfg
+            .ua_blacklist
+            .iter()
+            .filter_map(|p| match Regex::new(p) {
+                Ok(r) => Some(r),
+                Err(e) => {
+                    tracing::warn!("Invalid UA blacklist regex '{}': {}", p, e);
+                    None
+                }
+            })
+            .collect();
+        cfg.clone()
+    }
+
     /// Return list of all currently blocked IPs with reason.
     pub fn get_blocked_ips(&self) -> Vec<BlockedIpEntry> {
         let mut entries: Vec<BlockedIpEntry> = Vec::new();
@@ -202,6 +243,38 @@ impl SipSecurityModule {
         } else {
             false
         }
+    }
+
+    /// Return flood tracker stats: (tracked_ips, blocked_ips, entries).
+    pub fn get_flood_stats(&self) -> (usize, usize, Vec<BlockedIpEntry>) {
+        let blocked = self.flood_tracker.get_blocked();
+        let tracked = self.flood_tracker.tracked_count();
+        let blocked_count = blocked.len();
+        let entries = blocked
+            .into_iter()
+            .map(|(ip, blocked_until)| BlockedIpEntry {
+                ip,
+                reason: "flood".to_string(),
+                blocked_until,
+            })
+            .collect();
+        (tracked, blocked_count, entries)
+    }
+
+    /// Return brute-force tracker stats: (tracked_ips, blocked_ips, entries).
+    pub fn get_auth_failure_stats(&self) -> (usize, usize, Vec<BlockedIpEntry>) {
+        let blocked = self.brute_force.get_blocked();
+        let tracked = self.brute_force.tracked_count();
+        let blocked_count = blocked.len();
+        let entries = blocked
+            .into_iter()
+            .map(|(ip, blocked_until)| BlockedIpEntry {
+                ip,
+                reason: "brute_force".to_string(),
+                blocked_until,
+            })
+            .collect();
+        (tracked, blocked_count, entries)
     }
 
     /// Validate a SIP message structure.
