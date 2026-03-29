@@ -841,6 +841,8 @@ mod tests {
             routing: DidRouting {
                 mode: "ai_agent".to_string(),
                 playbook: Some("pb-inbound".to_string()),
+                webrtc_config: None,
+                ws_config: None,
             },
             caller_name: Some("Test Corp".to_string()),
         }
@@ -889,6 +891,8 @@ mod tests {
             routing: DidRouting {
                 mode: "sip_proxy".to_string(),
                 playbook: None,
+                webrtc_config: None,
+                ws_config: None,
             },
             caller_name: None,
         };

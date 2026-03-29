@@ -98,13 +98,41 @@ pub struct OriginationUri {
     pub weight: Option<u32>,
 }
 
+/// WebRTC bridge configuration for a DID.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct WebRtcBridgeConfig {
+    /// ICE servers for the WebRTC peer connection (optional; uses default STUN if omitted).
+    #[serde(default)]
+    pub ice_servers: Option<Vec<String>>,
+    /// Whether to use ICE-lite mode (server-side, no full ICE). Default false.
+    #[serde(default)]
+    pub ice_lite: Option<bool>,
+}
+
+/// WebSocket bridge configuration for a DID.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct WsBridgeConfig {
+    /// Target WebSocket URL to connect to (e.g. "wss://ai-backend.example.com/audio").
+    pub url: String,
+    /// Audio codec to use on the WS connection: "pcmu", "pcma", or "pcm". Default "pcmu".
+    #[serde(default)]
+    pub codec: Option<String>,
+}
+
 /// Routing mode for an inbound DID number.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct DidRouting {
-    /// "ai_agent" routes to an AI playbook; "sip_proxy" passes through to SIP.
+    /// "ai_agent" routes to an AI playbook; "sip_proxy" passes through to SIP;
+    /// "webrtc_bridge" bridges to a WebRTC endpoint; "ws_bridge" bridges to a WebSocket.
     pub mode: String,
     /// Playbook identifier; required when mode is "ai_agent".
     pub playbook: Option<String>,
+    /// WebRTC bridge configuration; relevant when mode is "webrtc_bridge".
+    #[serde(default)]
+    pub webrtc_config: Option<WebRtcBridgeConfig>,
+    /// WebSocket bridge configuration; required when mode is "ws_bridge".
+    #[serde(default)]
+    pub ws_config: Option<WsBridgeConfig>,
 }
 
 /// Configuration binding a DID (Direct Inward Dialing) number to a trunk.
@@ -555,6 +583,8 @@ mod tests {
             routing: DidRouting {
                 mode: "ai_agent".to_string(),
                 playbook: Some("pb-inbound".to_string()),
+                webrtc_config: None,
+                ws_config: None,
             },
             caller_name: Some("Acme Corp".to_string()),
         }
@@ -613,6 +643,8 @@ mod tests {
         let original = DidRouting {
             mode: "ai_agent".to_string(),
             playbook: Some("pb-inbound".to_string()),
+            webrtc_config: None,
+            ws_config: None,
         };
         let json = serde_json::to_string(&original).expect("serialize");
         let restored: DidRouting = serde_json::from_str(&json).expect("deserialize");
@@ -624,10 +656,55 @@ mod tests {
         let original = DidRouting {
             mode: "sip_proxy".to_string(),
             playbook: None,
+            webrtc_config: None,
+            ws_config: None,
         };
         let json = serde_json::to_string(&original).expect("serialize");
         let restored: DidRouting = serde_json::from_str(&json).expect("deserialize");
         assert_eq!(original, restored);
+    }
+
+    #[test]
+    fn test_did_routing_webrtc_bridge_serde_round_trip() {
+        let original = DidRouting {
+            mode: "webrtc_bridge".to_string(),
+            playbook: None,
+            webrtc_config: Some(WebRtcBridgeConfig {
+                ice_servers: Some(vec!["stun:stun.example.com:3478".to_string()]),
+                ice_lite: Some(true),
+            }),
+            ws_config: None,
+        };
+        let json = serde_json::to_string(&original).expect("serialize");
+        let restored: DidRouting = serde_json::from_str(&json).expect("deserialize");
+        assert_eq!(original, restored);
+    }
+
+    #[test]
+    fn test_did_routing_ws_bridge_serde_round_trip() {
+        let original = DidRouting {
+            mode: "ws_bridge".to_string(),
+            playbook: None,
+            webrtc_config: None,
+            ws_config: Some(WsBridgeConfig {
+                url: "wss://ai-backend.example.com/audio".to_string(),
+                codec: Some("pcmu".to_string()),
+            }),
+        };
+        let json = serde_json::to_string(&original).expect("serialize");
+        let restored: DidRouting = serde_json::from_str(&json).expect("deserialize");
+        assert_eq!(original, restored);
+    }
+
+    #[test]
+    fn test_did_routing_backward_compat_without_new_fields() {
+        // JSON produced before the new fields were added should still deserialize.
+        let legacy_json = r#"{"mode":"ai_agent","playbook":"pb-inbound"}"#;
+        let restored: DidRouting = serde_json::from_str(legacy_json).expect("deserialize legacy");
+        assert_eq!(restored.mode, "ai_agent");
+        assert_eq!(restored.playbook, Some("pb-inbound".to_string()));
+        assert!(restored.webrtc_config.is_none());
+        assert!(restored.ws_config.is_none());
     }
 
     #[test]
@@ -646,6 +723,8 @@ mod tests {
             routing: DidRouting {
                 mode: "sip_proxy".to_string(),
                 playbook: None,
+                webrtc_config: None,
+                ws_config: None,
             },
             caller_name: None,
         };

@@ -41,11 +41,25 @@ fn validate_did(config: &DidConfig) -> Option<(StatusCode, Json<serde_json::Valu
             Json(json!({"error": "trunk must not be empty"})),
         ));
     }
-    if !matches!(config.routing.mode.as_str(), "ai_agent" | "sip_proxy") {
+    if !matches!(
+        config.routing.mode.as_str(),
+        "ai_agent" | "sip_proxy" | "webrtc_bridge" | "ws_bridge"
+    ) {
         return Some((
             StatusCode::BAD_REQUEST,
-            Json(json!({"error": "routing.mode must be ai_agent or sip_proxy"})),
+            Json(json!({"error": "routing.mode must be ai_agent, sip_proxy, webrtc_bridge, or ws_bridge"})),
         ));
+    }
+    if config.routing.mode == "ws_bridge" {
+        match config.routing.ws_config.as_ref() {
+            Some(ws_cfg) if !ws_cfg.url.is_empty() => {}
+            _ => {
+                return Some((
+                    StatusCode::BAD_REQUEST,
+                    Json(json!({"error": "ws_config.url is required when routing.mode is ws_bridge"})),
+                ));
+            }
+        }
     }
     None
 }
@@ -187,5 +201,114 @@ pub async fn delete_did(
             Json(json!({"error": e.to_string()})),
         )
             .into_response(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::redis_state::types::{DidRouting, WsBridgeConfig, WebRtcBridgeConfig};
+
+    fn make_did(mode: &str) -> DidConfig {
+        DidConfig {
+            number: "+15551234567".to_string(),
+            trunk: "trunk1".to_string(),
+            routing: DidRouting {
+                mode: mode.to_string(),
+                playbook: None,
+                webrtc_config: None,
+                ws_config: None,
+            },
+            caller_name: None,
+        }
+    }
+
+    #[test]
+    fn test_validate_did_accepts_ai_agent() {
+        let did = make_did("ai_agent");
+        assert!(validate_did(&did).is_none());
+    }
+
+    #[test]
+    fn test_validate_did_accepts_sip_proxy() {
+        let did = make_did("sip_proxy");
+        assert!(validate_did(&did).is_none());
+    }
+
+    #[test]
+    fn test_validate_did_accepts_webrtc_bridge() {
+        let did = make_did("webrtc_bridge");
+        assert!(validate_did(&did).is_none());
+    }
+
+    #[test]
+    fn test_validate_did_accepts_ws_bridge_with_url() {
+        let mut did = make_did("ws_bridge");
+        did.routing.ws_config = Some(WsBridgeConfig {
+            url: "wss://example.com/audio".to_string(),
+            codec: None,
+        });
+        assert!(validate_did(&did).is_none());
+    }
+
+    #[test]
+    fn test_validate_did_rejects_ws_bridge_without_config() {
+        let did = make_did("ws_bridge");
+        let result = validate_did(&did);
+        assert!(result.is_some());
+        let (status, _) = result.unwrap();
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+    }
+
+    #[test]
+    fn test_validate_did_rejects_ws_bridge_with_empty_url() {
+        let mut did = make_did("ws_bridge");
+        did.routing.ws_config = Some(WsBridgeConfig {
+            url: "".to_string(),
+            codec: None,
+        });
+        let result = validate_did(&did);
+        assert!(result.is_some());
+        let (status, _) = result.unwrap();
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+    }
+
+    #[test]
+    fn test_validate_did_rejects_unknown_mode() {
+        let did = make_did("unknown_mode");
+        let result = validate_did(&did);
+        assert!(result.is_some());
+        let (status, _) = result.unwrap();
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+    }
+
+    #[test]
+    fn test_validate_did_rejects_empty_number() {
+        let mut did = make_did("ai_agent");
+        did.number = "".to_string();
+        let result = validate_did(&did);
+        assert!(result.is_some());
+        let (status, _) = result.unwrap();
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+    }
+
+    #[test]
+    fn test_validate_did_rejects_empty_trunk() {
+        let mut did = make_did("sip_proxy");
+        did.trunk = "".to_string();
+        let result = validate_did(&did);
+        assert!(result.is_some());
+        let (status, _) = result.unwrap();
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+    }
+
+    #[test]
+    fn test_validate_did_webrtc_bridge_with_config() {
+        let mut did = make_did("webrtc_bridge");
+        did.routing.webrtc_config = Some(WebRtcBridgeConfig {
+            ice_servers: Some(vec!["stun:stun.example.com:3478".to_string()]),
+            ice_lite: Some(false),
+        });
+        assert!(validate_did(&did).is_none());
     }
 }
