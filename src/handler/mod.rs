@@ -1,4 +1,5 @@
 pub mod calls_api;
+pub mod cdrs_api;
 pub mod dids_api;
 pub mod endpoints_api;
 pub mod gateways_api;
@@ -9,6 +10,7 @@ pub mod routing_api;
 pub mod security_api;
 pub mod translations_api;
 pub mod trunks_api;
+pub mod webhooks_api;
 pub use handler::call_router;
 pub use handler::carrier_admin_router;
 pub use handler::iceservers_router;

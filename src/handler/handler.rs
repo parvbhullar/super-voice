@@ -5,8 +5,8 @@ use crate::{
         active_call::{ActiveCallGuard, CallParams},
     },
     handler::{
-        calls_api, dids_api, endpoints_api, gateways_api, manipulations_api, playbook,
-        routing_api, security_api, translations_api, trunks_api,
+        calls_api, cdrs_api, dids_api, endpoints_api, gateways_api, manipulations_api, playbook,
+        routing_api, security_api, translations_api, trunks_api, webhooks_api,
     },
     playbook::{Playbook, PlaybookRunner},
     redis_state::auth::auth_middleware,
@@ -239,6 +239,30 @@ pub fn carrier_admin_router(app_state: AppState) -> Router<AppState> {
         .route(
             "/api/v1/security/auth-failures",
             get(security_api::get_auth_failures),
+        )
+        // ── Webhooks ────────────────────────────────────────────────────────
+        .route(
+            "/api/v1/webhooks",
+            get(webhooks_api::list_webhooks).post(webhooks_api::create_webhook),
+        )
+        .route(
+            "/api/v1/webhooks/{id}",
+            axum::routing::put(webhooks_api::update_webhook)
+                .delete(webhooks_api::delete_webhook),
+        )
+        // ── CDR Query API ───────────────────────────────────────────────────
+        .route("/api/v1/cdrs", get(cdrs_api::list_cdrs))
+        .route(
+            "/api/v1/cdrs/{id}",
+            get(cdrs_api::get_cdr).delete(cdrs_api::delete_cdr),
+        )
+        .route(
+            "/api/v1/cdrs/{id}/recording",
+            get(cdrs_api::get_cdr_recording),
+        )
+        .route(
+            "/api/v1/cdrs/{id}/sip-flow",
+            get(cdrs_api::get_cdr_sip_flow),
         )
         .route_layer(middleware::from_fn_with_state(app_state, auth_middleware))
 }
