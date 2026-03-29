@@ -15,13 +15,13 @@
 
 ### Endpoints
 
-- [ ] **ENDP-01**: Operator can create a SIP endpoint with Sofia-SIP stack (carrier-facing)
-- [ ] **ENDP-02**: Operator can create a SIP endpoint with rsipstack (internal/WebRTC)
-- [ ] **ENDP-03**: Endpoint supports TLS with cert configuration
-- [ ] **ENDP-04**: Endpoint supports NAT traversal (auto-detect, static IP, STUN)
-- [ ] **ENDP-05**: Endpoint supports digest authentication (407 challenge-response)
-- [ ] **ENDP-06**: Endpoint supports session timers (RFC 4028)
-- [ ] **ENDP-07**: Multiple endpoints can run simultaneously on different ports
+- [x] **ENDP-01**: Operator can create a SIP endpoint with Sofia-SIP stack (carrier-facing)
+- [x] **ENDP-02**: Operator can create a SIP endpoint with rsipstack (internal/WebRTC)
+- [x] **ENDP-03**: Endpoint supports TLS with cert configuration
+- [x] **ENDP-04**: Endpoint supports NAT traversal (auto-detect, static IP, STUN)
+- [x] **ENDP-05**: Endpoint supports digest authentication (407 challenge-response)
+- [x] **ENDP-06**: Endpoint supports session timers (RFC 4028)
+- [x] **ENDP-07**: Multiple endpoints can run simultaneously on different ports
 
 ### Gateways
 
@@ -207,13 +207,13 @@ Which phases cover which requirements. Updated during roadmap creation.
 | RDIS-03 | Phase 2 | Complete |
 | RDIS-04 | Phase 2 | Complete |
 | RAPI-15 | Phase 2 | Complete |
-| ENDP-01 | Phase 3 | Pending |
-| ENDP-02 | Phase 3 | Pending |
-| ENDP-03 | Phase 3 | Pending |
-| ENDP-04 | Phase 3 | Pending |
-| ENDP-05 | Phase 3 | Pending |
-| ENDP-06 | Phase 3 | Pending |
-| ENDP-07 | Phase 3 | Pending |
+| ENDP-01 | Phase 3 | Complete |
+| ENDP-02 | Phase 3 | Complete |
+| ENDP-03 | Phase 3 | Complete |
+| ENDP-04 | Phase 3 | Complete |
+| ENDP-05 | Phase 3 | Complete |
+| ENDP-06 | Phase 3 | Complete |
+| ENDP-07 | Phase 3 | Complete |
 | GTWY-01 | Phase 3 | Pending |
 | GTWY-02 | Phase 3 | Pending |
 | GTWY-03 | Phase 3 | Pending |

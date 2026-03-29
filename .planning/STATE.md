@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: planning
-stopped_at: Completed 02-redis-state-layer 02-03-PLAN.md
-last_updated: "2026-03-29T08:31:19.280Z"
+stopped_at: Completed 03-endpoints-gateways 03-01-PLAN.md
+last_updated: "2026-03-29T09:17:59.343Z"
 last_activity: 2026-03-27 — Roadmap created for v1.0 Carrier Edition (11 phases, 98 requirements mapped)
 progress:
   total_phases: 11
   completed_phases: 2
-  total_plans: 7
-  completed_plans: 7
+  total_plans: 10
+  completed_plans: 8
   percent: 0
 ---
 
@@ -56,6 +56,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 02-redis-state-layer P01 | 6 | 2 tasks | 7 files |
 | Phase 02-redis-state-layer P02 | 25 | 2 tasks | 5 files |
 | Phase 02-redis-state-layer P03 | 21 | 2 tasks | 9 files |
+| Phase 03-endpoints-gateways P01 | 440 | 2 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -85,6 +86,9 @@ Recent decisions affecting current work:
 - [Phase 02-redis-state-layer]: Dedicated Redis connection for pub/sub subscribe: ConnectionManager cannot be used for blocking subscribe mode
 - [Phase 02-redis-state-layer]: EngagementTracker uses two Redis sets per relationship (refs + deps) for O(1) bidirectional lookups; ConfigStore.with_engagement is optional opt-in
 - [Phase 02-redis-state-layer]: ApiKeyStore stores {name}:{sha256_hash} in a single Redis SET sv:api_keys; auth_middleware in AppState.api_key_store; carrier_admin_router uses route_layer for isolated auth
+- [Phase 03-endpoints-gateways]: validate_digest_auth parses Digest header key-value pairs, tolerant of optional prefix, lower-cases keys
+- [Phase 03-endpoints-gateways]: EndpointManager returns Err for unknown stack type; SofiaEndpoint gated behind carrier feature
+- [Phase 03-endpoints-gateways]: RsipEndpoint defers TLS/NAT/auth wiring to Phase 3 with explicit TODOs; structural plumbing complete
 
 ### Pending Todos
 
@@ -98,6 +102,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-29T08:18:58.790Z
-Stopped at: Completed 02-redis-state-layer 02-03-PLAN.md
+Last session: 2026-03-29T09:17:59.340Z
+Stopped at: Completed 03-endpoints-gateways 03-01-PLAN.md
 Resume file: None

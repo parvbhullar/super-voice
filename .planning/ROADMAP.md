@@ -172,7 +172,7 @@ Note: Phase 8 depends on Phase 3 (not Phase 7), so it can proceed in parallel af
 |-------|----------------|--------|-----------|
 | 1. FFI Foundation & Build | 4/4 | Complete    | 2026-03-28 |
 | 2. Redis State Layer | 2/3 | Complete    | 2026-03-29 |
-| 3. Endpoints & Gateways | 0/? | Not started | - |
+| 3. Endpoints & Gateways | 1/3 | In Progress|  |
 | 4. Trunks, DIDs & Entity API | 0/? | Not started | - |
 | 5. Routing, Translation & Manipulation | 0/? | Not started | - |
 | 6. Proxy Call (B2BUA) | 0/? | Not started | - |
