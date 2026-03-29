@@ -18,6 +18,8 @@ pub mod call;
 pub mod endpoint;
 pub mod gateway;
 pub mod redis_state;
+pub mod manipulation;
+pub mod routing;
 pub mod translation;
 pub mod trunk;
 pub mod callrecord;
