@@ -33,20 +33,20 @@
 
 ### Trunks
 
-- [ ] **TRNK-01**: Operator can create a trunk grouping multiple gateways with weights/priorities
-- [ ] **TRNK-02**: Trunk supports bidirectional operation (inbound + outbound)
-- [ ] **TRNK-03**: Trunk supports multiple distribution algorithms (weight, round-robin, hash)
-- [ ] **TRNK-04**: Operator can add digest auth credentials to a trunk
-- [ ] **TRNK-05**: Operator can add IP ACL entries to a trunk
-- [ ] **TRNK-06**: Operator can assign origination URIs with priority/weight to a trunk
-- [ ] **TRNK-07**: Trunk enforces capacity limits (max concurrent calls, max CPS)
-- [ ] **TRNK-08**: Trunk associates media class (codecs, DTMF mode, SRTP, media mode)
+- [x] **TRNK-01**: Operator can create a trunk grouping multiple gateways with weights/priorities
+- [x] **TRNK-02**: Trunk supports bidirectional operation (inbound + outbound)
+- [x] **TRNK-03**: Trunk supports multiple distribution algorithms (weight, round-robin, hash)
+- [x] **TRNK-04**: Operator can add digest auth credentials to a trunk
+- [x] **TRNK-05**: Operator can add IP ACL entries to a trunk
+- [x] **TRNK-06**: Operator can assign origination URIs with priority/weight to a trunk
+- [x] **TRNK-07**: Trunk enforces capacity limits (max concurrent calls, max CPS)
+- [x] **TRNK-08**: Trunk associates media class (codecs, DTMF mode, SRTP, media mode)
 
 ### DID Numbers
 
-- [ ] **DIDN-01**: Operator can assign a DID number to a trunk
-- [ ] **DIDN-02**: DID can route to AI agent mode (with playbook) or proxy mode
-- [ ] **DIDN-03**: DID supports caller name configuration
+- [x] **DIDN-01**: Operator can assign a DID number to a trunk
+- [x] **DIDN-02**: DID can route to AI agent mode (with playbook) or proxy mode
+- [x] **DIDN-03**: DID supports caller name configuration
 
 ### Call Routing
 
@@ -221,17 +221,17 @@ Which phases cover which requirements. Updated during roadmap creation.
 | GTWY-05 | Phase 3 | Complete |
 | RAPI-01 | Phase 3 | Complete |
 | RAPI-02 | Phase 3 | Complete |
-| TRNK-01 | Phase 4 | Pending |
-| TRNK-02 | Phase 4 | Pending |
-| TRNK-03 | Phase 4 | Pending |
-| TRNK-04 | Phase 4 | Pending |
-| TRNK-05 | Phase 4 | Pending |
-| TRNK-06 | Phase 4 | Pending |
-| TRNK-07 | Phase 4 | Pending |
-| TRNK-08 | Phase 4 | Pending |
-| DIDN-01 | Phase 4 | Pending |
-| DIDN-02 | Phase 4 | Pending |
-| DIDN-03 | Phase 4 | Pending |
+| TRNK-01 | Phase 4 | Complete |
+| TRNK-02 | Phase 4 | Complete |
+| TRNK-03 | Phase 4 | Complete |
+| TRNK-04 | Phase 4 | Complete |
+| TRNK-05 | Phase 4 | Complete |
+| TRNK-06 | Phase 4 | Complete |
+| TRNK-07 | Phase 4 | Complete |
+| TRNK-08 | Phase 4 | Complete |
+| DIDN-01 | Phase 4 | Complete |
+| DIDN-02 | Phase 4 | Complete |
+| DIDN-03 | Phase 4 | Complete |
 | RAPI-03 | Phase 4 | Pending |
 | RAPI-04 | Phase 4 | Pending |
 | RAPI-14 | Phase 4 | Pending |
