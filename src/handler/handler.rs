@@ -4,7 +4,7 @@ use crate::{
         ActiveCall, ActiveCallType, Command,
         active_call::{ActiveCallGuard, CallParams},
     },
-    handler::{endpoints_api, gateways_api, playbook},
+    handler::{dids_api, endpoints_api, gateways_api, playbook, trunks_api},
     playbook::{Playbook, PlaybookRunner},
     redis_state::auth::auth_middleware,
 };
@@ -93,6 +93,62 @@ pub fn carrier_admin_router(app_state: AppState) -> Router<AppState> {
             get(gateways_api::get_gateway)
                 .put(gateways_api::update_gateway)
                 .delete(gateways_api::delete_gateway),
+        )
+        // ── Trunk CRUD ──────────────────────────────────────────────────────
+        .route(
+            "/api/v1/trunks",
+            get(trunks_api::list_trunks).post(trunks_api::create_trunk),
+        )
+        .route(
+            "/api/v1/trunks/{name}",
+            get(trunks_api::get_trunk)
+                .put(trunks_api::update_trunk)
+                .patch(trunks_api::patch_trunk)
+                .delete(trunks_api::delete_trunk),
+        )
+        // ── Trunk sub-resources ─────────────────────────────────────────────
+        .route(
+            "/api/v1/trunks/{name}/credentials",
+            get(trunks_api::list_credentials).post(trunks_api::add_credential),
+        )
+        .route(
+            "/api/v1/trunks/{name}/credentials/{realm}",
+            axum::routing::delete(trunks_api::delete_credential),
+        )
+        .route(
+            "/api/v1/trunks/{name}/acl",
+            get(trunks_api::list_acl).post(trunks_api::add_acl_entry),
+        )
+        .route(
+            "/api/v1/trunks/{name}/acl/{entry}",
+            axum::routing::delete(trunks_api::delete_acl_entry),
+        )
+        .route(
+            "/api/v1/trunks/{name}/origination_uris",
+            get(trunks_api::list_origination_uris).post(trunks_api::add_origination_uri),
+        )
+        .route(
+            "/api/v1/trunks/{name}/origination_uris/{uri}",
+            axum::routing::delete(trunks_api::delete_origination_uri),
+        )
+        .route(
+            "/api/v1/trunks/{name}/media",
+            get(trunks_api::get_media).put(trunks_api::set_media),
+        )
+        .route(
+            "/api/v1/trunks/{name}/capacity",
+            get(trunks_api::get_capacity).put(trunks_api::set_capacity),
+        )
+        // ── DID CRUD ────────────────────────────────────────────────────────
+        .route(
+            "/api/v1/dids",
+            get(dids_api::list_dids).post(dids_api::create_did),
+        )
+        .route(
+            "/api/v1/dids/{number}",
+            get(dids_api::get_did)
+                .put(dids_api::update_did)
+                .delete(dids_api::delete_did),
         )
         .route_layer(middleware::from_fn_with_state(app_state, auth_middleware))
 }

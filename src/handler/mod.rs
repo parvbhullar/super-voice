@@ -1,7 +1,9 @@
+pub mod dids_api;
 pub mod endpoints_api;
 pub mod gateways_api;
 pub mod handler;
 pub mod playbook;
+pub mod trunks_api;
 pub use handler::call_router;
 pub use handler::carrier_admin_router;
 pub use handler::iceservers_router;

@@ -13,6 +13,7 @@ pub use pool::RedisPool;
 pub use pubsub::{ConfigChangeEvent, ConfigPubSub};
 pub use runtime_state::{GatewayHealthStatus, RuntimeState};
 pub use types::{
-    EndpointConfig, GatewayConfig, ManipulationClassConfig, RoutingTableConfig,
-    TranslationClassConfig, TrunkConfig,
+    CapacityConfig, DidConfig, EndpointConfig, GatewayConfig, ManipulationClassConfig,
+    MediaConfig, OriginationUri, RoutingTableConfig, TranslationClassConfig, TrunkConfig,
+    TrunkCredential,
 };
