@@ -8,14 +8,17 @@
 use crate::app::AppState;
 use crate::call::sip::DialogStateReceiverGuard;
 use crate::capacity::guard::CapacityCheckResult;
+use crate::cdr::{CarrierCdr, CdrLeg, CdrStatus, CdrTiming};
 use crate::manipulation::engine::{ManipulationContext, ManipulationEngine};
 use crate::proxy::session::ProxyCallSession;
-use crate::proxy::types::ProxyCallContext;
+use crate::proxy::types::{ProxyCallContext, ProxyCallEvent, ProxyCallPhase};
 use crate::redis_state::types::DidConfig;
 use crate::routing::engine::{RouteContext, RoutingEngine};
 use crate::translation::engine::{TranslationEngine, TranslationInput};
 use anyhow::{Result, anyhow};
+use chrono::{DateTime, Utc};
 use tracing::{info, warn};
+use uuid::Uuid;
 
 /// Dispatch an inbound INVITE to a proxy call session.
 ///
@@ -277,7 +280,7 @@ pub async fn dispatch_proxy_call(
     // ------------------------------------------------------------------ //
 
     let cancel_token = app_state.token.child_token();
-    let (mut session, _event_rx) = ProxyCallSession::new(
+    let (mut session, event_rx) = ProxyCallSession::new(
         context,
         cancel_token,
         caller_dialog,
@@ -317,16 +320,141 @@ pub async fn dispatch_proxy_call(
         "dispatch: starting proxy call session"
     );
 
-    if let Err(e) = session
+    // ------------------------------------------------------------------ //
+    // 8a. Spawn event collector for CDR timing capture                   //
+    // ------------------------------------------------------------------ //
+
+    let timing_handle = {
+        let mut rx = event_rx;
+        tokio::spawn(async move {
+            let mut ring_time: Option<DateTime<Utc>> = None;
+            let mut answer_time: Option<DateTime<Utc>> = None;
+            let mut cdr_status = CdrStatus::Completed;
+            while let Some(event) = rx.recv().await {
+                match event {
+                    ProxyCallEvent::PhaseChanged(ProxyCallPhase::Ringing) => {
+                        ring_time.get_or_insert_with(Utc::now);
+                    }
+                    ProxyCallEvent::PhaseChanged(ProxyCallPhase::EarlyMedia) => {
+                        ring_time.get_or_insert_with(Utc::now);
+                    }
+                    ProxyCallEvent::Answered { .. } => {
+                        answer_time.get_or_insert_with(Utc::now);
+                    }
+                    ProxyCallEvent::Terminated { reason, .. } => {
+                        cdr_status = terminated_reason_to_cdr_status(&reason);
+                    }
+                    _ => {}
+                }
+            }
+            (ring_time, answer_time, cdr_status)
+        })
+    };
+
+    // ------------------------------------------------------------------ //
+    // 8b. Run session                                                     //
+    // ------------------------------------------------------------------ //
+
+    let session_result = session
         .run(&trunk, &caller_sdp, &final_caller_uri, &final_callee_uri)
-        .await
-    {
+        .await;
+
+    if let Err(ref e) = session_result {
         warn!(session_id = %session_id, "dispatch: session ended with error: {e}");
     }
 
     // Decrement the concurrent call counter now that the session has ended.
     if let Some(ref guard) = app_state.capacity_guard {
         guard.release_call(&trunk.name, &session_id).await;
+    }
+
+    // ------------------------------------------------------------------ //
+    // 9. Generate and enqueue CDR                                         //
+    // ------------------------------------------------------------------ //
+
+    let (ring_time, answer_time, cdr_status) =
+        timing_handle.await.unwrap_or((None, None, CdrStatus::Failed));
+
+    // Derive status from session result when the event channel did not
+    // emit a Terminated event (e.g. cancelled calls).
+    let final_status = if let Err(_) = session_result {
+        CdrStatus::Failed
+    } else {
+        cdr_status
+    };
+
+    let node_id = std::env::var("NODE_ID").unwrap_or_else(|_| {
+        std::fs::read_to_string("/etc/hostname")
+            .ok()
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(|| "unknown".to_string())
+    });
+
+    let inbound_leg = CdrLeg {
+        trunk: did.trunk.clone(),
+        gateway: None,
+        caller: extract_user(&final_caller_uri),
+        callee: extract_user(&final_callee_uri),
+        codec: None,
+        transport: "udp".to_string(),
+        srtp: false,
+        sip_status: if final_status == CdrStatus::Completed {
+            200
+        } else {
+            0
+        },
+        hangup_cause: None,
+        source_ip: None,
+        destination_ip: None,
+    };
+
+    let outbound_leg = Some(CdrLeg {
+        trunk: trunk.name.clone(),
+        gateway: trunk.gateways.first().map(|g| g.name.clone()),
+        caller: extract_user(&final_caller_uri),
+        callee: extract_user(&final_callee_uri),
+        codec: None,
+        transport: "udp".to_string(),
+        srtp: false,
+        sip_status: if final_status == CdrStatus::Completed {
+            200
+        } else {
+            0
+        },
+        hangup_cause: None,
+        source_ip: None,
+        destination_ip: None,
+    });
+
+    let cdr = CarrierCdr {
+        uuid: Uuid::new_v4(),
+        session_id: session_id.clone(),
+        call_id: session_id.clone(),
+        node_id,
+        created_at: Utc::now(),
+        inbound_leg,
+        outbound_leg,
+        timing: CdrTiming {
+            start_time: session.context().start_time,
+            ring_time,
+            answer_time,
+            end_time: Utc::now(),
+        },
+        status: final_status,
+    };
+
+    if let Some(ref cdr_queue) = app_state.cdr_queue {
+        if let Err(e) = cdr_queue.enqueue(&cdr).await {
+            warn!(session_id = %session_id, "dispatch: failed to enqueue CDR: {e}");
+        } else {
+            info!(
+                session_id = %session_id,
+                cdr_uuid = %cdr.uuid,
+                billsec = cdr.billsec(),
+                "dispatch: CDR enqueued"
+            );
+        }
     }
 
     info!(session_id = %session_id, "dispatch: session complete");
@@ -395,6 +523,22 @@ pub async fn dispatch_bridge_call(
             warn!(session_id = %session_id, mode = %other, "dispatch: unknown bridge mode");
             Err(anyhow!("unknown bridge mode: {}", other))
         }
+    }
+}
+
+/// Map a SIP termination reason string to a [`CdrStatus`].
+fn terminated_reason_to_cdr_status(reason: &str) -> CdrStatus {
+    let lower = reason.to_lowercase();
+    if lower.contains("cancel") {
+        CdrStatus::Cancelled
+    } else if lower.contains("busy") || lower.contains("486") {
+        CdrStatus::Busy
+    } else if lower.contains("no_answer") || lower.contains("no answer") || lower.contains("408") {
+        CdrStatus::NoAnswer
+    } else if lower.contains("normal") || lower.contains("200") {
+        CdrStatus::Completed
+    } else {
+        CdrStatus::Failed
     }
 }
 
@@ -486,5 +630,33 @@ mod tests {
         assert!(classify_mode("unknown_mode").is_err());
         let err = classify_mode("foobar").unwrap_err();
         assert!(err.to_string().contains("foobar"));
+    }
+
+    #[test]
+    fn test_terminated_reason_to_cdr_status_mapping() {
+        assert_eq!(
+            terminated_reason_to_cdr_status("NORMAL_CLEARING"),
+            CdrStatus::Completed
+        );
+        assert_eq!(
+            terminated_reason_to_cdr_status("CANCEL"),
+            CdrStatus::Cancelled
+        );
+        assert_eq!(
+            terminated_reason_to_cdr_status("USER_BUSY"),
+            CdrStatus::Busy
+        );
+        assert_eq!(
+            terminated_reason_to_cdr_status("NO_ANSWER"),
+            CdrStatus::NoAnswer
+        );
+        assert_eq!(
+            terminated_reason_to_cdr_status("unknown_reason"),
+            CdrStatus::Failed
+        );
+        assert_eq!(
+            terminated_reason_to_cdr_status("486 Busy Here"),
+            CdrStatus::Busy
+        );
     }
 }

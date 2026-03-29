@@ -80,6 +80,8 @@ pub struct AppStateInner {
     pub capacity_guard: Option<Arc<crate::capacity::guard::CapacityGuard>>,
     /// SIP security module (always present; local-only, no Redis dependency).
     pub security_module: Option<Arc<tokio::sync::RwLock<crate::security::SipSecurityModule>>>,
+    /// CDR queue for pushing call detail records to Redis (Some if Redis configured).
+    pub cdr_queue: Option<Arc<crate::cdr::CdrQueue>>,
 }
 
 pub type AppState = Arc<AppStateInner>;
@@ -1177,12 +1179,13 @@ impl AppStateBuilder {
 
         // Initialize Redis-backed stores and managers when redis_url is configured.
         // endpoint_manager is always created; gateway_manager requires Redis.
-        let (config_store, runtime_state, endpoint_manager, gateway_manager) =
+        let (config_store, runtime_state, endpoint_manager, gateway_manager, cdr_queue) =
             if let Some(ref redis_url) = config.redis_url {
                 match RedisPool::new(redis_url).await {
                     Ok(pool) => {
                         let cs = Arc::new(ConfigStore::new(pool.clone()));
-                        let rs = Arc::new(RuntimeState::new(pool));
+                        let rs = Arc::new(RuntimeState::new(pool.clone()));
+                        let cq = Arc::new(crate::cdr::CdrQueue::new(pool));
 
                         let mut em = EndpointManager::new();
                         if let Err(e) = em.load_from_config_store(&cs).await {
@@ -1199,12 +1202,12 @@ impl AppStateBuilder {
                         monitor.start();
 
                         let em_shared = Arc::new(tokio::sync::Mutex::new(em));
-                        (Some(cs), Some(rs), em_shared, Some(gm_shared))
+                        (Some(cs), Some(rs), em_shared, Some(gm_shared), Some(cq))
                     }
                     Err(e) => {
                         warn!("failed to connect to Redis: {:?}", e);
                         let em = Arc::new(tokio::sync::Mutex::new(EndpointManager::new()));
-                        (None, None, em, None)
+                        (None, None, em, None, None)
                     }
                 }
             } else {
@@ -1212,7 +1215,7 @@ impl AppStateBuilder {
                 let em = self
                     .endpoint_manager
                     .unwrap_or_else(|| Arc::new(tokio::sync::Mutex::new(EndpointManager::new())));
-                (None, None, em, self.gateway_manager)
+                (None, None, em, self.gateway_manager, None)
             };
 
         // Initialize capacity guard; uses Redis if available, else local-only.
@@ -1251,6 +1254,7 @@ impl AppStateBuilder {
             runtime_state,
             capacity_guard,
             security_module,
+            cdr_queue,
         });
 
         Ok(app_state)
