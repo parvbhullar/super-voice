@@ -13,7 +13,7 @@ This roadmap transforms Super Voice from an AI voice agent into a carrier-grade 
 Decimal phases appear between their surrounding integers in numeric order.
 
 - [x] **Phase 1: FFI Foundation & Build** - Sofia-SIP and SpanDSP C bindings with Cargo workspace and feature flags (completed 2026-03-28)
-- [ ] **Phase 2: Redis State Layer** - Redis-backed config storage, runtime state, pub/sub, engagement tracking, API auth
+- [x] **Phase 2: Redis State Layer** - Redis-backed config storage, runtime state, pub/sub, engagement tracking, API auth (completed 2026-03-29)
 - [ ] **Phase 3: Endpoints & Gateways** - SIP listener endpoints (Sofia + rsipstack) and outbound gateways with health monitoring
 - [ ] **Phase 4: Trunks, DIDs & Entity API** - Trunk grouping with capacity/codec/ACL, DID number management, REST CRUD for all entities
 - [ ] **Phase 5: Routing, Translation & Manipulation** - LPM/regex/HTTP routing tables, number translation classes, SIP header manipulation
@@ -52,7 +52,7 @@ Plans:
   2. A config change published via Redis pub/sub is picked up by all subscribers within 100ms
   3. Attempting to delete a resource that is referenced by another active resource returns an error with the dependent resource named
   4. API requests authenticated with a valid Bearer token succeed; requests without a token return 401
-**Plans:** 2/3 plans executed
+**Plans:** 3/3 plans complete
 Plans:
 - [ ] 02-01-PLAN.md — Redis connection pool, entity types, ConfigStore CRUD
 - [ ] 02-02-PLAN.md — Pub/sub config propagation, runtime state tracking
@@ -171,7 +171,7 @@ Note: Phase 8 depends on Phase 3 (not Phase 7), so it can proceed in parallel af
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. FFI Foundation & Build | 4/4 | Complete    | 2026-03-28 |
-| 2. Redis State Layer | 2/3 | In Progress|  |
+| 2. Redis State Layer | 2/3 | Complete    | 2026-03-29 |
 | 3. Endpoints & Gateways | 0/? | Not started | - |
 | 4. Trunks, DIDs & Entity API | 0/? | Not started | - |
 | 5. Routing, Translation & Manipulation | 0/? | Not started | - |
