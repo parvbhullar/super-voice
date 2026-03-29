@@ -69,6 +69,57 @@ pub struct CapacityConfig {
     pub max_cps: Option<f32>,
 }
 
+/// Digest authentication credential for trunk registration or outbound calls.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct TrunkCredential {
+    pub realm: String,
+    pub username: String,
+    pub password: String,
+}
+
+/// Media handling configuration for a trunk.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct MediaConfig {
+    /// Ordered list of preferred codecs (e.g. "pcmu", "pcma", "g729").
+    pub codecs: Vec<String>,
+    /// DTMF signalling mode: "rfc2833", "info", or "inband".
+    pub dtmf_mode: String,
+    /// Optional SRTP profile: "sdes", "dtls", or None for no SRTP.
+    pub srtp: Option<String>,
+    /// Optional media mode: "proxy", "direct", etc.
+    pub media_mode: Option<String>,
+}
+
+/// A SIP URI used for outbound origination with optional priority and weight.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct OriginationUri {
+    pub uri: String,
+    pub priority: Option<u32>,
+    pub weight: Option<u32>,
+}
+
+/// Routing mode for an inbound DID number.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct DidRouting {
+    /// "ai_agent" routes to an AI playbook; "sip_proxy" passes through to SIP.
+    pub mode: String,
+    /// Playbook identifier; required when mode is "ai_agent".
+    pub playbook: Option<String>,
+}
+
+/// Configuration binding a DID (Direct Inward Dialing) number to a trunk.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct DidConfig {
+    /// E.164 phone number (e.g. "+15551234567").
+    pub number: String,
+    /// Name of the trunk this DID is assigned to.
+    pub trunk: String,
+    /// How inbound calls to this DID are routed.
+    pub routing: DidRouting,
+    /// Optional caller-ID name to present on outbound calls from this DID.
+    pub caller_name: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct TrunkConfig {
     pub name: String,
@@ -76,8 +127,27 @@ pub struct TrunkConfig {
     pub gateways: Vec<GatewayRef>,
     pub distribution: String,
     pub capacity: Option<CapacityConfig>,
+    /// Convenience codec list (kept for backward compatibility).
     pub codecs: Option<Vec<String>>,
     pub acl: Option<Vec<String>>,
+    /// Digest auth credentials used for registration or outbound calls.
+    #[serde(default)]
+    pub credentials: Option<Vec<TrunkCredential>>,
+    /// Richer media configuration (supersedes the `codecs` convenience field).
+    #[serde(default)]
+    pub media: Option<MediaConfig>,
+    /// SIP URIs to dial for outbound origination (priority/weight ordered).
+    #[serde(default)]
+    pub origination_uris: Option<Vec<OriginationUri>>,
+    /// Names of TranslationClass configs applied to this trunk (Phase 5).
+    #[serde(default)]
+    pub translation_classes: Option<Vec<String>>,
+    /// Names of ManipulationClass configs applied to this trunk (Phase 5).
+    #[serde(default)]
+    pub manipulation_classes: Option<Vec<String>>,
+    /// SIP response codes that should NOT trigger failover to the next gateway.
+    #[serde(default)]
+    pub nofailover_sip_codes: Option<Vec<u16>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -181,6 +251,12 @@ mod tests {
             }),
             codecs: Some(vec!["pcmu".to_string(), "pcma".to_string()]),
             acl: Some(vec!["10.0.0.0/8".to_string()]),
+            credentials: None,
+            media: None,
+            origination_uris: None,
+            translation_classes: None,
+            manipulation_classes: None,
+            nofailover_sip_codes: None,
         }
     }
 
@@ -281,5 +357,166 @@ mod tests {
         let json = serde_json::to_string(&original).expect("serialize");
         let restored: EndpointConfig = serde_json::from_str(&json).expect("deserialize");
         assert_eq!(original, restored);
+    }
+
+    // --- New sub-resource type tests ---
+
+    fn sample_trunk_credential() -> TrunkCredential {
+        TrunkCredential {
+            realm: "carrier.com".to_string(),
+            username: "trunk-user".to_string(),
+            password: "trunk-pass".to_string(),
+        }
+    }
+
+    fn sample_media_config() -> MediaConfig {
+        MediaConfig {
+            codecs: vec!["pcmu".to_string(), "pcma".to_string(), "g729".to_string()],
+            dtmf_mode: "rfc2833".to_string(),
+            srtp: Some("sdes".to_string()),
+            media_mode: Some("proxy".to_string()),
+        }
+    }
+
+    fn sample_origination_uri() -> OriginationUri {
+        OriginationUri {
+            uri: "sip:gw.carrier.com:5060".to_string(),
+            priority: Some(1),
+            weight: Some(100),
+        }
+    }
+
+    fn sample_did() -> DidConfig {
+        DidConfig {
+            number: "+15551234567".to_string(),
+            trunk: "trunk1".to_string(),
+            routing: DidRouting {
+                mode: "ai_agent".to_string(),
+                playbook: Some("pb-inbound".to_string()),
+            },
+            caller_name: Some("Acme Corp".to_string()),
+        }
+    }
+
+    fn sample_trunk_full() -> TrunkConfig {
+        TrunkConfig {
+            name: "trunk-full".to_string(),
+            direction: "both".to_string(),
+            gateways: vec![GatewayRef {
+                name: "gw1".to_string(),
+                weight: Some(60),
+            }],
+            distribution: "weight_based".to_string(),
+            capacity: Some(CapacityConfig {
+                max_calls: Some(200),
+                max_cps: Some(20.0),
+            }),
+            codecs: Some(vec!["pcmu".to_string()]),
+            acl: Some(vec!["10.0.0.0/8".to_string()]),
+            credentials: Some(vec![sample_trunk_credential()]),
+            media: Some(sample_media_config()),
+            origination_uris: Some(vec![sample_origination_uri()]),
+            translation_classes: Some(vec!["normalize-us".to_string()]),
+            manipulation_classes: Some(vec!["add-headers".to_string()]),
+            nofailover_sip_codes: Some(vec![403, 404]),
+        }
+    }
+
+    #[test]
+    fn test_trunk_credential_serde_round_trip() {
+        let original = sample_trunk_credential();
+        let json = serde_json::to_string(&original).expect("serialize");
+        let restored: TrunkCredential = serde_json::from_str(&json).expect("deserialize");
+        assert_eq!(original, restored);
+    }
+
+    #[test]
+    fn test_media_config_serde_round_trip() {
+        let original = sample_media_config();
+        let json = serde_json::to_string(&original).expect("serialize");
+        let restored: MediaConfig = serde_json::from_str(&json).expect("deserialize");
+        assert_eq!(original, restored);
+    }
+
+    #[test]
+    fn test_origination_uri_serde_round_trip() {
+        let original = sample_origination_uri();
+        let json = serde_json::to_string(&original).expect("serialize");
+        let restored: OriginationUri = serde_json::from_str(&json).expect("deserialize");
+        assert_eq!(original, restored);
+    }
+
+    #[test]
+    fn test_did_routing_ai_agent_serde_round_trip() {
+        let original = DidRouting {
+            mode: "ai_agent".to_string(),
+            playbook: Some("pb-inbound".to_string()),
+        };
+        let json = serde_json::to_string(&original).expect("serialize");
+        let restored: DidRouting = serde_json::from_str(&json).expect("deserialize");
+        assert_eq!(original, restored);
+    }
+
+    #[test]
+    fn test_did_routing_sip_proxy_serde_round_trip() {
+        let original = DidRouting {
+            mode: "sip_proxy".to_string(),
+            playbook: None,
+        };
+        let json = serde_json::to_string(&original).expect("serialize");
+        let restored: DidRouting = serde_json::from_str(&json).expect("deserialize");
+        assert_eq!(original, restored);
+    }
+
+    #[test]
+    fn test_did_config_ai_agent_serde_round_trip() {
+        let original = sample_did();
+        let json = serde_json::to_string(&original).expect("serialize");
+        let restored: DidConfig = serde_json::from_str(&json).expect("deserialize");
+        assert_eq!(original, restored);
+    }
+
+    #[test]
+    fn test_did_config_sip_proxy_serde_round_trip() {
+        let original = DidConfig {
+            number: "+15559876543".to_string(),
+            trunk: "trunk-outbound".to_string(),
+            routing: DidRouting {
+                mode: "sip_proxy".to_string(),
+                playbook: None,
+            },
+            caller_name: None,
+        };
+        let json = serde_json::to_string(&original).expect("serialize");
+        let restored: DidConfig = serde_json::from_str(&json).expect("deserialize");
+        assert_eq!(original, restored);
+    }
+
+    #[test]
+    fn test_trunk_config_with_sub_resources_serde_round_trip() {
+        let original = sample_trunk_full();
+        let json = serde_json::to_string(&original).expect("serialize");
+        let restored: TrunkConfig = serde_json::from_str(&json).expect("deserialize");
+        assert_eq!(original, restored);
+    }
+
+    #[test]
+    fn test_trunk_config_empty_sub_resources_backward_compat() {
+        // A trunk serialized without new fields (simulating old data) should
+        // still deserialize with None for all new optional fields.
+        let legacy_json = r#"{
+            "name": "legacy-trunk",
+            "direction": "both",
+            "gateways": [],
+            "distribution": "round-robin"
+        }"#;
+        let restored: TrunkConfig = serde_json::from_str(legacy_json).expect("deserialize legacy");
+        assert_eq!(restored.name, "legacy-trunk");
+        assert!(restored.credentials.is_none());
+        assert!(restored.media.is_none());
+        assert!(restored.origination_uris.is_none());
+        assert!(restored.translation_classes.is_none());
+        assert!(restored.manipulation_classes.is_none());
+        assert!(restored.nofailover_sip_codes.is_none());
     }
 }

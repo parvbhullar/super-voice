@@ -416,6 +416,12 @@ mod tests {
             capacity: None,
             codecs: None,
             acl: None,
+            credentials: None,
+            media: None,
+            origination_uris: None,
+            translation_classes: None,
+            manipulation_classes: None,
+            nofailover_sip_codes: None,
         }
     }
 
@@ -638,6 +644,12 @@ mod tests {
             capacity: None,
             codecs: None,
             acl: None,
+            credentials: None,
+            media: None,
+            origination_uris: None,
+            translation_classes: None,
+            manipulation_classes: None,
+            nofailover_sip_codes: None,
         };
 
         store.set_gateway(&gw).await.expect("set_gateway");
@@ -668,6 +680,12 @@ mod tests {
             capacity: None,
             codecs: None,
             acl: None,
+            credentials: None,
+            media: None,
+            origination_uris: None,
+            translation_classes: None,
+            manipulation_classes: None,
+            nofailover_sip_codes: None,
         };
 
         store.set_gateway(&gw).await.expect("set_gateway");
@@ -705,6 +723,12 @@ mod tests {
             capacity: None,
             codecs: None,
             acl: None,
+            credentials: None,
+            media: None,
+            origination_uris: None,
+            translation_classes: None,
+            manipulation_classes: None,
+            nofailover_sip_codes: None,
         };
         store.set_trunk(&trunk_v1).await.expect("set trunk v1");
 
@@ -720,6 +744,12 @@ mod tests {
             capacity: None,
             codecs: None,
             acl: None,
+            credentials: None,
+            media: None,
+            origination_uris: None,
+            translation_classes: None,
+            manipulation_classes: None,
+            nofailover_sip_codes: None,
         };
         store.set_trunk(&trunk_v2).await.expect("set trunk v2");
 
