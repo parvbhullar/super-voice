@@ -25,6 +25,7 @@ use crate::media::{cache::set_cache_dir, engine::StreamEngine};
 use anyhow::Result;
 use chrono::{DateTime, Local};
 use humantime::parse_duration;
+use rsip::headers::ToTypedHeader;
 use rsip::prelude::HeadersExt;
 use rsipstack::transaction::{
     Endpoint, TransactionReceiver,
@@ -235,6 +236,116 @@ impl AppStateInner {
         while let Some(mut tx) = incoming.recv().await {
             let key: &rsipstack::transaction::key::TransactionKey = &tx.key;
             info!(?key, "received transaction");
+
+            // ── SIP Security Check ────────────────────────────────────────────
+            // Enforce IP blacklist, flood protection, brute-force protection,
+            // and UA blacklist on every inbound SIP message BEFORE any routing.
+            if let Some(ref security_lock) = self.security_module {
+                use crate::security::SecurityCheckResult;
+
+                // Extract source IP from the top Via header's sent-by host.
+                // If the Via contains a `received` param (added by proxy for NAT),
+                // that is the actual source IP.
+                let source_ip: Option<String> = tx
+                    .original
+                    .via_header()
+                    .ok()
+                    .and_then(|via_raw| via_raw.typed().ok())
+                    .and_then(|via| {
+                        // Prefer `received` param (NAT-corrected) over sent-by host
+                        if let Ok(Some(ip)) = via.received() {
+                            return Some(ip.to_string());
+                        }
+                        match &via.uri.host_with_port.host {
+                            rsip::Host::IpAddr(ip) => Some(ip.to_string()),
+                            rsip::Host::Domain(domain) => Some(domain.to_string()),
+                        }
+                    });
+
+                // Extract User-Agent header from the SIP message
+                let user_agent = tx.original.headers.iter().find_map(|h| {
+                    match h {
+                        rsip::Header::Other(name, value)
+                            if name.eq_ignore_ascii_case("User-Agent") =>
+                        {
+                            Some(value.as_str())
+                        }
+                        _ => None,
+                    }
+                });
+
+                if let Some(ref ip_str) = source_ip {
+                    let security = security_lock.read().await;
+                    let result = security.check_request(ip_str, user_agent);
+                    drop(security);
+                    match result {
+                        SecurityCheckResult::Allowed | SecurityCheckResult::Whitelisted => {
+                            // Pass through
+                        }
+                        SecurityCheckResult::Blacklisted => {
+                            warn!(source_ip = %ip_str, "SIP security: blacklisted IP — dropping");
+                            // Silent drop — do not reply to blacklisted IPs
+                            continue;
+                        }
+                        SecurityCheckResult::FloodBlocked { count } => {
+                            warn!(
+                                source_ip = %ip_str,
+                                count,
+                                "SIP security: flood-blocked IP — rejecting 503"
+                            );
+                            let _ = tx
+                                .reply_with(
+                                    rsip::StatusCode::ServiceUnavailable,
+                                    vec![rsip::Header::Other(
+                                        "Reason".into(),
+                                        "SIP;cause=503;text=\"Rate limit exceeded\"".into(),
+                                    )],
+                                    None,
+                                )
+                                .await;
+                            continue;
+                        }
+                        SecurityCheckResult::BruteForceBlocked { failures } => {
+                            warn!(
+                                source_ip = %ip_str,
+                                failures,
+                                "SIP security: brute-force-blocked IP — rejecting 403"
+                            );
+                            let _ = tx
+                                .reply_with(
+                                    rsip::StatusCode::Forbidden,
+                                    vec![rsip::Header::Other(
+                                        "Reason".into(),
+                                        "SIP;cause=403;text=\"Too many auth failures\"".into(),
+                                    )],
+                                    None,
+                                )
+                                .await;
+                            continue;
+                        }
+                        SecurityCheckResult::UaBlocked { ref ua } => {
+                            warn!(
+                                source_ip = %ip_str,
+                                ua = %ua,
+                                "SIP security: blocked user-agent — dropping"
+                            );
+                            // Silent drop for scanner UAs
+                            continue;
+                        }
+                        SecurityCheckResult::InvalidMessage { ref reason } => {
+                            warn!(
+                                source_ip = %ip_str,
+                                reason = %reason,
+                                "SIP security: invalid message — rejecting 400"
+                            );
+                            let _ = tx.reply(rsip::StatusCode::BadRequest).await;
+                            continue;
+                        }
+                    }
+                }
+            }
+            // ── End SIP Security Check ────────────────────────────────────────
+
             if tx.original.to_header()?.tag()?.as_ref().is_some() {
                 match dialog_layer.match_dialog(&tx) {
                     Some(mut d) => {
