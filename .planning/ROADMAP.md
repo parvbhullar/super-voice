@@ -80,7 +80,11 @@ Plans:
   3. An INVITE from an IP not in the trunk's ACL is rejected with 403
   4. Operator updates trunk max concurrent calls to 5 via PATCH /trunks/{id}; the change is reflected immediately in GET response
   5. Bearer token authentication is enforced on all CRUD endpoints; missing or invalid token returns 401
-**Plans**: TBD
+**Plans:** 3 plans
+Plans:
+- [ ] 04-01-PLAN.md — Expand types (TrunkConfig sub-resources, DidConfig), distribution algorithms, DID ConfigStore CRUD
+- [ ] 04-02-PLAN.md — Trunk API handlers (18 endpoints) + DID API handlers (5 endpoints), wire into carrier_admin_router
+- [ ] 04-03-PLAN.md — Integration tests: distribution statistics, PATCH/GET cycle, auth enforcement, DID routing modes
 
 ### Phase 5: Routing, Translation & Manipulation
 **Goal**: Operators can define routing tables with LPM/regex/HTTP-query rules that select trunk targets, translation classes that rewrite numbers, and manipulation classes that conditionally modify SIP headers — all applied to calls at dispatch time.
@@ -173,7 +177,7 @@ Note: Phase 8 depends on Phase 3 (not Phase 7), so it can proceed in parallel af
 | 1. FFI Foundation & Build | 4/4 | Complete    | 2026-03-28 |
 | 2. Redis State Layer | 2/3 | Complete    | 2026-03-29 |
 | 3. Endpoints & Gateways | 3/3 | Complete    | 2026-03-29 |
-| 4. Trunks, DIDs & Entity API | 0/? | Not started | - |
+| 4. Trunks, DIDs & Entity API | 0/3 | Not started | - |
 | 5. Routing, Translation & Manipulation | 0/? | Not started | - |
 | 6. Proxy Call (B2BUA) | 0/? | Not started | - |
 | 7. Bridge Modes | 0/? | Not started | - |
