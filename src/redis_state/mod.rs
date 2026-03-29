@@ -15,5 +15,5 @@ pub use runtime_state::{GatewayHealthStatus, RuntimeState};
 pub use types::{
     CapacityConfig, DidConfig, EndpointConfig, GatewayConfig, ManipulationClassConfig,
     MediaConfig, OriginationUri, RoutingTableConfig, TranslationClassConfig, TrunkConfig,
-    TrunkCredential,
+    TrunkCredential, WebhookConfig,
 };

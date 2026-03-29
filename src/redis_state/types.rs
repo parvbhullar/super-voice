@@ -1,3 +1,4 @@
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -356,6 +357,36 @@ pub struct ManipulationRule {
 pub struct ManipulationClassConfig {
     pub name: String,
     pub rules: Vec<ManipulationRule>,
+}
+
+/// Webhook delivery configuration registered by an operator.
+///
+/// Webhooks receive CDR events (and other carrier events) via HTTP POST.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub struct WebhookConfig {
+    /// Unique identifier (UUID).
+    pub id: String,
+    /// HTTP(S) URL to POST events to.
+    pub url: String,
+    /// Optional secret delivered as the `X-Webhook-Secret` header.
+    pub secret: Option<String>,
+    /// Event types to deliver (e.g. `["cdr.new"]`). Defaults to `["cdr.new"]`.
+    #[serde(default = "default_webhook_events")]
+    pub events: Vec<String>,
+    /// Whether this webhook should receive events.
+    #[serde(default = "default_true")]
+    pub active: bool,
+    /// When this webhook was registered.
+    pub created_at: DateTime<Utc>,
+}
+
+fn default_webhook_events() -> Vec<String> {
+    vec!["cdr.new".to_string()]
+}
+
+fn default_true() -> bool {
+    true
 }
 
 #[cfg(test)]
@@ -759,5 +790,38 @@ mod tests {
         assert!(restored.translation_classes.is_none());
         assert!(restored.manipulation_classes.is_none());
         assert!(restored.nofailover_sip_codes.is_none());
+    }
+
+    // --- WebhookConfig tests ---
+
+    /// Test 1: WebhookConfig serializes/deserializes with id, url, secret,
+    /// events, active fields.
+    #[test]
+    fn test_webhook_config_serde_round_trip() {
+        use chrono::Utc;
+        let original = WebhookConfig {
+            id: "wh-001".to_string(),
+            url: "https://example.com/webhook".to_string(),
+            secret: Some("my-secret".to_string()),
+            events: vec!["cdr.new".to_string()],
+            active: true,
+            created_at: Utc::now(),
+        };
+        let json = serde_json::to_string(&original).expect("serialize");
+        let restored: WebhookConfig = serde_json::from_str(&json).expect("deserialize");
+        assert_eq!(restored.id, original.id);
+        assert_eq!(restored.url, original.url);
+        assert_eq!(restored.secret, original.secret);
+        assert_eq!(restored.events, original.events);
+        assert_eq!(restored.active, original.active);
+    }
+
+    #[test]
+    fn test_webhook_config_defaults() {
+        // Without events field, should default to ["cdr.new"]
+        let json = r#"{"id":"wh-002","url":"https://example.com","created_at":"2026-01-01T00:00:00Z"}"#;
+        let config: WebhookConfig = serde_json::from_str(json).expect("deserialize minimal");
+        assert_eq!(config.events, vec!["cdr.new"]);
+        assert!(config.active, "active should default to true");
     }
 }

@@ -7,7 +7,7 @@ use crate::redis_state::{
     pubsub::{publish_or_warn, ConfigChangeEvent, ConfigPubSub},
     types::{
         DidConfig, EndpointConfig, GatewayConfig, ManipulationClassConfig, RoutingTableConfig,
-        TranslationClassConfig, TrunkConfig,
+        TranslationClassConfig, TrunkConfig, WebhookConfig,
     },
 };
 
@@ -376,6 +376,25 @@ impl ConfigStore {
             }
         }
         Ok(deleted)
+    }
+
+    // --- Webhook ---
+
+    /// Persist a webhook configuration.
+    pub async fn set_webhook(&self, config: &WebhookConfig) -> Result<()> {
+        self.set_entity("webhook", &config.id, config).await
+    }
+
+    pub async fn get_webhook(&self, id: &str) -> Result<Option<WebhookConfig>> {
+        self.get_entity("webhook", id).await
+    }
+
+    pub async fn list_webhooks(&self) -> Result<Vec<WebhookConfig>> {
+        self.list_entities("webhook").await
+    }
+
+    pub async fn delete_webhook(&self, id: &str) -> Result<bool> {
+        self.delete_entity("webhook", id).await
     }
 }
 
