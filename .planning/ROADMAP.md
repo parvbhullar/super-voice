@@ -18,7 +18,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 4: Trunks, DIDs & Entity API** - Trunk grouping with capacity/codec/ACL, DID number management, REST CRUD for all entities (completed 2026-03-29)
 - [x] **Phase 5: Routing, Translation & Manipulation** - LPM/regex/HTTP routing tables, number translation classes, SIP header manipulation (completed 2026-03-29)
 - [x] **Phase 6: Proxy Call (B2BUA)** - Dual-dialog SIP bridge with RTP media relay, failover, call transfer, and active call API (completed 2026-03-29)
-- [ ] **Phase 7: Bridge Modes** - SIP-to-WebRTC and SIP-to-WebSocket bridges with per-route mode selection
+- [x] **Phase 7: Bridge Modes** - SIP-to-WebRTC and SIP-to-WebSocket bridges with per-route mode selection (completed 2026-03-29)
 - [ ] **Phase 8: Capacity & Security** - Token bucket CPS limits, concurrent call enforcement, anti-flood, IP ACL, brute-force protection
 - [ ] **Phase 9: CDR Engine & Webhooks** - Carrier CDR with Redis queue, HTTP webhook delivery, disk fallback, CDR query API
 - [ ] **Phase 10: DSP Processing** - Echo cancellation, inband DTMF, T.38 fax, tone detection, PLC via SpanDSP
@@ -129,7 +129,7 @@ Plans:
   1. A SIP INVITE routed to a WebRTC-mode DID produces an ICE/DTLS session; a browser WebRTC client can receive audio from the SIP caller
   2. A SIP INVITE routed to a WebSocket-mode DID opens an outbound WebSocket connection and streams audio frames bidirectionally
   3. A routing table with routes configured as ai_agent, sip_proxy, webrtc_bridge, and ws_bridge each dispatch to the correct handler for their respective DIDs
-**Plans:** 2 plans
+**Plans:** 2/2 plans complete
 Plans:
 - [ ] 07-01-PLAN.md — Bridge primitives: extend DidRouting types, WebRTC and WebSocket bridge functions
 - [ ] 07-02-PLAN.md — Wire dispatch for all 4 DID routing modes, integration tests
@@ -194,7 +194,7 @@ Note: Phase 8 depends on Phase 3 (not Phase 7), so it can proceed in parallel af
 | 4. Trunks, DIDs & Entity API | 2/3 | Complete    | 2026-03-29 |
 | 5. Routing, Translation & Manipulation | 4/4 | Complete    | 2026-03-29 |
 | 6. Proxy Call (B2BUA) | 5/5 | Complete    | 2026-03-29 |
-| 7. Bridge Modes | 0/2 | Not started | - |
+| 7. Bridge Modes | 2/2 | Complete   | 2026-03-29 |
 | 8. Capacity & Security | 0/? | Not started | - |
 | 9. CDR Engine & Webhooks | 0/? | Not started | - |
 | 10. DSP Processing | 0/? | Not started | - |
