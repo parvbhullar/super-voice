@@ -6,7 +6,7 @@ use crate::{
     },
     handler::{
         calls_api, dids_api, endpoints_api, gateways_api, manipulations_api, playbook,
-        routing_api, translations_api, trunks_api,
+        routing_api, security_api, translations_api, trunks_api,
     },
     playbook::{Playbook, PlaybookRunner},
     redis_state::auth::auth_middleware,
@@ -218,6 +218,27 @@ pub fn carrier_admin_router(app_state: AppState) -> Router<AppState> {
         .route(
             "/api/v1/calls/{id}/unmute",
             axum::routing::post(calls_api::unmute_call),
+        )
+        // ── Security Management ─────────────────────────────────────────────
+        .route(
+            "/api/v1/security/firewall",
+            get(security_api::get_firewall).patch(security_api::patch_firewall),
+        )
+        .route(
+            "/api/v1/security/blocks",
+            get(security_api::list_blocks),
+        )
+        .route(
+            "/api/v1/security/blocks/{ip}",
+            axum::routing::delete(security_api::delete_block),
+        )
+        .route(
+            "/api/v1/security/flood-tracker",
+            get(security_api::get_flood_tracker),
+        )
+        .route(
+            "/api/v1/security/auth-failures",
+            get(security_api::get_auth_failures),
         )
         .route_layer(middleware::from_fn_with_state(app_state, auth_middleware))
 }
