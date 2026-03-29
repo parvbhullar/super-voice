@@ -116,9 +116,9 @@
 
 ### CDR Engine
 
-- [ ] **CDRE-01**: System generates carrier CDR with dual-leg correlation
-- [ ] **CDRE-02**: CDR includes timing (start, ring, answer, end, billsec)
-- [ ] **CDRE-03**: CDR queued to Redis for cluster-wide processing
+- [x] **CDRE-01**: System generates carrier CDR with dual-leg correlation
+- [x] **CDRE-02**: CDR includes timing (start, ring, answer, end, billsec)
+- [x] **CDRE-03**: CDR queued to Redis for cluster-wide processing
 - [ ] **CDRE-04**: CDR delivered to HTTP webhook endpoints with retry
 - [ ] **CDRE-05**: CDR falls back to disk (JSON files) when webhook/Redis unavailable
 
@@ -277,9 +277,9 @@ Which phases cover which requirements. Updated during roadmap creation.
 | SECU-05 | Phase 8 | Complete |
 | SECU-06 | Phase 8 | Complete |
 | RAPI-11 | Phase 8 | Complete |
-| CDRE-01 | Phase 9 | Pending |
-| CDRE-02 | Phase 9 | Pending |
-| CDRE-03 | Phase 9 | Pending |
+| CDRE-01 | Phase 9 | Complete |
+| CDRE-02 | Phase 9 | Complete |
+| CDRE-03 | Phase 9 | Complete |
 | CDRE-04 | Phase 9 | Pending |
 | CDRE-05 | Phase 9 | Pending |
 | RAPI-08 | Phase 9 | Pending |
