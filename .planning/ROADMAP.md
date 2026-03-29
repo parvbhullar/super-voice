@@ -96,7 +96,12 @@ Plans:
   3. A translation class rewrites "0xxxxxxxxxx" to "+44xxxxxxxxxx" on inbound calls; the rewritten number appears in the outbound INVITE
   4. A manipulation rule adds a custom SIP header when P-Asserted-Identity matches a regex, and a defined anti-action removes it when it does not match
   5. A routing table jump (up to 10 levels deep) resolves correctly without infinite loop; depth 11 returns an error
-**Plans**: TBD
+**Plans:** 4 plans
+Plans:
+- [ ] 05-01-PLAN.md — Expand routing types, build routing engine (LPM, regex, exact, compare, HTTP query, jump, default)
+- [ ] 05-02-PLAN.md — Translation engine (regex rewriting) and manipulation engine (conditional actions/anti-actions)
+- [ ] 05-03-PLAN.md — REST API handlers (19 endpoints) for routing tables, translation classes, manipulation classes
+- [ ] 05-04-PLAN.md — Integration tests covering all 5 success criteria
 
 ### Phase 6: Proxy Call (B2BUA)
 **Goal**: The system can bridge two SIP legs as a B2BUA — relaying or transcoding RTP media, handling early media, call transfer, hold/resume, and failover across routes — with active call visibility via REST API.
@@ -178,7 +183,7 @@ Note: Phase 8 depends on Phase 3 (not Phase 7), so it can proceed in parallel af
 | 2. Redis State Layer | 2/3 | Complete    | 2026-03-29 |
 | 3. Endpoints & Gateways | 3/3 | Complete    | 2026-03-29 |
 | 4. Trunks, DIDs & Entity API | 2/3 | Complete    | 2026-03-29 |
-| 5. Routing, Translation & Manipulation | 0/? | Not started | - |
+| 5. Routing, Translation & Manipulation | 0/4 | Not started | - |
 | 6. Proxy Call (B2BUA) | 0/? | Not started | - |
 | 7. Bridge Modes | 0/? | Not started | - |
 | 8. Capacity & Security | 0/? | Not started | - |
