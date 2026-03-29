@@ -113,7 +113,13 @@ Plans:
   3. An in-progress call appears in GET /calls with correct trunk, DID, and duration; DELETE /calls/{id} terminates it
   4. Early media (183 Session Progress with SDP) is passed through to the calling leg without waiting for 200 OK
   5. When the first route fails (5xx or no answer), the proxy automatically tries the next route in the table and the call succeeds
-**Plans**: TBD
+**Plans:** 5 plans
+Plans:
+- [ ] 06-01-PLAN.md — ProxyCall types, MediaPeer trait, MediaBridge with zero-copy relay and transcoding
+- [ ] 06-02-PLAN.md — ProxyCallSession dual-dialog B2BUA, failover loop with nofailover codes
+- [ ] 06-03-PLAN.md — Call dispatch integration, hold/resume detection, REFER transfer, MediaBridge wiring
+- [ ] 06-04-PLAN.md — Active call REST API (6 endpoints: list, detail, hangup, transfer, mute, unmute)
+- [ ] 06-05-PLAN.md — Integration tests covering all 5 success criteria
 
 ### Phase 7: Bridge Modes
 **Goal**: Calls can be bridged from SIP to WebRTC (with G.711/Opus transcoding and ICE/DTLS) or to WebSocket (as outbound WS client), with the mode selected per-route in config.
@@ -184,7 +190,7 @@ Note: Phase 8 depends on Phase 3 (not Phase 7), so it can proceed in parallel af
 | 3. Endpoints & Gateways | 3/3 | Complete    | 2026-03-29 |
 | 4. Trunks, DIDs & Entity API | 2/3 | Complete    | 2026-03-29 |
 | 5. Routing, Translation & Manipulation | 4/4 | Complete    | 2026-03-29 |
-| 6. Proxy Call (B2BUA) | 0/? | Not started | - |
+| 6. Proxy Call (B2BUA) | 0/5 | Not started | - |
 | 7. Bridge Modes | 0/? | Not started | - |
 | 8. Capacity & Security | 0/? | Not started | - |
 | 9. CDR Engine & Webhooks | 0/? | Not started | - |
