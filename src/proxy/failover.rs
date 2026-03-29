@@ -7,7 +7,8 @@
 use crate::call::sip::DialogStateReceiverGuard;
 use crate::redis_state::types::TrunkConfig;
 use anyhow::Result;
-use rsipstack::dialog::dialog::{DialogState, TerminatedReason};
+use rsipstack::dialog::dialog::DialogState;
+use rsipstack::dialog::dialog::TerminatedReason;
 use rsipstack::dialog::dialog_layer::DialogLayer;
 use std::sync::Arc;
 use tokio_util::sync::CancellationToken;
@@ -288,8 +289,7 @@ enum WaitOutcome {
 }
 
 /// Convert a `TerminatedReason` to a numeric SIP status code.
-fn terminated_reason_to_code(reason: &rsipstack::dialog::dialog::TerminatedReason) -> u16 {
-    use rsipstack::dialog::dialog::TerminatedReason;
+pub fn terminated_reason_to_code(reason: &TerminatedReason) -> u16 {
     match reason {
         TerminatedReason::Timeout => 408,
         TerminatedReason::UacCancel => 487,
