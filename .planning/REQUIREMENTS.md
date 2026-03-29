@@ -62,15 +62,15 @@
 
 ### Call Translation
 
-- [ ] **TRNS-01**: Operator can create translation classes with regex patterns
-- [ ] **TRNS-02**: Translation can rewrite caller number, destination number, and caller name
-- [ ] **TRNS-03**: Translation classes apply separately for inbound and outbound directions
+- [x] **TRNS-01**: Operator can create translation classes with regex patterns
+- [x] **TRNS-02**: Translation can rewrite caller number, destination number, and caller name
+- [x] **TRNS-03**: Translation classes apply separately for inbound and outbound directions
 
 ### Call Manipulation
 
-- [ ] **MANP-01**: Operator can create manipulation classes with conditional rules (AND/OR logic)
-- [ ] **MANP-02**: Manipulation supports actions: set variable, set header, log, hangup, sleep
-- [ ] **MANP-03**: Manipulation supports anti-actions (executed when condition is false)
+- [x] **MANP-01**: Operator can create manipulation classes with conditional rules (AND/OR logic)
+- [x] **MANP-02**: Manipulation supports actions: set variable, set header, log, hangup, sleep
+- [x] **MANP-03**: Manipulation supports anti-actions (executed when condition is false)
 
 ### Proxy Call / B2BUA
 
@@ -244,12 +244,12 @@ Which phases cover which requirements. Updated during roadmap creation.
 | ROUT-07 | Phase 5 | Pending |
 | ROUT-08 | Phase 5 | Pending |
 | ROUT-09 | Phase 5 | Pending |
-| TRNS-01 | Phase 5 | Pending |
-| TRNS-02 | Phase 5 | Pending |
-| TRNS-03 | Phase 5 | Pending |
-| MANP-01 | Phase 5 | Pending |
-| MANP-02 | Phase 5 | Pending |
-| MANP-03 | Phase 5 | Pending |
+| TRNS-01 | Phase 5 | Complete |
+| TRNS-02 | Phase 5 | Complete |
+| TRNS-03 | Phase 5 | Complete |
+| MANP-01 | Phase 5 | Complete |
+| MANP-02 | Phase 5 | Complete |
+| MANP-03 | Phase 5 | Complete |
 | RAPI-05 | Phase 5 | Pending |
 | RAPI-06 | Phase 5 | Pending |
 | RAPI-07 | Phase 5 | Pending |

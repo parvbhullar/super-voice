@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: planning
-stopped_at: Completed 04-trunks-dids-entity-api 04-03-PLAN.md
-last_updated: "2026-03-29T10:43:09.624Z"
+stopped_at: Completed 05-routing-translation-manipulation 05-02-PLAN.md
+last_updated: "2026-03-29T11:56:33.665Z"
 last_activity: 2026-03-27 — Roadmap created for v1.0 Carrier Edition (11 phases, 98 requirements mapped)
 progress:
   total_phases: 11
   completed_phases: 4
-  total_plans: 13
-  completed_plans: 13
+  total_plans: 17
+  completed_plans: 15
   percent: 0
 ---
 
@@ -62,6 +62,8 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 04-trunks-dids-entity-api P01 | 7 | 2 tasks | 5 files |
 | Phase 04-trunks-dids-entity-api P02 | 4 | 2 tasks | 6 files |
 | Phase 04-trunks-dids-entity-api P03 | 15 | 2 tasks | 3 files |
+| Phase 05-routing-translation-manipulation P02 | 505 | 2 tasks | 7 files |
+| Phase 05-routing-translation-manipulation P01 | 25 | 1 tasks | 7 files |
 
 ## Accumulated Context
 
@@ -106,6 +108,8 @@ Recent decisions affecting current work:
 - [Phase 04-trunks-dids-entity-api]: require_config_store! macro eliminates boilerplate across all 23 trunk/DID handlers for consistent 503 response when Redis not configured
 - [Phase 04-trunks-dids-entity-api]: UUID trunk/DID names for test isolation: unique names per test avoids custom-prefix ConfigStore complexity
 - [Phase 04-trunks-dids-entity-api]: urlencoding for E.164 path params: phone numbers with + must be percent-encoded in URL paths
+- [Phase 05-routing-translation-manipulation]: TranslationRule uses renamed legacy fields (legacy_match/legacy_replace) for backward compat; engine treats them as destination_pattern/replace
+- [Phase 05-routing-translation-manipulation]: ManipulationEngine legacy rule: empty conditions + header/action fields treated as unconditional set_header for backward compat
 
 ### Pending Todos
 
@@ -119,6 +123,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-29T10:34:48.305Z
-Stopped at: Completed 04-trunks-dids-entity-api 04-03-PLAN.md
+Last session: 2026-03-29T11:56:19.229Z
+Stopped at: Completed 05-routing-translation-manipulation 05-02-PLAN.md
 Resume file: None
