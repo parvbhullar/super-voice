@@ -16,6 +16,7 @@ use crate::{
 pub mod app;
 pub mod call;
 pub mod capacity;
+pub mod cdr;
 pub mod endpoint;
 pub mod gateway;
 pub mod redis_state;
