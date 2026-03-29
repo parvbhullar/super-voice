@@ -7,6 +7,7 @@
 
 use crate::app::AppState;
 use crate::call::sip::DialogStateReceiverGuard;
+use crate::capacity::guard::CapacityCheckResult;
 use crate::manipulation::engine::{ManipulationContext, ManipulationEngine};
 use crate::proxy::session::ProxyCallSession;
 use crate::proxy::types::ProxyCallContext;
@@ -111,6 +112,63 @@ pub async fn dispatch_proxy_call(
             return Err(e);
         }
     };
+
+    // ------------------------------------------------------------------ //
+    // 2.5: Capacity check                                                  //
+    // ------------------------------------------------------------------ //
+
+    if let Some(ref cap_config) = trunk.capacity {
+        if let Some(ref guard) = app_state.capacity_guard {
+            match guard.check_capacity(&trunk.name, &session_id, cap_config).await {
+                CapacityCheckResult::Allowed => {
+                    info!(session_id = %session_id, "dispatch: capacity check passed");
+                }
+                CapacityCheckResult::CpsExceeded { current, limit } => {
+                    warn!(
+                        session_id = %session_id,
+                        trunk = %trunk.name,
+                        current,
+                        limit,
+                        "dispatch: CPS limit exceeded — rejecting with 503"
+                    );
+                    return Err(anyhow!(
+                        "CPS limit exceeded for trunk '{}': {}/{}",
+                        trunk.name,
+                        current,
+                        limit
+                    ));
+                }
+                CapacityCheckResult::ConcurrentExceeded { current, limit } => {
+                    warn!(
+                        session_id = %session_id,
+                        trunk = %trunk.name,
+                        current,
+                        limit,
+                        "dispatch: concurrent call limit exceeded — rejecting with 503"
+                    );
+                    return Err(anyhow!(
+                        "concurrent limit exceeded for trunk '{}': {}/{}",
+                        trunk.name,
+                        current,
+                        limit
+                    ));
+                }
+                CapacityCheckResult::TrunkBlocked { reason, .. } => {
+                    warn!(
+                        session_id = %session_id,
+                        trunk = %trunk.name,
+                        reason,
+                        "dispatch: trunk auto-blocked — rejecting with 503"
+                    );
+                    return Err(anyhow!(
+                        "trunk '{}' is temporarily blocked: {}",
+                        trunk.name,
+                        reason
+                    ));
+                }
+            }
+        }
+    }
 
     // ------------------------------------------------------------------ //
     // 3. Apply translation classes                                         //
@@ -264,6 +322,11 @@ pub async fn dispatch_proxy_call(
         .await
     {
         warn!(session_id = %session_id, "dispatch: session ended with error: {e}");
+    }
+
+    // Decrement the concurrent call counter now that the session has ended.
+    if let Some(ref guard) = app_state.capacity_guard {
+        guard.release_call(&trunk.name, &session_id).await;
     }
 
     info!(session_id = %session_id, "dispatch: session complete");

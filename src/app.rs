@@ -75,6 +75,8 @@ pub struct AppStateInner {
     pub config_store: Option<Arc<ConfigStore>>,
     /// Redis runtime state (Some if Redis is configured).
     pub runtime_state: Option<Arc<RuntimeState>>,
+    /// Capacity enforcement guard (always present; uses Redis when available).
+    pub capacity_guard: Option<Arc<crate::capacity::guard::CapacityGuard>>,
 }
 
 pub type AppState = Arc<AppStateInner>;
@@ -1100,6 +1102,11 @@ impl AppStateBuilder {
                 (None, None, em, self.gateway_manager)
             };
 
+        // Initialize capacity guard; uses Redis if available, else local-only.
+        let capacity_guard = Some(Arc::new(
+            crate::capacity::guard::CapacityGuard::new(runtime_state.clone()),
+        ));
+
         let app_state = Arc::new(AppStateInner {
             config,
             token,
@@ -1124,6 +1131,7 @@ impl AppStateBuilder {
             gateway_manager,
             config_store,
             runtime_state,
+            capacity_guard,
         });
 
         Ok(app_state)
