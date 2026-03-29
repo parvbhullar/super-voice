@@ -216,6 +216,8 @@ pub struct Config {
     #[serde(default)]
     pub recording: Option<RecordingPolicy>,
     pub rewrites: Option<Vec<RewriteRule>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub redis_url: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Clone, Serialize)]
@@ -323,6 +325,7 @@ impl Default for Config {
             enable_srtp: None,
             recording: None,
             rewrites: None,
+            redis_url: None,
         }
     }
 }
@@ -467,5 +470,28 @@ url = "http://example.com/webhook"
         } else {
             panic!("Expected Webhook handler config");
         }
+    }
+
+    #[test]
+    fn test_config_parses_redis_url() {
+        let toml_config = r#"
+http_addr = "0.0.0.0:8080"
+addr = "0.0.0.0"
+udp_port = 25060
+redis_url = "redis://127.0.0.1:6379"
+"#;
+        let config: Config = toml::from_str(toml_config).unwrap();
+        assert_eq!(config.redis_url, Some("redis://127.0.0.1:6379".to_string()));
+    }
+
+    #[test]
+    fn test_config_redis_url_defaults_to_none() {
+        let toml_config = r#"
+http_addr = "0.0.0.0:8080"
+addr = "0.0.0.0"
+udp_port = 25060
+"#;
+        let config: Config = toml::from_str(toml_config).unwrap();
+        assert_eq!(config.redis_url, None);
     }
 }

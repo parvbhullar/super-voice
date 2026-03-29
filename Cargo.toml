@@ -94,6 +94,7 @@ http = "1.4.0"
 urlencoding = "2.1.3"
 base64 = "0.22.1"
 url = "2.5.8"
+redis = { version = "0.28", features = ["tokio-comp", "connection-manager"] }
 unic-emoji = "0.9.0"
 socket2 = { version = "0.6.3", features = ["all"] }
 realfft = "3.3"
