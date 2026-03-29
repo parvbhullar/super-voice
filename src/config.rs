@@ -218,6 +218,12 @@ pub struct Config {
     pub rewrites: Option<Vec<RewriteRule>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub redis_url: Option<String>,
+    /// Paths that bypass Bearer token authentication (e.g. "/health").
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub auth_skip_paths: Vec<String>,
+    /// API keys to seed into Redis on first startup (plaintext; hashed before storage).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub api_keys: Vec<String>,
 }
 
 #[derive(Debug, Deserialize, Clone, Serialize)]
@@ -326,6 +332,8 @@ impl Default for Config {
             recording: None,
             rewrites: None,
             redis_url: None,
+            auth_skip_paths: Vec::new(),
+            api_keys: Vec::new(),
         }
     }
 }

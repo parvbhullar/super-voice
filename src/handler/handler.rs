@@ -6,11 +6,13 @@ use crate::{
     },
     handler::playbook,
     playbook::{Playbook, PlaybookRunner},
+    redis_state::auth::auth_middleware,
 };
 use crate::{event::SessionEvent, media::track::TrackConfig};
 use axum::{
     Json, Router,
     extract::{Path, Query, State, WebSocketUpgrade, ws::Message},
+    middleware,
     response::{IntoResponse, Response},
     routing::get,
 };
@@ -60,6 +62,23 @@ pub fn playbook_router() -> Router<AppState> {
             axum::routing::post(playbook::run_playbook),
         )
         .route("/api/records", get(playbook::list_records))
+}
+
+/// Router for carrier admin API endpoints.
+///
+/// Routes are protected by Bearer token authentication. Callers should merge
+/// this with the main router using `with_state(app_state)` — the middleware
+/// will then receive the correct state for API key validation.
+///
+/// Existing AI agent routes (call, iceservers, playbook) are unaffected.
+pub fn carrier_admin_router(app_state: AppState) -> Router<AppState> {
+    Router::new()
+        .route("/carrier/api/health", get(carrier_health))
+        .route_layer(middleware::from_fn_with_state(app_state, auth_middleware))
+}
+
+async fn carrier_health() -> impl IntoResponse {
+    Json(serde_json::json!({"status": "ok"}))
 }
 
 pub async fn ws_handler(

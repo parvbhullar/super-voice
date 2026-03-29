@@ -5,6 +5,7 @@ use crate::{
     },
     config::Config,
     locator::RewriteTargetLocator,
+    redis_state::auth::ApiKeyStore,
     useragent::{
         RegisterOption,
         invitation::{
@@ -62,6 +63,8 @@ pub struct AppStateInner {
     pub total_failed_calls: AtomicU64,
     pub uptime: DateTime<Local>,
     pub shutting_down: Arc<AtomicBool>,
+    /// Optional API key store for Bearer token authentication.
+    pub api_key_store: Option<ApiKeyStore>,
 }
 
 pub type AppState = Arc<AppStateInner>;
@@ -74,6 +77,7 @@ pub struct AppStateBuilder {
     pub cancel_token: Option<CancellationToken>,
     pub create_invitation_handler: Option<FnCreateInvitationHandler>,
     pub config_path: Option<String>,
+    pub api_key_store: Option<ApiKeyStore>,
 
     pub message_inspector: Option<Box<dyn MessageInspector>>,
     pub target_locator: Option<Box<dyn TargetLocator>>,
@@ -716,10 +720,17 @@ impl AppStateBuilder {
             cancel_token: None,
             create_invitation_handler: None,
             config_path: None,
+            api_key_store: None,
             message_inspector: None,
             target_locator: None,
             transport_inspector: None,
         }
+    }
+
+    /// Attach an `ApiKeyStore` to be made available via `AppState`.
+    pub fn with_api_key_store(mut self, store: Option<ApiKeyStore>) -> Self {
+        self.api_key_store = store;
+        self
     }
 
     pub fn with_config(mut self, config: Config) -> Self {
@@ -978,6 +989,7 @@ impl AppStateBuilder {
             total_failed_calls: AtomicU64::new(0),
             uptime: Local::now(),
             shutting_down: Arc::new(AtomicBool::new(false)),
+            api_key_store: self.api_key_store,
         });
 
         Ok(app_state)

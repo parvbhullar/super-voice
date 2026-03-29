@@ -134,3 +134,4 @@ mockall = "0.14.0"
 portpicker = "0.1.1"
 dotenvy = "0.15.7"
 wiremock = "0.6"
+tower = { version = "0.5.3", features = ["util"] }

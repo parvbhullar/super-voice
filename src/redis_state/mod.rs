@@ -1,3 +1,4 @@
+pub mod auth;
 pub mod config_store;
 pub mod engagement;
 pub mod pool;
@@ -5,6 +6,7 @@ pub mod pubsub;
 pub mod runtime_state;
 pub mod types;
 
+pub use auth::ApiKeyStore;
 pub use config_store::ConfigStore;
 pub use engagement::EngagementTracker;
 pub use pool::RedisPool;
