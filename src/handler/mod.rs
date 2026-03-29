@@ -1,3 +1,4 @@
+pub mod calls_api;
 pub mod dids_api;
 pub mod endpoints_api;
 pub mod gateways_api;

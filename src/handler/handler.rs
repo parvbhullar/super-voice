@@ -5,8 +5,8 @@ use crate::{
         active_call::{ActiveCallGuard, CallParams},
     },
     handler::{
-        dids_api, endpoints_api, gateways_api, manipulations_api, playbook, routing_api,
-        translations_api, trunks_api,
+        calls_api, dids_api, endpoints_api, gateways_api, manipulations_api, playbook,
+        routing_api, translations_api, trunks_api,
     },
     playbook::{Playbook, PlaybookRunner},
     redis_state::auth::auth_middleware,
@@ -199,6 +199,25 @@ pub fn carrier_admin_router(app_state: AppState) -> Router<AppState> {
             get(manipulations_api::get_manipulation_class)
                 .put(manipulations_api::update_manipulation_class)
                 .delete(manipulations_api::delete_manipulation_class),
+        )
+        // ── Active Calls ────────────────────────────────────────────────────
+        .route("/api/v1/calls", get(calls_api::list_calls))
+        .route("/api/v1/calls/{id}", get(calls_api::get_call))
+        .route(
+            "/api/v1/calls/{id}/hangup",
+            axum::routing::post(calls_api::hangup_call),
+        )
+        .route(
+            "/api/v1/calls/{id}/transfer",
+            axum::routing::post(calls_api::transfer_call),
+        )
+        .route(
+            "/api/v1/calls/{id}/mute",
+            axum::routing::post(calls_api::mute_call),
+        )
+        .route(
+            "/api/v1/calls/{id}/unmute",
+            axum::routing::post(calls_api::unmute_call),
         )
         .route_layer(middleware::from_fn_with_state(app_state, auth_middleware))
 }
