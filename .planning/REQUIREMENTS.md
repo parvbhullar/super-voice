@@ -74,10 +74,10 @@
 
 ### Proxy Call / B2BUA
 
-- [ ] **PRXY-01**: System can bridge two SIP legs as B2BUA (dual-dialog, media bridge)
-- [ ] **PRXY-02**: Media bridge relays RTP with zero-copy when codecs match
-- [ ] **PRXY-03**: Media bridge transcodes when codecs differ
-- [ ] **PRXY-04**: Proxy optimizes codec selection to avoid transcoding
+- [x] **PRXY-01**: System can bridge two SIP legs as B2BUA (dual-dialog, media bridge)
+- [x] **PRXY-02**: Media bridge relays RTP with zero-copy when codecs match
+- [x] **PRXY-03**: Media bridge transcodes when codecs differ
+- [x] **PRXY-04**: Proxy optimizes codec selection to avoid transcoding
 - [ ] **PRXY-05**: Proxy handles early media (183) with SDP fallback to 200 OK
 - [ ] **PRXY-06**: Proxy supports call transfer (REFER)
 - [ ] **PRXY-07**: Proxy supports hold/resume detection
@@ -253,10 +253,10 @@ Which phases cover which requirements. Updated during roadmap creation.
 | RAPI-05 | Phase 5 | Complete |
 | RAPI-06 | Phase 5 | Complete |
 | RAPI-07 | Phase 5 | Complete |
-| PRXY-01 | Phase 6 | Pending |
-| PRXY-02 | Phase 6 | Pending |
-| PRXY-03 | Phase 6 | Pending |
-| PRXY-04 | Phase 6 | Pending |
+| PRXY-01 | Phase 6 | Complete |
+| PRXY-02 | Phase 6 | Complete |
+| PRXY-03 | Phase 6 | Complete |
+| PRXY-04 | Phase 6 | Complete |
 | PRXY-05 | Phase 6 | Pending |
 | PRXY-06 | Phase 6 | Pending |
 | PRXY-07 | Phase 6 | Pending |
