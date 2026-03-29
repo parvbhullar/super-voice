@@ -128,9 +128,9 @@
 - [x] **RAPI-02**: API provides CRUD for Gateways (5 endpoints)
 - [x] **RAPI-03**: API provides CRUD for Trunks + sub-resources (18 endpoints)
 - [x] **RAPI-04**: API provides CRUD for DID Numbers (5 endpoints)
-- [ ] **RAPI-05**: API provides CRUD for Routing Tables & Rules (9 endpoints)
-- [ ] **RAPI-06**: API provides CRUD for Translation Classes (5 endpoints)
-- [ ] **RAPI-07**: API provides CRUD for Manipulation Classes (5 endpoints)
+- [x] **RAPI-05**: API provides CRUD for Routing Tables & Rules (9 endpoints)
+- [x] **RAPI-06**: API provides CRUD for Translation Classes (5 endpoints)
+- [x] **RAPI-07**: API provides CRUD for Manipulation Classes (5 endpoints)
 - [ ] **RAPI-08**: API provides CDR query, detail, recording stream, SIP flow (5 endpoints)
 - [ ] **RAPI-09**: API provides active call list, detail, hangup, transfer, mute (6 endpoints)
 - [ ] **RAPI-10**: API provides webhook registration (4 endpoints)
@@ -250,9 +250,9 @@ Which phases cover which requirements. Updated during roadmap creation.
 | MANP-01 | Phase 5 | Complete |
 | MANP-02 | Phase 5 | Complete |
 | MANP-03 | Phase 5 | Complete |
-| RAPI-05 | Phase 5 | Pending |
-| RAPI-06 | Phase 5 | Pending |
-| RAPI-07 | Phase 5 | Pending |
+| RAPI-05 | Phase 5 | Complete |
+| RAPI-06 | Phase 5 | Complete |
+| RAPI-07 | Phase 5 | Complete |
 | PRXY-01 | Phase 6 | Pending |
 | PRXY-02 | Phase 6 | Pending |
 | PRXY-03 | Phase 6 | Pending |
