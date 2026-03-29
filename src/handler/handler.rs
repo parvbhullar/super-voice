@@ -783,6 +783,17 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_security_routes_exist() {
+        let app = make_test_app().await;
+        assert_route_401(&app, "GET", "/api/v1/security/firewall").await;
+        assert_route_401(&app, "PATCH", "/api/v1/security/firewall").await;
+        assert_route_401(&app, "GET", "/api/v1/security/blocks").await;
+        assert_route_401(&app, "DELETE", "/api/v1/security/blocks/1.2.3.4").await;
+        assert_route_401(&app, "GET", "/api/v1/security/flood-tracker").await;
+        assert_route_401(&app, "GET", "/api/v1/security/auth-failures").await;
+    }
+
+    #[tokio::test]
     async fn test_routing_tables_routes_exist() {
         let app = make_test_app().await;
         assert_route_401(&app, "GET", "/api/v1/routing/tables").await;
