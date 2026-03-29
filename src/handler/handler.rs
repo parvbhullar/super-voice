@@ -4,7 +4,7 @@ use crate::{
         ActiveCall, ActiveCallType, Command,
         active_call::{ActiveCallGuard, CallParams},
     },
-    handler::playbook,
+    handler::{endpoints_api, gateways_api, playbook},
     playbook::{Playbook, PlaybookRunner},
     redis_state::auth::auth_middleware,
 };
@@ -74,6 +74,26 @@ pub fn playbook_router() -> Router<AppState> {
 pub fn carrier_admin_router(app_state: AppState) -> Router<AppState> {
     Router::new()
         .route("/carrier/api/health", get(carrier_health))
+        .route(
+            "/api/v1/endpoints",
+            get(endpoints_api::list_endpoints).post(endpoints_api::create_endpoint),
+        )
+        .route(
+            "/api/v1/endpoints/{name}",
+            get(endpoints_api::get_endpoint)
+                .put(endpoints_api::update_endpoint)
+                .delete(endpoints_api::delete_endpoint),
+        )
+        .route(
+            "/api/v1/gateways",
+            get(gateways_api::list_gateways).post(gateways_api::create_gateway),
+        )
+        .route(
+            "/api/v1/gateways/{name}",
+            get(gateways_api::get_gateway)
+                .put(gateways_api::update_gateway)
+                .delete(gateways_api::delete_gateway),
+        )
         .route_layer(middleware::from_fn_with_state(app_state, auth_middleware))
 }
 

@@ -4,8 +4,10 @@ use crate::{
         CallRecordFormatter, CallRecordManagerBuilder, CallRecordSender, DefaultCallRecordFormatter,
     },
     config::Config,
+    endpoint::manager::EndpointManager,
+    gateway::{GatewayHealthMonitor, GatewayManager},
     locator::RewriteTargetLocator,
-    redis_state::auth::ApiKeyStore,
+    redis_state::{ConfigStore, RedisPool, RuntimeState, auth::ApiKeyStore},
     useragent::{
         RegisterOption,
         invitation::{
@@ -65,6 +67,14 @@ pub struct AppStateInner {
     pub shutting_down: Arc<AtomicBool>,
     /// Optional API key store for Bearer token authentication.
     pub api_key_store: Option<ApiKeyStore>,
+    /// Endpoint manager for SIP endpoint lifecycle management.
+    pub endpoint_manager: Arc<tokio::sync::Mutex<EndpointManager>>,
+    /// Gateway manager for outbound SIP gateway lifecycle management (Some if Redis configured).
+    pub gateway_manager: Option<Arc<tokio::sync::Mutex<GatewayManager>>>,
+    /// Redis config store (Some if Redis is configured).
+    pub config_store: Option<Arc<ConfigStore>>,
+    /// Redis runtime state (Some if Redis is configured).
+    pub runtime_state: Option<Arc<RuntimeState>>,
 }
 
 pub type AppState = Arc<AppStateInner>;
@@ -82,6 +92,8 @@ pub struct AppStateBuilder {
     pub message_inspector: Option<Box<dyn MessageInspector>>,
     pub target_locator: Option<Box<dyn TargetLocator>>,
     pub transport_inspector: Option<Box<dyn TransportEventInspector>>,
+    pub endpoint_manager: Option<Arc<tokio::sync::Mutex<EndpointManager>>>,
+    pub gateway_manager: Option<Arc<tokio::sync::Mutex<GatewayManager>>>,
 }
 
 impl AppStateInner {
@@ -724,6 +736,8 @@ impl AppStateBuilder {
             message_inspector: None,
             target_locator: None,
             transport_inspector: None,
+            endpoint_manager: None,
+            gateway_manager: None,
         }
     }
 
@@ -970,6 +984,46 @@ impl AppStateBuilder {
             None
         };
 
+        // Initialize Redis-backed stores and managers when redis_url is configured.
+        // endpoint_manager is always created; gateway_manager requires Redis.
+        let (config_store, runtime_state, endpoint_manager, gateway_manager) =
+            if let Some(ref redis_url) = config.redis_url {
+                match RedisPool::new(redis_url).await {
+                    Ok(pool) => {
+                        let cs = Arc::new(ConfigStore::new(pool.clone()));
+                        let rs = Arc::new(RuntimeState::new(pool));
+
+                        let mut em = EndpointManager::new();
+                        if let Err(e) = em.load_from_config_store(&cs).await {
+                            warn!("failed to load endpoints from config store: {:?}", e);
+                        }
+
+                        let mut gm = GatewayManager::new(cs.clone(), rs.clone());
+                        if let Err(e) = gm.load_from_config_store().await {
+                            warn!("failed to load gateways from config store: {:?}", e);
+                        }
+
+                        let gm_shared = Arc::new(tokio::sync::Mutex::new(gm));
+                        let monitor = GatewayHealthMonitor::new(gm_shared.clone());
+                        monitor.start();
+
+                        let em_shared = Arc::new(tokio::sync::Mutex::new(em));
+                        (Some(cs), Some(rs), em_shared, Some(gm_shared))
+                    }
+                    Err(e) => {
+                        warn!("failed to connect to Redis: {:?}", e);
+                        let em = Arc::new(tokio::sync::Mutex::new(EndpointManager::new()));
+                        (None, None, em, None)
+                    }
+                }
+            } else {
+                // No Redis configured — endpoint manager without persistence, no gateway manager.
+                let em = self
+                    .endpoint_manager
+                    .unwrap_or_else(|| Arc::new(tokio::sync::Mutex::new(EndpointManager::new())));
+                (None, None, em, self.gateway_manager)
+            };
+
         let app_state = Arc::new(AppStateInner {
             config,
             token,
@@ -990,6 +1044,10 @@ impl AppStateBuilder {
             uptime: Local::now(),
             shutting_down: Arc::new(AtomicBool::new(false)),
             api_key_store: self.api_key_store,
+            endpoint_manager,
+            gateway_manager,
+            config_store,
+            runtime_state,
         });
 
         Ok(app_state)

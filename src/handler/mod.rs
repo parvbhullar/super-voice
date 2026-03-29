@@ -1,3 +1,5 @@
+pub mod endpoints_api;
+pub mod gateways_api;
 pub mod handler;
 pub mod playbook;
 pub use handler::call_router;
