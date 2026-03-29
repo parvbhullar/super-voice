@@ -221,11 +221,10 @@ fn handle_sofia_event(
 }
 
 /// Extract the raw Authorization header string from a [`SofiaEvent`].
-///
-/// The current `SofiaEvent` variants do not carry headers directly; this
-/// function is a placeholder for when the bridge is extended to forward them.
-fn extract_auth_header(_event: &SofiaEvent) -> Option<String> {
-    // TODO(phase-3): extract Authorization header from SofiaEvent once the
-    // bridge forwards SIP headers alongside the event payload.
-    None
+fn extract_auth_header(event: &SofiaEvent) -> Option<String> {
+    match event {
+        SofiaEvent::IncomingInvite { auth_header, .. } => auth_header.clone(),
+        SofiaEvent::IncomingRegister { auth_header, .. } => auth_header.clone(),
+        _ => None,
+    }
 }

@@ -23,6 +23,8 @@ pub enum SofiaEvent {
         to: String,
         /// Session Description Protocol body, if present.
         sdp: Option<String>,
+        /// Raw `Authorization` or `Proxy-Authorization` header, if present.
+        auth_header: Option<String>,
     },
 
     /// An incoming REGISTER request was received.
@@ -31,6 +33,8 @@ pub enum SofiaEvent {
         handle: SofiaHandle,
         /// `Contact` header value from the REGISTER.
         contact: String,
+        /// Raw `Authorization` header, if present.
+        auth_header: Option<String>,
     },
 
     /// A response to an outgoing INVITE (or OPTIONS mapped to the same shape).

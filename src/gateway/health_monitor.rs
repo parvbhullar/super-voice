@@ -93,13 +93,8 @@ impl GatewayHealthMonitor {
                 let _ = all_gateways;
 
                 for gw_info in configs {
-                    // Need interval from manager internals — we expose it via GatewayInfo
-                    // The interval is stored in GatewayConfig; for now we use the monitor's
-                    // tracking map with a fallback interval obtained differently.
-                    // Since GatewayInfo doesn't expose health_check_interval_secs directly,
-                    // we check against a per-gateway Instant stored locally.
-                    // Default interval: if we can't determine, ping every iteration.
-                    let interval_secs = 30u64; // conservative default; real interval via config
+                    // Read the per-gateway health check interval from config.
+                    let interval_secs = gw_info.health_check_interval_secs;
 
                     let now = Instant::now();
                     let due = match last_ping.get(&gw_info.name) {

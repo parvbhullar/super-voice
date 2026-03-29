@@ -25,6 +25,8 @@ pub struct GatewayInfo {
     pub transport: String,
     pub status: GatewayHealthStatus,
     pub last_check: Option<Instant>,
+    /// Health check ping interval in seconds (from GatewayConfig).
+    pub health_check_interval_secs: u64,
 }
 
 /// Pure threshold-check function — mutates `state` in place and returns the
@@ -190,5 +192,6 @@ fn gateway_info(state: &GatewayState) -> GatewayInfo {
         transport: state.config.transport.clone(),
         status: state.status.clone(),
         last_check: state.last_check,
+        health_check_interval_secs: state.config.health_check_interval_secs as u64,
     }
 }
