@@ -25,11 +25,11 @@
 
 ### Gateways
 
-- [ ] **GTWY-01**: Operator can create an outbound SIP gateway with proxy address and auth
-- [ ] **GTWY-02**: Gateway supports UDP, TCP, and TLS transport
-- [ ] **GTWY-03**: Gateway health is monitored via OPTIONS ping at configurable interval
-- [ ] **GTWY-04**: Gateway auto-disables after consecutive failure threshold
-- [ ] **GTWY-05**: Gateway auto-recovers after consecutive success threshold
+- [x] **GTWY-01**: Operator can create an outbound SIP gateway with proxy address and auth
+- [x] **GTWY-02**: Gateway supports UDP, TCP, and TLS transport
+- [x] **GTWY-03**: Gateway health is monitored via OPTIONS ping at configurable interval
+- [x] **GTWY-04**: Gateway auto-disables after consecutive failure threshold
+- [x] **GTWY-05**: Gateway auto-recovers after consecutive success threshold
 
 ### Trunks
 
@@ -214,11 +214,11 @@ Which phases cover which requirements. Updated during roadmap creation.
 | ENDP-05 | Phase 3 | Complete |
 | ENDP-06 | Phase 3 | Complete |
 | ENDP-07 | Phase 3 | Complete |
-| GTWY-01 | Phase 3 | Pending |
-| GTWY-02 | Phase 3 | Pending |
-| GTWY-03 | Phase 3 | Pending |
-| GTWY-04 | Phase 3 | Pending |
-| GTWY-05 | Phase 3 | Pending |
+| GTWY-01 | Phase 3 | Complete |
+| GTWY-02 | Phase 3 | Complete |
+| GTWY-03 | Phase 3 | Complete |
+| GTWY-04 | Phase 3 | Complete |
+| GTWY-05 | Phase 3 | Complete |
 | RAPI-01 | Phase 3 | Pending |
 | RAPI-02 | Phase 3 | Pending |
 | TRNK-01 | Phase 4 | Pending |
