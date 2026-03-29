@@ -8,6 +8,7 @@ use redis::aio::ConnectionManager;
 #[derive(Clone)]
 pub struct RedisPool {
     manager: ConnectionManager,
+    redis_url: String,
 }
 
 impl RedisPool {
@@ -15,7 +16,10 @@ impl RedisPool {
     pub async fn new(redis_url: &str) -> Result<Self> {
         let client = redis::Client::open(redis_url)?;
         let manager = ConnectionManager::new(client).await?;
-        Ok(Self { manager })
+        Ok(Self {
+            manager,
+            redis_url: redis_url.to_string(),
+        })
     }
 
     /// Return a clone of the underlying `ConnectionManager`.
@@ -23,6 +27,14 @@ impl RedisPool {
     /// `ConnectionManager` is designed to be cloned cheaply for each operation.
     pub fn get(&self) -> ConnectionManager {
         self.manager.clone()
+    }
+
+    /// Return the Redis URL used to construct this pool.
+    ///
+    /// Used to create dedicated connections for pub/sub (which cannot share a
+    /// multiplexed connection).
+    pub fn redis_url(&self) -> &str {
+        &self.redis_url
     }
 }
 

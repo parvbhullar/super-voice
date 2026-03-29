@@ -1,8 +1,10 @@
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use redis::AsyncCommands;
 
 use crate::redis_state::{
+    engagement::EngagementTracker,
     pool::RedisPool,
+    pubsub::{publish_or_warn, ConfigChangeEvent, ConfigPubSub},
     types::{
         EndpointConfig, GatewayConfig, ManipulationClassConfig, RoutingTableConfig,
         TranslationClassConfig, TrunkConfig,
@@ -13,9 +15,15 @@ use crate::redis_state::{
 ///
 /// Stores all dynamic entity configurations as JSON strings using the key
 /// pattern `{entity}:{name}` (or `{prefix}{entity}:{name}` in test mode).
+///
+/// Optionally integrates with [`EngagementTracker`] to enforce referential
+/// integrity: deleting a resource that is referenced by another active
+/// resource returns an error naming the dependents.
 pub struct ConfigStore {
     pool: RedisPool,
     key_prefix: String,
+    engagement: Option<EngagementTracker>,
+    pubsub: Option<ConfigPubSub>,
 }
 
 impl ConfigStore {
@@ -24,6 +32,8 @@ impl ConfigStore {
         Self {
             pool,
             key_prefix: String::new(),
+            engagement: None,
+            pubsub: None,
         }
     }
 
@@ -32,7 +42,40 @@ impl ConfigStore {
         Self {
             pool,
             key_prefix: prefix.into(),
+            engagement: None,
+            pubsub: None,
         }
+    }
+
+    /// Create a `ConfigStore` that publishes config change events via Redis pub/sub.
+    ///
+    /// Every successful `set_*` or `delete_*` call will publish a
+    /// [`ConfigChangeEvent`]. Publish failures are logged as warnings and do
+    /// **not** fail the mutation.
+    pub fn with_pubsub(pool: RedisPool, pubsub: ConfigPubSub) -> Self {
+        Self {
+            pool,
+            key_prefix: String::new(),
+            engagement: None,
+            pubsub: Some(pubsub),
+        }
+    }
+
+    /// Attach an `EngagementTracker` to enforce referential integrity on
+    /// deletes and maintain engagement links on set/delete mutations.
+    ///
+    /// Chainable with other builder methods.
+    pub fn with_engagement(mut self, engagement: EngagementTracker) -> Self {
+        self.engagement = Some(engagement);
+        self
+    }
+
+    /// Attach a `ConfigPubSub` instance for publishing config change events.
+    ///
+    /// Chainable with other builder methods.
+    pub fn with_pubsub_builder(mut self, pubsub: ConfigPubSub) -> Self {
+        self.pubsub = Some(pubsub);
+        self
     }
 
     fn key(&self, entity: &str, name: &str) -> String {
@@ -50,6 +93,10 @@ impl ConfigStore {
         let json = serde_json::to_string(value)?;
         let mut conn = self.pool.get();
         conn.set::<_, _, ()>(&key, json).await?;
+        if let Some(ps) = &self.pubsub {
+            let event = ConfigChangeEvent::new(entity, name, "updated");
+            publish_or_warn(ps, event).await;
+        }
         Ok(())
     }
 
@@ -91,7 +138,33 @@ impl ConfigStore {
         let key = self.key(entity, name);
         let mut conn = self.pool.get();
         let deleted: i64 = conn.del(&key).await?;
-        Ok(deleted > 0)
+        let was_deleted = deleted > 0;
+        if was_deleted {
+            if let Some(ps) = &self.pubsub {
+                let event = ConfigChangeEvent::new(entity, name, "deleted");
+                publish_or_warn(ps, event).await;
+            }
+        }
+        Ok(was_deleted)
+    }
+
+    // --- Engagement helpers ---
+
+    /// Check if a resource is engaged (referenced by another resource).
+    ///
+    /// Returns `Err` with a descriptive message if the resource is in use.
+    async fn check_not_engaged(&self, entity_type: &str, name: &str) -> Result<()> {
+        if let Some(eng) = &self.engagement {
+            let key = format!("{entity_type}:{name}");
+            let deps = eng.check_engaged(&key).await?;
+            if !deps.is_empty() {
+                let dependents = deps.join(", ");
+                return Err(anyhow!(
+                    "cannot delete {entity_type} '{name}': referenced by {dependents}"
+                ));
+            }
+        }
+        Ok(())
     }
 
     // --- Endpoint ---
@@ -108,7 +181,12 @@ impl ConfigStore {
         self.list_entities("endpoint").await
     }
 
+    /// Delete an endpoint.
+    ///
+    /// Returns `Err` if the endpoint is currently referenced by another
+    /// resource (engagement check).
     pub async fn delete_endpoint(&self, name: &str) -> Result<bool> {
+        self.check_not_engaged("endpoint", name).await?;
         self.delete_entity("endpoint", name).await
     }
 
@@ -126,14 +204,33 @@ impl ConfigStore {
         self.list_entities("gateway").await
     }
 
+    /// Delete a gateway.
+    ///
+    /// Returns `Err` if the gateway is currently referenced by a trunk
+    /// (engagement check).
     pub async fn delete_gateway(&self, name: &str) -> Result<bool> {
+        self.check_not_engaged("gateway", name).await?;
         self.delete_entity("gateway", name).await
     }
 
     // --- Trunk ---
 
+    /// Persist a trunk configuration.
+    ///
+    /// If an `EngagementTracker` is attached, clears stale gateway references
+    /// for this trunk and tracks the new ones.
     pub async fn set_trunk(&self, config: &TrunkConfig) -> Result<()> {
-        self.set_entity("trunk", &config.name, config).await
+        self.set_entity("trunk", &config.name, config).await?;
+        if let Some(eng) = &self.engagement {
+            let source = format!("trunk:{}", config.name);
+            // Clear stale refs first, then track new ones.
+            eng.untrack_all(&source).await?;
+            for gw in &config.gateways {
+                let target = format!("gateway:{}", gw.name);
+                eng.track(&source, &target).await?;
+            }
+        }
+        Ok(())
     }
 
     pub async fn get_trunk(&self, name: &str) -> Result<Option<TrunkConfig>> {
@@ -144,14 +241,35 @@ impl ConfigStore {
         self.list_entities("trunk").await
     }
 
+    /// Delete a trunk and clean up its engagement references.
     pub async fn delete_trunk(&self, name: &str) -> Result<bool> {
-        self.delete_entity("trunk", name).await
+        let deleted = self.delete_entity("trunk", name).await?;
+        if deleted {
+            if let Some(eng) = &self.engagement {
+                let source = format!("trunk:{name}");
+                eng.untrack_all(&source).await?;
+            }
+        }
+        Ok(deleted)
     }
 
     // --- RoutingTable ---
 
+    /// Persist a routing table configuration.
+    ///
+    /// If an `EngagementTracker` is attached, clears stale trunk references
+    /// and tracks trunks referenced by routing rules.
     pub async fn set_routing_table(&self, config: &RoutingTableConfig) -> Result<()> {
-        self.set_entity("routing_table", &config.name, config).await
+        self.set_entity("routing_table", &config.name, config).await?;
+        if let Some(eng) = &self.engagement {
+            let source = format!("routing_table:{}", config.name);
+            eng.untrack_all(&source).await?;
+            for rule in &config.rules {
+                let target = format!("trunk:{}", rule.destination);
+                eng.track(&source, &target).await?;
+            }
+        }
+        Ok(())
     }
 
     pub async fn get_routing_table(&self, name: &str) -> Result<Option<RoutingTableConfig>> {
@@ -162,8 +280,16 @@ impl ConfigStore {
         self.list_entities("routing_table").await
     }
 
+    /// Delete a routing table and clean up its engagement references.
     pub async fn delete_routing_table(&self, name: &str) -> Result<bool> {
-        self.delete_entity("routing_table", name).await
+        let deleted = self.delete_entity("routing_table", name).await?;
+        if deleted {
+            if let Some(eng) = &self.engagement {
+                let source = format!("routing_table:{name}");
+                eng.untrack_all(&source).await?;
+            }
+        }
+        Ok(deleted)
     }
 
     // --- TranslationClass ---
@@ -212,15 +338,44 @@ impl ConfigStore {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::redis_state::types::{GatewayRef, RoutingRule, TranslationRule, ManipulationRule};
+    use crate::redis_state::{
+        pubsub::ConfigPubSub,
+        types::{GatewayRef, ManipulationRule, RoutingRule, TranslationRule},
+    };
+    use std::time::Duration;
+    use tokio::time::timeout;
     use uuid::Uuid;
 
-    async fn make_store() -> ConfigStore {
+    async fn redis_pool() -> RedisPool {
         let redis_url =
             std::env::var("REDIS_URL").unwrap_or_else(|_| "redis://127.0.0.1:6379".to_string());
-        let pool = RedisPool::new(&redis_url).await.expect("connect to Redis");
+        RedisPool::new(&redis_url).await.expect("connect to Redis")
+    }
+
+    async fn make_store() -> ConfigStore {
+        let pool = redis_pool().await;
         let prefix = format!("test_{}:", Uuid::new_v4().simple());
         ConfigStore::with_prefix(pool, prefix)
+    }
+
+    /// Build a ConfigStore wired with a test-isolated pub/sub channel.
+    /// Returns the store and a subscriber already listening on the channel.
+    async fn make_store_with_pubsub() -> (
+        ConfigStore,
+        crate::redis_state::pubsub::ConfigSubscriber,
+    ) {
+        let pool = redis_pool().await;
+        let prefix = format!("test_{}:", Uuid::new_v4().simple());
+        let channel = format!("sv:test:config:{}", Uuid::new_v4().simple());
+        let pubsub = ConfigPubSub::with_channel(pool.clone(), &channel);
+        let subscriber = pubsub.subscribe().await.expect("subscribe");
+        let store = ConfigStore {
+            pool,
+            key_prefix: prefix,
+            engagement: None,
+            pubsub: Some(pubsub),
+        };
+        (store, subscriber)
     }
 
     fn sample_endpoint(name: &str) -> EndpointConfig {
@@ -408,5 +563,175 @@ mod tests {
             store.get_manipulation_class("add-headers").await.unwrap(),
             None
         );
+    }
+
+    #[tokio::test]
+    async fn test_config_store_set_endpoint_publishes_event() {
+        let (store, mut subscriber) = make_store_with_pubsub().await;
+        let ep = sample_endpoint("ep-pubsub-set");
+
+        store.set_endpoint(&ep).await.expect("set_endpoint");
+
+        let event = timeout(Duration::from_millis(500), subscriber.next_event())
+            .await
+            .expect("should receive pubsub event within 500ms")
+            .expect("no error")
+            .expect("event present");
+
+        assert_eq!(event.entity_type, "endpoint");
+        assert_eq!(event.entity_name, "ep-pubsub-set");
+        assert_eq!(event.action, "updated");
+        assert!(event.timestamp > 0);
+    }
+
+    #[tokio::test]
+    async fn test_config_store_delete_endpoint_publishes_event() {
+        let (store, mut subscriber) = make_store_with_pubsub().await;
+        let ep = sample_endpoint("ep-pubsub-del");
+
+        // set first — consumes the "updated" event
+        store.set_endpoint(&ep).await.expect("set_endpoint");
+        let _set_event = timeout(Duration::from_millis(500), subscriber.next_event())
+            .await
+            .expect("set event")
+            .expect("no error")
+            .expect("event");
+
+        // delete — should publish "deleted"
+        store.delete_endpoint("ep-pubsub-del").await.expect("delete_endpoint");
+
+        let event = timeout(Duration::from_millis(500), subscriber.next_event())
+            .await
+            .expect("should receive delete pubsub event within 500ms")
+            .expect("no error")
+            .expect("event present");
+
+        assert_eq!(event.entity_type, "endpoint");
+        assert_eq!(event.entity_name, "ep-pubsub-del");
+        assert_eq!(event.action, "deleted");
+    }
+
+    // --- Engagement integration tests ---
+
+    async fn make_store_with_engagement() -> ConfigStore {
+        let redis_url =
+            std::env::var("REDIS_URL").unwrap_or_else(|_| "redis://127.0.0.1:6379".to_string());
+        let pool = RedisPool::new(&redis_url).await.expect("connect to Redis");
+        let prefix = format!("test_{}:", Uuid::new_v4().simple());
+        let engagement =
+            crate::redis_state::EngagementTracker::with_prefix(pool.clone(), prefix.clone());
+        ConfigStore::with_prefix(pool, prefix).with_engagement(engagement)
+    }
+
+    #[tokio::test]
+    async fn test_engagement_set_trunk_tracks_gateway_refs() {
+        let store = make_store_with_engagement().await;
+        let gw = sample_gateway("gw-eng1");
+        let trunk = TrunkConfig {
+            name: "trunk-eng1".to_string(),
+            direction: "both".to_string(),
+            gateways: vec![GatewayRef {
+                name: "gw-eng1".to_string(),
+                weight: None,
+            }],
+            distribution: "round-robin".to_string(),
+            capacity: None,
+            codecs: None,
+            acl: None,
+        };
+
+        store.set_gateway(&gw).await.expect("set_gateway");
+        store.set_trunk(&trunk).await.expect("set_trunk");
+
+        // delete_gateway should fail while trunk references it
+        let result = store.delete_gateway("gw-eng1").await;
+        assert!(result.is_err(), "delete should fail when gateway is in use");
+        let err = result.unwrap_err().to_string();
+        assert!(
+            err.contains("trunk:trunk-eng1"),
+            "error should name the dependent trunk, got: {err}"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_engagement_delete_trunk_then_gateway_succeeds() {
+        let store = make_store_with_engagement().await;
+        let gw = sample_gateway("gw-eng2");
+        let trunk = TrunkConfig {
+            name: "trunk-eng2".to_string(),
+            direction: "both".to_string(),
+            gateways: vec![GatewayRef {
+                name: "gw-eng2".to_string(),
+                weight: None,
+            }],
+            distribution: "round-robin".to_string(),
+            capacity: None,
+            codecs: None,
+            acl: None,
+        };
+
+        store.set_gateway(&gw).await.expect("set_gateway");
+        store.set_trunk(&trunk).await.expect("set_trunk");
+
+        // Delete trunk first — cleans up engagement refs
+        store.delete_trunk("trunk-eng2").await.expect("delete_trunk");
+
+        // Now gateway can be deleted
+        let deleted = store
+            .delete_gateway("gw-eng2")
+            .await
+            .expect("delete_gateway after trunk removed");
+        assert!(deleted, "gateway should be deleted successfully");
+    }
+
+    #[tokio::test]
+    async fn test_engagement_set_trunk_replaces_stale_gateway_refs() {
+        let store = make_store_with_engagement().await;
+        let gw1 = sample_gateway("gw-stale1");
+        let gw2 = sample_gateway("gw-stale2");
+
+        store.set_gateway(&gw1).await.expect("set gw1");
+        store.set_gateway(&gw2).await.expect("set gw2");
+
+        // Set trunk with gw1
+        let trunk_v1 = TrunkConfig {
+            name: "trunk-stale".to_string(),
+            direction: "both".to_string(),
+            gateways: vec![GatewayRef {
+                name: "gw-stale1".to_string(),
+                weight: None,
+            }],
+            distribution: "round-robin".to_string(),
+            capacity: None,
+            codecs: None,
+            acl: None,
+        };
+        store.set_trunk(&trunk_v1).await.expect("set trunk v1");
+
+        // Update trunk to reference gw2 — stale gw1 ref should be cleared
+        let trunk_v2 = TrunkConfig {
+            name: "trunk-stale".to_string(),
+            direction: "both".to_string(),
+            gateways: vec![GatewayRef {
+                name: "gw-stale2".to_string(),
+                weight: None,
+            }],
+            distribution: "round-robin".to_string(),
+            capacity: None,
+            codecs: None,
+            acl: None,
+        };
+        store.set_trunk(&trunk_v2).await.expect("set trunk v2");
+
+        // gw1 should now be deletable (stale ref cleared)
+        let deleted = store
+            .delete_gateway("gw-stale1")
+            .await
+            .expect("delete stale gw1");
+        assert!(deleted, "gw1 should be deletable after trunk update");
+
+        // gw2 should still be blocked
+        let result = store.delete_gateway("gw-stale2").await;
+        assert!(result.is_err(), "gw2 should still be engaged by trunk");
     }
 }
