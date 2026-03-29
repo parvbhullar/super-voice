@@ -50,15 +50,15 @@
 
 ### Call Routing
 
-- [ ] **ROUT-01**: Operator can create routing tables with named rules
-- [ ] **ROUT-02**: Routing supports longest prefix match (LPM)
-- [ ] **ROUT-03**: Routing supports exact match
-- [ ] **ROUT-04**: Routing supports regex pattern match
-- [ ] **ROUT-05**: Routing supports compare operators (eq, ne, gt, lt)
-- [ ] **ROUT-06**: Routing supports weighted primary/secondary target distribution
-- [ ] **ROUT-07**: Routing supports jump to another routing table (max 10 depth)
-- [ ] **ROUT-08**: Routing supports HTTP query to external API for decision
-- [ ] **ROUT-09**: Routing supports default entry fallback
+- [x] **ROUT-01**: Operator can create routing tables with named rules
+- [x] **ROUT-02**: Routing supports longest prefix match (LPM)
+- [x] **ROUT-03**: Routing supports exact match
+- [x] **ROUT-04**: Routing supports regex pattern match
+- [x] **ROUT-05**: Routing supports compare operators (eq, ne, gt, lt)
+- [x] **ROUT-06**: Routing supports weighted primary/secondary target distribution
+- [x] **ROUT-07**: Routing supports jump to another routing table (max 10 depth)
+- [x] **ROUT-08**: Routing supports HTTP query to external API for decision
+- [x] **ROUT-09**: Routing supports default entry fallback
 
 ### Call Translation
 
@@ -235,15 +235,15 @@ Which phases cover which requirements. Updated during roadmap creation.
 | RAPI-03 | Phase 4 | Complete |
 | RAPI-04 | Phase 4 | Complete |
 | RAPI-14 | Phase 4 | Complete |
-| ROUT-01 | Phase 5 | Pending |
-| ROUT-02 | Phase 5 | Pending |
-| ROUT-03 | Phase 5 | Pending |
-| ROUT-04 | Phase 5 | Pending |
-| ROUT-05 | Phase 5 | Pending |
-| ROUT-06 | Phase 5 | Pending |
-| ROUT-07 | Phase 5 | Pending |
-| ROUT-08 | Phase 5 | Pending |
-| ROUT-09 | Phase 5 | Pending |
+| ROUT-01 | Phase 5 | Complete |
+| ROUT-02 | Phase 5 | Complete |
+| ROUT-03 | Phase 5 | Complete |
+| ROUT-04 | Phase 5 | Complete |
+| ROUT-05 | Phase 5 | Complete |
+| ROUT-06 | Phase 5 | Complete |
+| ROUT-07 | Phase 5 | Complete |
+| ROUT-08 | Phase 5 | Complete |
+| ROUT-09 | Phase 5 | Complete |
 | TRNS-01 | Phase 5 | Complete |
 | TRNS-02 | Phase 5 | Complete |
 | TRNS-03 | Phase 5 | Complete |
