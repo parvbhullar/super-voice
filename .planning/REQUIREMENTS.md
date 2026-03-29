@@ -126,8 +126,8 @@
 
 - [x] **RAPI-01**: API provides CRUD for Endpoints (5 endpoints)
 - [x] **RAPI-02**: API provides CRUD for Gateways (5 endpoints)
-- [ ] **RAPI-03**: API provides CRUD for Trunks + sub-resources (18 endpoints)
-- [ ] **RAPI-04**: API provides CRUD for DID Numbers (5 endpoints)
+- [x] **RAPI-03**: API provides CRUD for Trunks + sub-resources (18 endpoints)
+- [x] **RAPI-04**: API provides CRUD for DID Numbers (5 endpoints)
 - [ ] **RAPI-05**: API provides CRUD for Routing Tables & Rules (9 endpoints)
 - [ ] **RAPI-06**: API provides CRUD for Translation Classes (5 endpoints)
 - [ ] **RAPI-07**: API provides CRUD for Manipulation Classes (5 endpoints)
@@ -137,7 +137,7 @@
 - [ ] **RAPI-11**: API provides security management (6 endpoints)
 - [ ] **RAPI-12**: API provides diagnostics (trunk test, route evaluate, registration lookup) (5 endpoints)
 - [ ] **RAPI-13**: API provides system info, health, reload, cluster (6 endpoints)
-- [ ] **RAPI-14**: API uses Bearer token / API key authentication
+- [x] **RAPI-14**: API uses Bearer token / API key authentication
 - [x] **RAPI-15**: API uses Redis-backed storage with engagement tracking
 
 ### Redis State
@@ -232,9 +232,9 @@ Which phases cover which requirements. Updated during roadmap creation.
 | DIDN-01 | Phase 4 | Complete |
 | DIDN-02 | Phase 4 | Complete |
 | DIDN-03 | Phase 4 | Complete |
-| RAPI-03 | Phase 4 | Pending |
-| RAPI-04 | Phase 4 | Pending |
-| RAPI-14 | Phase 4 | Pending |
+| RAPI-03 | Phase 4 | Complete |
+| RAPI-04 | Phase 4 | Complete |
+| RAPI-14 | Phase 4 | Complete |
 | ROUT-01 | Phase 5 | Pending |
 | ROUT-02 | Phase 5 | Pending |
 | ROUT-03 | Phase 5 | Pending |

@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: planning
-stopped_at: Completed 04-trunks-dids-entity-api 04-01-PLAN.md
-last_updated: "2026-03-29T10:02:16.412Z"
+stopped_at: Completed 04-trunks-dids-entity-api 04-02-PLAN.md
+last_updated: "2026-03-29T10:09:41.677Z"
 last_activity: 2026-03-27 — Roadmap created for v1.0 Carrier Edition (11 phases, 98 requirements mapped)
 progress:
   total_phases: 11
   completed_phases: 3
   total_plans: 13
-  completed_plans: 11
+  completed_plans: 12
   percent: 0
 ---
 
@@ -60,6 +60,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 03-endpoints-gateways P02 | 10 | 2 tasks | 6 files |
 | Phase 03-endpoints-gateways P03 | 15 | 2 tasks | 6 files |
 | Phase 04-trunks-dids-entity-api P01 | 7 | 2 tasks | 5 files |
+| Phase 04-trunks-dids-entity-api P02 | 4 | 2 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -100,6 +101,8 @@ Recent decisions affecting current work:
 - [Phase 04-trunks-dids-entity-api]: DID engagement tracking: set_did tracks did->{trunk} reference; delete_trunk guards with check_not_engaged to block deletion while DIDs reference it
 - [Phase 04-trunks-dids-entity-api]: TrunkConfig backward compat: all 6 new fields use #[serde(default)] so legacy JSON deserializes to None without errors
 - [Phase 04-trunks-dids-entity-api]: DistributionAlgorithm::from_str() defaults to WeightBased for unknown values; accepts hyphen and underscore variants for round_robin/hash aliases
+- [Phase 04-trunks-dids-entity-api]: PATCH trunk merge strategy: serialize TrunkConfig to Value, overlay patch fields, deserialize back — JSON Merge Patch without per-field Option complexity
+- [Phase 04-trunks-dids-entity-api]: require_config_store! macro eliminates boilerplate across all 23 trunk/DID handlers for consistent 503 response when Redis not configured
 
 ### Pending Todos
 
@@ -113,6 +116,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-29T10:02:16.410Z
-Stopped at: Completed 04-trunks-dids-entity-api 04-01-PLAN.md
+Last session: 2026-03-29T10:09:41.674Z
+Stopped at: Completed 04-trunks-dids-entity-api 04-02-PLAN.md
 Resume file: None
