@@ -359,11 +359,12 @@ impl AppStateInner {
                     };
 
                     // -------------------------------------------------- //
-                    // sip_proxy DID routing check                          //
+                    // Bridge-mode DID routing check                        //
                     // -------------------------------------------------- //
-                    // If this DID is configured for sip_proxy mode, bypass
-                    // the normal invitation handler and dispatch to a
-                    // ProxyCallSession instead.
+                    // If this DID is configured for sip_proxy, webrtc_bridge,
+                    // or ws_bridge mode, bypass the normal invitation handler
+                    // and dispatch to the unified bridge dispatcher instead.
+                    // ai_agent mode falls through to the playbook handler below.
                     //
                     // Wrap state_receiver in Option so that ownership can be
                     // transferred to the sip_proxy branch while still allowing
@@ -377,7 +378,12 @@ impl AppStateInner {
 
                         let is_proxy = if let Some(ref cs) = self.config_store {
                             match cs.get_did(&called_number).await {
-                                Ok(Some(did_cfg)) if did_cfg.routing.mode == "sip_proxy" => {
+                                Ok(Some(did_cfg))
+                                    if matches!(
+                                        did_cfg.routing.mode.as_str(),
+                                        "sip_proxy" | "webrtc_bridge" | "ws_bridge"
+                                    ) =>
+                                {
                                     let caller_uri = tx.original
                                         .from_header()
                                         .ok()
@@ -397,7 +403,7 @@ impl AppStateInner {
                                     let app_clone = self.clone();
                                     crate::spawn(async move {
                                         if let Err(e) =
-                                            crate::proxy::dispatch::dispatch_proxy_call(
+                                            crate::proxy::dispatch::dispatch_bridge_call(
                                                 app_clone,
                                                 session_id,
                                                 caller_guard,
@@ -408,7 +414,7 @@ impl AppStateInner {
                                             )
                                             .await
                                         {
-                                            warn!("proxy dispatch error: {e}");
+                                            warn!("bridge dispatch error: {e}");
                                         }
                                     });
                                     true
