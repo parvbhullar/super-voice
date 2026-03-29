@@ -8,3 +8,6 @@ pub mod session;
 
 // Phase 6 Plan 03
 pub mod dispatch;
+
+// Phase 7 Plan 01
+pub mod bridge;
