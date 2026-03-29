@@ -307,6 +307,7 @@ async fn main() -> Result<()> {
     let app = active_call::handler::call_router()
         .merge(active_call::handler::playbook_router())
         .merge(active_call::handler::iceservers_router())
+        .merge(active_call::handler::carrier_admin_router(app_state.clone()))
         .route("/", get(index))
         .nest_service("/static", ServeDir::new("static"))
         .with_state(app_state.clone());
