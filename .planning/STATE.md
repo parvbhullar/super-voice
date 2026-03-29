@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: planning
-stopped_at: Completed 06-proxy-call-b2bua 06-01-PLAN.md
-last_updated: "2026-03-29T13:06:11.433Z"
+stopped_at: Completed 06-proxy-call-b2bua 06-02-PLAN.md
+last_updated: "2026-03-29T13:12:49.301Z"
 last_activity: 2026-03-27 — Roadmap created for v1.0 Carrier Edition (11 phases, 98 requirements mapped)
 progress:
   total_phases: 11
   completed_phases: 5
   total_plans: 22
-  completed_plans: 18
+  completed_plans: 19
   percent: 0
 ---
 
@@ -67,6 +67,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 05-routing-translation-manipulation P04 | 6 | 1 tasks | 1 files |
 | Phase 05-routing-translation-manipulation P03 | 12 | 2 tasks | 5 files |
 | Phase 06-proxy-call-b2bua P01 | 10 | 2 tasks | 7 files |
+| Phase 06-proxy-call-b2bua P02 | 43 | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -121,6 +122,9 @@ Recent decisions affecting current work:
 - [Phase 05-routing-translation-manipulation]: RoutingEngine instantiated per-request in resolve_route: stateless construction from Arc<ConfigStore> is cheap, no AppState caching needed
 - [Phase 06-proxy-call-b2bua]: Track trait lacks Any supertrait so get_peer_connection_from_track returns None; PeerConnection bridging requires future Track::as_any() refactor
 - [Phase 06-proxy-call-b2bua]: optimize_codecs prefers PCMU then PCMA for zero-copy relay; rustrtc 0.3.35 AudioFrame uses clock_rate not sample_rate; frame samples derived from data.len()
+- [Phase 06-proxy-call-b2bua]: terminated_reason_to_code is pub fn: needed by session.rs bridge_loop for cross-module use
+- [Phase 06-proxy-call-b2bua]: FailoverLoop uses do_invite_async for non-blocking per-gateway dialing with 30s timeout
+- [Phase 06-proxy-call-b2bua]: Gateway name used directly as proxy_addr:5060 SocketAddr in failover loop — defers GatewayConfig lookup to Plan 03
 
 ### Pending Todos
 
@@ -134,6 +138,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-29T13:06:11.430Z
-Stopped at: Completed 06-proxy-call-b2bua 06-01-PLAN.md
+Last session: 2026-03-29T13:12:49.297Z
+Stopped at: Completed 06-proxy-call-b2bua 06-02-PLAN.md
 Resume file: None

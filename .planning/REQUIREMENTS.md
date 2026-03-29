@@ -78,10 +78,10 @@
 - [x] **PRXY-02**: Media bridge relays RTP with zero-copy when codecs match
 - [x] **PRXY-03**: Media bridge transcodes when codecs differ
 - [x] **PRXY-04**: Proxy optimizes codec selection to avoid transcoding
-- [ ] **PRXY-05**: Proxy handles early media (183) with SDP fallback to 200 OK
+- [x] **PRXY-05**: Proxy handles early media (183) with SDP fallback to 200 OK
 - [ ] **PRXY-06**: Proxy supports call transfer (REFER)
 - [ ] **PRXY-07**: Proxy supports hold/resume detection
-- [ ] **PRXY-08**: Proxy failover loop tries routes sequentially, respects nofailover SIP codes
+- [x] **PRXY-08**: Proxy failover loop tries routes sequentially, respects nofailover SIP codes
 
 ### Bridge Modes
 
@@ -257,10 +257,10 @@ Which phases cover which requirements. Updated during roadmap creation.
 | PRXY-02 | Phase 6 | Complete |
 | PRXY-03 | Phase 6 | Complete |
 | PRXY-04 | Phase 6 | Complete |
-| PRXY-05 | Phase 6 | Pending |
+| PRXY-05 | Phase 6 | Complete |
 | PRXY-06 | Phase 6 | Pending |
 | PRXY-07 | Phase 6 | Pending |
-| PRXY-08 | Phase 6 | Pending |
+| PRXY-08 | Phase 6 | Complete |
 | RAPI-09 | Phase 6 | Pending |
 | BRDG-01 | Phase 7 | Pending |
 | BRDG-02 | Phase 7 | Pending |

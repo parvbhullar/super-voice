@@ -113,7 +113,7 @@ Plans:
   3. An in-progress call appears in GET /api/v1/calls with correct trunk, DID, and duration; POST /api/v1/calls/{id}/hangup terminates it
   4. Early media (183 Session Progress with SDP) is passed through to the calling leg without waiting for 200 OK
   5. When the first route fails (5xx or no answer), the proxy automatically tries the next route in the table and the call succeeds
-**Plans:** 5 plans
+**Plans:** 2/5 plans executed
 Plans:
 - [ ] 06-01-PLAN.md — ProxyCall types, MediaPeer trait, MediaBridge with zero-copy relay and transcoding
 - [ ] 06-02-PLAN.md — ProxyCallSession dual-dialog B2BUA, failover loop with nofailover codes
@@ -190,7 +190,7 @@ Note: Phase 8 depends on Phase 3 (not Phase 7), so it can proceed in parallel af
 | 3. Endpoints & Gateways | 3/3 | Complete    | 2026-03-29 |
 | 4. Trunks, DIDs & Entity API | 2/3 | Complete    | 2026-03-29 |
 | 5. Routing, Translation & Manipulation | 4/4 | Complete    | 2026-03-29 |
-| 6. Proxy Call (B2BUA) | 0/5 | Not started | - |
+| 6. Proxy Call (B2BUA) | 2/5 | In Progress|  |
 | 7. Bridge Modes | 0/? | Not started | - |
 | 8. Capacity & Security | 0/? | Not started | - |
 | 9. CDR Engine & Webhooks | 0/? | Not started | - |
