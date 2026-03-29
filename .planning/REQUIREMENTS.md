@@ -85,8 +85,8 @@
 
 ### Bridge Modes
 
-- [ ] **BRDG-01**: System can bridge SIP-to-WebRTC (G.711 to Opus transcoding, ICE/DTLS)
-- [ ] **BRDG-02**: System can bridge SIP-to-WebSocket (outbound WS client connection)
+- [x] **BRDG-01**: System can bridge SIP-to-WebRTC (G.711 to Opus transcoding, ICE/DTLS)
+- [x] **BRDG-02**: System can bridge SIP-to-WebSocket (outbound WS client connection)
 - [ ] **BRDG-03**: Call mode selected per route via config (ai_agent, sip_proxy, webrtc_bridge, ws_bridge)
 
 ### Capacity Management
@@ -262,8 +262,8 @@ Which phases cover which requirements. Updated during roadmap creation.
 | PRXY-07 | Phase 6 | Complete |
 | PRXY-08 | Phase 6 | Complete |
 | RAPI-09 | Phase 6 | Complete |
-| BRDG-01 | Phase 7 | Pending |
-| BRDG-02 | Phase 7 | Pending |
+| BRDG-01 | Phase 7 | Complete |
+| BRDG-02 | Phase 7 | Complete |
 | BRDG-03 | Phase 7 | Pending |
 | CAPC-01 | Phase 8 | Pending |
 | CAPC-02 | Phase 8 | Pending |
