@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: planning
-stopped_at: Completed 11-api-completion-hardening 11-01-PLAN.md
-last_updated: "2026-03-30T05:31:20.499Z"
+stopped_at: Completed 11-api-completion-hardening 11-02-PLAN.md
+last_updated: "2026-03-30T05:44:11.149Z"
 last_activity: 2026-03-27 — Roadmap created for v1.0 Carrier Edition (11 phases, 98 requirements mapped)
 progress:
   total_phases: 11
   completed_phases: 10
   total_plans: 35
-  completed_plans: 33
+  completed_plans: 34
   percent: 0
 ---
 
@@ -82,6 +82,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 10-dsp-processing P01 | 45 | 2 tasks | 7 files |
 | Phase 10-dsp-processing P02 | 15 | 2 tasks | 4 files |
 | Phase 11-api-completion-hardening P01 | 6 | 2 tasks | 5 files |
+| Phase 11-api-completion-hardening P02 | 10 | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -167,6 +168,8 @@ Recent decisions affecting current work:
 - [Phase 10-dsp-processing]: ProcessorChain wiring deferred to v2 RTP bridge: current session lacks AudioFrame/RTP bridge reference for full chain wiring
 - [Phase 11-api-completion-hardening]: ConfigStore::ping() and get_cluster_nodes() added as public methods for system health checks and cluster discovery without exposing raw Redis pool
 - [Phase 11-api-completion-hardening]: trunk_test resolves gateway proxy_addr from ConfigStore per-call rather than GatewayManager to avoid Mutex lock contention during parallel gateway probes
+- [Phase 11-api-completion-hardening]: auth_skip_paths bypass instead of ApiKeyStore for integration tests: ApiKeyStore requires Redis pool so tests use config.auth_skip_paths=['/api/v1/'] to bypass Bearer auth
+- [Phase 11-api-completion-hardening]: system health status is 'ok' when config_store is None (not 'degraded'): degraded path fires only when Redis IS configured but unreachable
 
 ### Pending Todos
 
@@ -180,6 +183,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-30T05:31:20.496Z
-Stopped at: Completed 11-api-completion-hardening 11-01-PLAN.md
+Last session: 2026-03-30T05:44:11.145Z
+Stopped at: Completed 11-api-completion-hardening 11-02-PLAN.md
 Resume file: None
