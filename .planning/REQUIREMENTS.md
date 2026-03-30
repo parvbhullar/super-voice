@@ -110,7 +110,7 @@
 
 - [ ] **DSPP-01**: System provides echo cancellation via SpanDSP AEC processor
 - [ ] **DSPP-02**: System provides inband DTMF detection via SpanDSP Goertzel processor
-- [ ] **DSPP-03**: System provides T.38 fax support (terminal + gateway mode)
+- [ ] **DSPP-03**: System provides T.38 fax support (terminal mode; gateway mode deferred to v2)
 - [ ] **DSPP-04**: System provides call progress tone detection (busy, ringback, SIT)
 - [ ] **DSPP-05**: System provides packet loss concealment (PLC)
 
