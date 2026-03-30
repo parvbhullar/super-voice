@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: planning
-stopped_at: Completed 09-cdr-engine-webhooks 09-02-PLAN.md
-last_updated: "2026-03-30T02:43:59.982Z"
+stopped_at: Completed 10-dsp-processing 10-01-PLAN.md
+last_updated: "2026-03-30T04:26:19.931Z"
 last_activity: 2026-03-27 — Roadmap created for v1.0 Carrier Edition (11 phases, 98 requirements mapped)
 progress:
   total_phases: 11
   completed_phases: 9
-  total_plans: 30
-  completed_plans: 30
+  total_plans: 32
+  completed_plans: 31
   percent: 0
 ---
 
@@ -79,6 +79,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 09-cdr-engine-webhooks P01 | 11 | 2 tasks | 7 files |
 | Phase 09-cdr-engine-webhooks P03 | 7 | 2 tasks | 6 files |
 | Phase 09-cdr-engine-webhooks P02 | 10 | 2 tasks | 10 files |
+| Phase 10-dsp-processing P01 | 45 | 2 tasks | 7 files |
 
 ## Accumulated Context
 
@@ -156,6 +157,9 @@ Recent decisions affecting current work:
 - [Phase 09-cdr-engine-webhooks]: Persistent CDR storage (no TTL): CdrStore uses SET without expiry for billing/compliance; separate sorted-set indexes per filter dimension enable O(log N) ZREVRANGEBYSCORE queries
 - [Phase 09-cdr-engine-webhooks]: deliver_webhook uses 3 total attempts with 2^(attempt-1) backoff (no delay, 1s, 2s); disk fallback only when ALL webhooks fail
 - [Phase 09-cdr-engine-webhooks]: Webhook test event on create is non-fatal: log warning on failure, always return 201 with saved config
+- [Phase 10-dsp-processing]: ToneDetector uses Goertzel fallback: SpanDSP 0.0.6 super_tone_rx callback never fires; pure-Rust Goertzel gives same coverage
+- [Phase 10-dsp-processing]: FaxEngine terminal mode only: gateway mode deferred to v2 pending SIP T.38 negotiation
+- [Phase 10-dsp-processing]: super_tone_rx added to spandsp-sys allowlist separately (super_tone_rx_.* pattern did not include base function)
 
 ### Pending Todos
 
@@ -169,6 +173,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-29T21:52:52.760Z
-Stopped at: Completed 09-cdr-engine-webhooks 09-02-PLAN.md
+Last session: 2026-03-30T04:26:19.928Z
+Stopped at: Completed 10-dsp-processing 10-01-PLAN.md
 Resume file: None
