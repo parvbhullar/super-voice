@@ -135,8 +135,8 @@
 - [x] **RAPI-09**: API provides active call list, detail, hangup, transfer, mute (6 endpoints)
 - [x] **RAPI-10**: API provides webhook registration (4 endpoints)
 - [x] **RAPI-11**: API provides security management (6 endpoints)
-- [ ] **RAPI-12**: API provides diagnostics (trunk test, route evaluate, registration lookup) (5 endpoints)
-- [ ] **RAPI-13**: API provides system info, health, reload, cluster (6 endpoints)
+- [x] **RAPI-12**: API provides diagnostics (trunk test, route evaluate, registration lookup) (5 endpoints)
+- [x] **RAPI-13**: API provides system info, health, reload, cluster (6 endpoints)
 - [x] **RAPI-14**: API uses Bearer token / API key authentication
 - [x] **RAPI-15**: API uses Redis-backed storage with engagement tracking
 
@@ -289,8 +289,8 @@ Which phases cover which requirements. Updated during roadmap creation.
 | DSPP-03 | Phase 10 | Complete |
 | DSPP-04 | Phase 10 | Complete |
 | DSPP-05 | Phase 10 | Complete |
-| RAPI-12 | Phase 11 | Pending |
-| RAPI-13 | Phase 11 | Pending |
+| RAPI-12 | Phase 11 | Complete |
+| RAPI-13 | Phase 11 | Complete |
 
 **Coverage:**
 - v1 requirements: 98 total
