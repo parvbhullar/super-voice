@@ -5,8 +5,9 @@ use crate::{
         active_call::{ActiveCallGuard, CallParams},
     },
     handler::{
-        calls_api, cdrs_api, dids_api, endpoints_api, gateways_api, manipulations_api, playbook,
-        routing_api, security_api, translations_api, trunks_api, webhooks_api,
+        calls_api, cdrs_api, diagnostics_api, dids_api, endpoints_api, gateways_api,
+        manipulations_api, playbook, routing_api, security_api, system_api, translations_api,
+        trunks_api, webhooks_api,
     },
     playbook::{Playbook, PlaybookRunner},
     redis_state::auth::auth_middleware,
@@ -17,7 +18,7 @@ use axum::{
     extract::{Path, Query, State, WebSocketUpgrade, ws::Message},
     middleware,
     response::{IntoResponse, Response},
-    routing::get,
+    routing::{get, post},
 };
 use bytes::Bytes;
 use chrono::Utc;
@@ -264,6 +265,34 @@ pub fn carrier_admin_router(app_state: AppState) -> Router<AppState> {
             "/api/v1/cdrs/{id}/sip-flow",
             get(cdrs_api::get_cdr_sip_flow),
         )
+        // ── Diagnostics ─────────────────────────────────────────────────────
+        .route(
+            "/api/v1/diagnostics/trunk-test",
+            post(diagnostics_api::trunk_test),
+        )
+        .route(
+            "/api/v1/diagnostics/route-evaluate",
+            post(diagnostics_api::route_evaluate),
+        )
+        .route(
+            "/api/v1/diagnostics/registrations",
+            get(diagnostics_api::list_registrations),
+        )
+        .route(
+            "/api/v1/diagnostics/registrations/{user}",
+            get(diagnostics_api::get_registration),
+        )
+        .route(
+            "/api/v1/diagnostics/summary",
+            get(diagnostics_api::diagnostics_summary),
+        )
+        // ── System ──────────────────────────────────────────────────────────
+        .route("/api/v1/system/health", get(system_api::system_health))
+        .route("/api/v1/system/info", get(system_api::system_info))
+        .route("/api/v1/system/cluster", get(system_api::system_cluster))
+        .route("/api/v1/system/reload", post(system_api::system_reload))
+        .route("/api/v1/system/config", get(system_api::system_config))
+        .route("/api/v1/system/stats", get(system_api::system_stats))
         .route_layer(middleware::from_fn_with_state(app_state, auth_middleware))
 }
 
@@ -875,5 +904,26 @@ mod tests {
         assert_route_401(&app, "GET", "/api/v1/manipulations/headers").await;
         assert_route_401(&app, "PUT", "/api/v1/manipulations/headers").await;
         assert_route_401(&app, "DELETE", "/api/v1/manipulations/headers").await;
+    }
+
+    #[tokio::test]
+    async fn test_diagnostics_routes_exist() {
+        let app = make_test_app().await;
+        assert_route_401(&app, "POST", "/api/v1/diagnostics/trunk-test").await;
+        assert_route_401(&app, "POST", "/api/v1/diagnostics/route-evaluate").await;
+        assert_route_401(&app, "GET", "/api/v1/diagnostics/registrations").await;
+        assert_route_401(&app, "GET", "/api/v1/diagnostics/registrations/testuser").await;
+        assert_route_401(&app, "GET", "/api/v1/diagnostics/summary").await;
+    }
+
+    #[tokio::test]
+    async fn test_system_routes_exist() {
+        let app = make_test_app().await;
+        assert_route_401(&app, "GET", "/api/v1/system/health").await;
+        assert_route_401(&app, "GET", "/api/v1/system/info").await;
+        assert_route_401(&app, "GET", "/api/v1/system/cluster").await;
+        assert_route_401(&app, "POST", "/api/v1/system/reload").await;
+        assert_route_401(&app, "GET", "/api/v1/system/config").await;
+        assert_route_401(&app, "GET", "/api/v1/system/stats").await;
     }
 }
