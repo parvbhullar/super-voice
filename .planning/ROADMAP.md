@@ -22,7 +22,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 8: Capacity & Security** - Token bucket CPS limits, concurrent call enforcement, anti-flood, IP ACL, brute-force protection (completed 2026-03-29)
 - [x] **Phase 9: CDR Engine & Webhooks** - Carrier CDR with Redis queue, HTTP webhook delivery, disk fallback, CDR query API (completed 2026-03-30)
 - [x] **Phase 10: DSP Processing** - Echo cancellation, inband DTMF, T.38 fax, tone detection, PLC via SpanDSP (completed 2026-03-30)
-- [ ] **Phase 11: API Completion & Hardening** - Diagnostics, system health, integration testing, performance validation
+- [x] **Phase 11: API Completion & Hardening** - Diagnostics, system health, integration testing, performance validation (completed 2026-03-30)
 
 ## Phase Details
 
@@ -190,7 +190,7 @@ Plans:
   3. GET /system/health returns status, uptime, Redis connectivity, and active call count; GET /system/cluster lists all discovered nodes
   4. Existing AI voice agent calls (playbook-driven, LLM, ASR, TTS) continue to work correctly alongside carrier proxy calls — no regression
   5. System sustains 1,000 concurrent SIP-to-SIP relay calls on an 8-core machine with RTP latency under 5ms added
-**Plans:** 2/3 plans executed
+**Plans:** 3/3 plans complete
 Plans:
 - [ ] 11-01-PLAN.md — Diagnostics API (5 endpoints) and System API (6 endpoints) implementation
 - [ ] 11-02-PLAN.md — Integration tests for diagnostics/system endpoints and AI agent regression tests
@@ -214,4 +214,4 @@ Note: Phase 8 depends on Phase 3 (not Phase 7), so it can proceed in parallel af
 | 8. Capacity & Security | 2/3 | Complete    | 2026-03-29 |
 | 9. CDR Engine & Webhooks | 2/3 | Complete    | 2026-03-30 |
 | 10. DSP Processing | 2/2 | Complete    | 2026-03-30 |
-| 11. API Completion & Hardening | 2/3 | In Progress|  |
+| 11. API Completion & Hardening | 2/3 | Complete    | 2026-03-30 |
