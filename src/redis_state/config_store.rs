@@ -27,6 +27,11 @@ pub struct ConfigStore {
 }
 
 impl ConfigStore {
+    /// Returns a reference to the underlying Redis connection pool.
+    pub fn pool(&self) -> &RedisPool {
+        &self.pool
+    }
+
     /// Create a new `ConfigStore` with the given pool and no key prefix.
     pub fn new(pool: RedisPool) -> Self {
         Self {

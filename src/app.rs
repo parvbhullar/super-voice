@@ -1250,7 +1250,11 @@ impl AppStateBuilder {
             total_failed_calls: AtomicU64::new(0),
             uptime: Local::now(),
             shutting_down: Arc::new(AtomicBool::new(false)),
-            api_key_store: self.api_key_store,
+            api_key_store: self.api_key_store.or_else(|| {
+                config_store.as_ref().map(|cs| {
+                    ApiKeyStore::new(cs.pool().clone())
+                })
+            }),
             endpoint_manager,
             gateway_manager,
             config_store,
