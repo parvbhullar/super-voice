@@ -190,6 +190,11 @@ Plans:
   3. GET /system/health returns status, uptime, Redis connectivity, and active call count; GET /system/cluster lists all discovered nodes
   4. Existing AI voice agent calls (playbook-driven, LLM, ASR, TTS) continue to work correctly alongside carrier proxy calls — no regression
   5. System sustains 1,000 concurrent SIP-to-SIP relay calls on an 8-core machine with RTP latency under 5ms added
+**Plans:** 3 plans
+Plans:
+- [ ] 11-01-PLAN.md — Diagnostics API (5 endpoints) and System API (6 endpoints) implementation
+- [ ] 11-02-PLAN.md — Integration tests for diagnostics/system endpoints and AI agent regression tests
+- [ ] 11-03-PLAN.md — Final test suite run and human verification checkpoint
 
 ## Progress
 
@@ -209,4 +214,4 @@ Note: Phase 8 depends on Phase 3 (not Phase 7), so it can proceed in parallel af
 | 8. Capacity & Security | 2/3 | Complete    | 2026-03-29 |
 | 9. CDR Engine & Webhooks | 2/3 | Complete    | 2026-03-30 |
 | 10. DSP Processing | 2/2 | Complete    | 2026-03-30 |
-| 11. API Completion & Hardening | 0/? | Not started | - |
+| 11. API Completion & Hardening | 0/3 | Planning    | - |
