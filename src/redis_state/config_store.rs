@@ -78,6 +78,29 @@ impl ConfigStore {
         self
     }
 
+    /// Send a PING to Redis and return `true` if the server responds.
+    ///
+    /// Used by system health checks to verify Redis connectivity.
+    pub async fn ping(&self) -> bool {
+        let mut conn = self.pool.get();
+        redis::cmd("PING")
+            .query_async::<String>(&mut conn)
+            .await
+            .is_ok()
+    }
+
+    /// Return all members of the `sv:cluster:nodes` Redis set.
+    ///
+    /// Returns an empty vec if the key does not exist or on error.
+    pub async fn get_cluster_nodes(&self) -> Vec<String> {
+        let mut conn = self.pool.get();
+        redis::cmd("SMEMBERS")
+            .arg("sv:cluster:nodes")
+            .query_async::<Vec<String>>(&mut conn)
+            .await
+            .unwrap_or_default()
+    }
+
     fn key(&self, entity: &str, name: &str) -> String {
         format!("{}{}:{}", self.key_prefix, entity, name)
     }
