@@ -131,9 +131,77 @@ caller = "^\\+86\\d+"
 playbook = "chinese.md"
 ```
 
-## SIP Carrier Integration
+## Carrier Edition (SBC + B2BUA)
 
-### TLS + SRTP (Required by Twilio)
+Active Call includes a carrier-grade Session Border Controller with 84 REST API endpoints for full SIP infrastructure management. See [Carrier Architecture](./docs/CARRIER-ARCHITECTURE.md) for the complete design.
+
+### Carrier Features
+
+- **SIP Proxy (B2BUA)**: Dual-dialog bridge with RTP relay, codec optimization, failover
+- **Bridge Modes**: SIP-to-WebRTC (G.711/Opus transcoding, ICE/DTLS), SIP-to-WebSocket
+- **Routing Engine**: LPM, exact match, regex, HTTP query, weighted distribution, table jumps
+- **Number Translation**: Regex-based caller/destination rewriting per direction
+- **SIP Manipulation**: Conditional header modification with AND/OR logic
+- **Capacity Management**: Token bucket CPS (Redis ZSET), concurrent call limits, auto-block with escalation
+- **SIP Security**: IP firewall (CIDR), flood protection, brute-force blocking, UA blacklist, topology hiding
+- **DSP Processing**: Echo cancellation, inband DTMF (Goertzel), T.38 fax, tone detection, PLC (via SpanDSP C FFI)
+- **CDR Engine**: Dual-leg carrier CDR, Redis queue, webhook delivery with retry, disk fallback
+- **Gateway Health**: OPTIONS ping with configurable thresholds, auto-disable/recover
+- **Trunks**: Group gateways with weights/priorities, capacity limits, codec policies, IP ACLs, DID routing
+- **Clustering**: Active-active via shared Redis (config, capacity, CDR, pub/sub)
+
+### Carrier Quick Start
+
+```bash
+# Build with carrier features (requires libsofia-sip-ua-dev + libspandsp-dev)
+cargo build --release --features carrier
+
+# Or use Docker
+docker build -f Dockerfile.carrier -t active-call:carrier .
+docker run --net host active-call:carrier --config config.toml
+```
+
+### Carrier API Example
+
+```bash
+# Create an endpoint
+curl -X POST http://localhost:8080/api/v1/endpoints \
+  -H "Authorization: Bearer $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"name":"carrier-ext","stack":"sofia","bind_addr":"0.0.0.0","port":5060}'
+
+# Create a gateway
+curl -X POST http://localhost:8080/api/v1/gateways \
+  -H "Authorization: Bearer $API_KEY" \
+  -d '{"name":"twilio","proxy_addr":"sip.twilio.com:5060","transport":"tls"}'
+
+# Create a trunk with weighted gateways
+curl -X POST http://localhost:8080/api/v1/trunks \
+  -H "Authorization: Bearer $API_KEY" \
+  -d '{"name":"us-trunk","direction":"both","gateways":[{"name":"twilio","weight":60}]}'
+
+# Assign a DID to route to AI agent
+curl -X POST http://localhost:8080/api/v1/dids \
+  -H "Authorization: Bearer $API_KEY" \
+  -d '{"number":"+14155551234","trunk":"us-trunk","routing":{"mode":"ai_agent","playbook":"support.md"}}'
+
+# Check system health
+curl -H "Authorization: Bearer $API_KEY" http://localhost:8080/api/v1/system/health
+```
+
+### Feature Flags
+
+```toml
+[features]
+carrier = ["sofia-sip", "spandsp"]   # C FFI carrier features (default)
+minimal = []                          # Pure Rust, no C dependencies
+```
+
+Build with `--no-default-features` for a pure Rust binary without carrier SBC features.
+
+### SIP Carrier Integration
+
+#### TLS + SRTP (Required by Twilio)
 
 ```toml
 tls_port      = 5061
