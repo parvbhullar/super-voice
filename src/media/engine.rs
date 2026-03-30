@@ -118,11 +118,14 @@ impl Default for StreamEngine {
         #[cfg(feature = "carrier")]
         {
             use crate::media::spandsp_adapters::{
-                SpanDspDtmfDetector, SpanDspEchoCancelProcessor, SpanDspPlcProcessor,
+                SpanDspDtmfDetector, SpanDspEchoCancelProcessor, SpanDspFaxProcessor,
+                SpanDspPlcProcessor, SpanDspToneDetectorProcessor,
             };
             engine.register_processor("spandsp_dtmf", SpanDspDtmfDetector::create);
             engine.register_processor("spandsp_echo", SpanDspEchoCancelProcessor::create);
             engine.register_processor("spandsp_plc", SpanDspPlcProcessor::create);
+            engine.register_processor("spandsp_tone", SpanDspToneDetectorProcessor::create);
+            engine.register_processor("spandsp_fax", SpanDspFaxProcessor::create);
         }
 
         engine
