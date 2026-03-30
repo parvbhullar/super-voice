@@ -1,0 +1,231 @@
+default_config := "config/test-matrix.yaml"
+local_config := "config/local-smoke.yaml"
+root_dir := justfile_directory() / ".."
+server_bin := root_dir / "target/release/active-call"
+server_conf := root_dir / "active-call.example.toml"
+playbook := root_dir / "config/playbook/hello.md"
+server_pid := "/tmp/active-call-test.pid"
+server_log := "/tmp/active-call-test.log"
+
+# ──────────────────────────────────────────────
+# Setup
+# ──────────────────────────────────────────────
+
+# Install all dependencies
+install:
+    uv sync
+
+# ──────────────────────────────────────────────
+# Code quality
+# ──────────────────────────────────────────────
+
+# Run ruff linter
+lint:
+    uv run ruff check . && uv run ruff format --check .
+
+# Auto-format code
+format:
+    uv run ruff format . && uv run ruff check . --fix
+
+# Run type checker
+typecheck:
+    uv run pyrefly check
+
+# Run unit tests
+test:
+    uv run pytest tests/ -v
+
+# Run all quality checks (lint + typecheck + tests)
+check: lint typecheck test
+
+# ──────────────────────────────────────────────
+# Active Call server management
+# ──────────────────────────────────────────────
+
+# Build Active Call server (release)
+build-server:
+    cd {{root_dir}} && cargo build --release
+
+# Start Active Call with playbook handler
+start-server:
+    #!/usr/bin/env bash
+    if [ -f {{server_pid}} ] && kill -0 $(cat {{server_pid}}) 2>/dev/null; then
+        echo "Server already running (PID $(cat {{server_pid}}))"
+        exit 0
+    fi
+    cd {{root_dir}} && nohup {{server_bin}} --handler {{playbook}} > {{server_log}} 2>&1 &
+    echo $! > {{server_pid}}
+    sleep 3
+    if kill -0 $(cat {{server_pid}}) 2>/dev/null; then
+        echo "Server started (PID $(cat {{server_pid}})), log: {{server_log}}"
+    else
+        echo "Server failed to start. Check log: {{server_log}}"
+        cat {{server_log}}
+        exit 1
+    fi
+
+# Start Active Call with custom config (for carrier API with Redis)
+start-server-redis conf="/tmp/active-call-test.toml":
+    #!/usr/bin/env bash
+    if [ -f {{server_pid}} ] && kill -0 $(cat {{server_pid}}) 2>/dev/null; then
+        echo "Server already running (PID $(cat {{server_pid}}))"
+        exit 0
+    fi
+    cd {{root_dir}} && nohup {{server_bin}} --conf {{conf}} > {{server_log}} 2>&1 &
+    echo $! > {{server_pid}}
+    sleep 3
+    if kill -0 $(cat {{server_pid}}) 2>/dev/null; then
+        echo "Server started (PID $(cat {{server_pid}})), log: {{server_log}}"
+    else
+        echo "Server failed to start. Check log: {{server_log}}"
+        cat {{server_log}}
+        exit 1
+    fi
+
+# Stop Active Call server
+stop-server:
+    @if [ -f {{server_pid}} ] && kill -0 $(cat {{server_pid}}) 2>/dev/null; then \
+        kill $(cat {{server_pid}}); \
+        rm -f {{server_pid}}; \
+        echo "Server stopped"; \
+    else \
+        echo "Server not running"; \
+        rm -f {{server_pid}}; \
+    fi
+
+# Restart Active Call server
+restart-server: stop-server start-server
+
+# Check if server is running and responsive
+server-status:
+    @if [ -f {{server_pid}} ] && kill -0 $(cat {{server_pid}}) 2>/dev/null; then \
+        echo "Server running (PID $(cat {{server_pid}}))"; \
+    else \
+        echo "Server not running"; \
+    fi
+    @curl -s -o /dev/null -w "  HTTP: %{http_code} (%{time_total}s)\n" http://localhost:8080/list 2>/dev/null || echo "  HTTP: unreachable"
+
+# Show server log
+server-log lines="50":
+    @tail -n {{lines}} {{server_log}} 2>/dev/null || echo "No log file found"
+
+# Follow server log (live)
+server-tail:
+    @tail -f {{server_log}} 2>/dev/null || echo "No log file found"
+
+# ──────────────────────────────────────────────
+# Test tiers (against running server)
+# ──────────────────────────────────────────────
+
+# Run smoke tier
+test-smoke config=default_config:
+    uv run active-call-tester run --tier smoke --config {{config}}
+
+# Run load tier
+test-load config=default_config:
+    uv run active-call-tester run --tier load --config {{config}}
+
+# Run stress tier
+test-stress config=default_config:
+    uv run active-call-tester run --tier stress --config {{config}}
+
+# Run all tiers
+test-all config=default_config:
+    uv run active-call-tester run --all --config {{config}}
+
+# Run specific scenario
+test-scenario scenario tier="smoke" config=default_config:
+    uv run active-call-tester run --scenario {{scenario}} --tier {{tier}} --config {{config}}
+
+# ──────────────────────────────────────────────
+# Local E2E testing (auto-manages server)
+# ──────────────────────────────────────────────
+
+# Run local smoke test (starts server, runs smoke, stops server)
+e2e-smoke: start-server
+    uv run active-call-tester run --tier smoke --config {{local_config}}
+
+# Run local API check (starts server, checks endpoints, stops server)
+e2e-api-check: start-server
+    uv run active-call-tester api-check --config {{local_config}}
+
+# Full local E2E: unit tests + start server + API check + smoke test
+e2e-full: check start-server
+    @echo "── API Endpoint Check ──"
+    uv run active-call-tester api-check --config {{local_config}} || true
+    @echo ""
+    @echo "── Smoke Test ──"
+    uv run active-call-tester run --tier smoke --config {{local_config}}
+
+# ──────────────────────────────────────────────
+# API validation
+# ──────────────────────────────────────────────
+
+# Check all REST API endpoints
+api-check config=default_config:
+    uv run active-call-tester api-check --config {{config}}
+
+# ──────────────────────────────────────────────
+# Reports and tools
+# ──────────────────────────────────────────────
+
+# List available test scenarios
+list config=default_config:
+    uv run active-call-tester list --config {{config}}
+
+# Export Grafana dashboard JSON
+grafana-dashboard:
+    uv run active-call-tester grafana-dashboard --output ../dashboards/
+
+# Show latest JSON test results
+results:
+    @ls -lt results/*.json 2>/dev/null | head -10 || echo "No results yet"
+
+# Show latest result details
+result-detail file="":
+    #!/usr/bin/env bash
+    if [ -z "{{file}}" ]; then
+        latest=$(ls -t results/*.json 2>/dev/null | head -1)
+        if [ -n "$latest" ]; then
+            echo "Latest: $latest"
+            python3 -m json.tool "$latest"
+        else
+            echo "No results yet"
+        fi
+    else
+        python3 -m json.tool "{{file}}"
+    fi
+
+# Clean test results
+clean-results:
+    rm -rf results/
+
+# ──────────────────────────────────────────────
+# Quick debug commands
+# ──────────────────────────────────────────────
+
+# Quick health check against running server
+health:
+    @curl -s http://localhost:8080/list 2>/dev/null | python3 -m json.tool || echo "Server unreachable"
+
+# List active calls on server
+active-calls:
+    @curl -s http://localhost:8080/list 2>/dev/null | python3 -m json.tool || echo "Server unreachable"
+
+# List playbooks on server
+playbooks:
+    @curl -s http://localhost:8080/api/playbooks 2>/dev/null | python3 -m json.tool || echo "Server unreachable"
+
+# List call records
+records:
+    @curl -s http://localhost:8080/api/records 2>/dev/null | python3 -m json.tool || echo "Server unreachable"
+
+# ──────────────────────────────────────────────
+# Convenience aliases
+# ──────────────────────────────────────────────
+
+# Run everything: install, check, E2E
+all: install e2e-full
+
+# Quick iteration: format + test
+dev: format test

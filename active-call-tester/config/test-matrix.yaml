@@ -1,0 +1,85 @@
+target:
+  url: "http://localhost:8080"
+  api_key: "${API_KEY}"
+  ws_url: "ws://localhost:8080/call"
+
+tiers:
+  smoke:
+    concurrency: [1, 5]
+    duration_secs: 30
+    call_hold_secs: 5
+  load:
+    concurrency: [10, 25, 50, 100]
+    duration_secs: 120
+    call_hold_secs: 10
+  stress:
+    concurrency: [100, 250, 500, 1000]
+    duration_secs: 300
+    call_hold_secs: 15
+
+protocols:
+  - websocket
+  - sip
+  - webrtc_aiortc
+  - webrtc_browser
+
+codecs:
+  - pcmu
+  - pcma
+  - opus
+  - g722
+
+providers:
+  asr:
+    - { name: "sensevoice", type: "offline" }
+    - { name: "aliyun", type: "cloud", env_key: "DASHSCOPE_API_KEY" }
+    - { name: "azure", type: "cloud", env_key: "AZURE_OPENAI_API_KEY" }
+  tts:
+    - { name: "supertonic", type: "offline" }
+    - { name: "aliyun", type: "cloud", env_key: "DASHSCOPE_API_KEY" }
+    - { name: "azure", type: "cloud", env_key: "AZURE_OPENAI_API_KEY" }
+
+matrix:
+  - name: "offline-pcmu-ws"
+    protocol: websocket
+    codec: pcmu
+    asr: sensevoice
+    tts: supertonic
+    tiers: [smoke, load, stress]
+
+  - name: "offline-opus-sip"
+    protocol: sip
+    codec: opus
+    asr: sensevoice
+    tts: supertonic
+    tiers: [smoke, load]
+
+  - name: "cloud-aliyun-webrtc"
+    protocol: webrtc_aiortc
+    codec: opus
+    asr: aliyun
+    tts: aliyun
+    tiers: [smoke, load]
+
+  - name: "browser-smoke"
+    protocol: webrtc_browser
+    codec: opus
+    asr: sensevoice
+    tts: supertonic
+    tiers: [smoke]
+
+thresholds:
+  api_response_p95: 200
+  ws_command_rtt_p95: 100
+  call_setup_p95: 500
+  asr_first_result_p95: 800
+  tts_first_byte_p95: 300
+  webrtc_ice_complete_p95: 2000
+
+metrics:
+  prometheus:
+    pushgateway_url: "http://localhost:9091"
+    job_name: "active_call_tester"
+  opentelemetry:
+    endpoint: "http://localhost:4317"
+    service_name: "active-call-tester"

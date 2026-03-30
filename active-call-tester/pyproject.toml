@@ -1,0 +1,44 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "active-call-tester"
+version = "0.1.0"
+description = "Bulk-test Active Call across REST, WebSocket, SIP, and WebRTC protocols"
+requires-python = ">=3.12"
+dependencies = [
+    "aiohttp",
+    "websockets",
+    "aiortc",
+    "playwright",
+    "aiosip",
+    "prometheus-client",
+    "opentelemetry-api",
+    "opentelemetry-sdk",
+    "opentelemetry-exporter-otlp-proto-grpc",
+    "click",
+    "rich",
+    "pydantic",
+    "pyyaml",
+]
+
+[project.scripts]
+active-call-tester = "active_call_tester.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/active_call_tester"]
+
+[dependency-groups]
+dev = [
+    "pytest",
+    "pytest-asyncio",
+    "ruff",
+    "pyrefly",
+]
+
+[tool.ruff]
+line-length = 88
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"

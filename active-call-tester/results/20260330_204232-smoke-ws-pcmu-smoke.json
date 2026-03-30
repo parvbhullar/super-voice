@@ -1,0 +1,42 @@
+{
+  "tier": "smoke",
+  "scenario": "ws-pcmu-smoke",
+  "concurrency": 1,
+  "total_calls": 1,
+  "successful_calls": 0,
+  "failed_calls": 1,
+  "percentiles": {
+    "setup": {
+      "p50": 0.0,
+      "p95": 0.0,
+      "p99": 0.0
+    },
+    "tts": {
+      "p50": 0.0,
+      "p95": 0.0,
+      "p99": 0.0
+    },
+    "asr": {
+      "p50": 0.0,
+      "p95": 0.0,
+      "p99": 0.0
+    }
+  },
+  "passed_thresholds": true,
+  "results": [
+    {
+      "scenario": "ws-pcmu-smoke",
+      "protocol": "websocket",
+      "codec": "pcmu",
+      "asr_provider": "sensevoice",
+      "tts_provider": "supertonic",
+      "setup_latency_ms": 0.0,
+      "first_tts_byte_ms": 0.0,
+      "first_asr_result_ms": 0.0,
+      "teardown_ms": 0.0,
+      "total_duration_ms": 20003.19049999118,
+      "success": false,
+      "error": "timeout_waiting_for_answer"
+    }
+  ]
+}

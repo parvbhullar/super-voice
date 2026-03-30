@@ -1,0 +1,57 @@
+target:
+  url: "http://localhost:8080"
+  api_key: "${API_KEY}"
+  ws_url: "ws://localhost:8080/call"
+
+tiers:
+  smoke:
+    concurrency: [1]
+    duration_secs: 15
+    call_hold_secs: 3
+
+protocols:
+  - websocket
+  - sip
+
+codecs:
+  - pcmu
+  - opus
+
+providers:
+  asr:
+    - { name: "sensevoice", type: "offline" }
+  tts:
+    - { name: "supertonic", type: "offline" }
+
+matrix:
+  - name: "ws-pcmu-smoke"
+    protocol: websocket
+    codec: pcmu
+    asr: sensevoice
+    tts: supertonic
+    tiers: [smoke]
+
+  - name: "sip-opus-smoke"
+    protocol: sip
+    codec: opus
+    asr: sensevoice
+    tts: supertonic
+    callee: "sip:+919738301026@127.0.0.1:13050"
+    caller: "sip:+918071539178@sip.unpod.tel"
+    tiers: [smoke]
+
+thresholds:
+  api_response_p95: 500
+  ws_command_rtt_p95: 500
+  call_setup_p95: 5000
+  asr_first_result_p95: 5000
+  tts_first_byte_p95: 5000
+  webrtc_ice_complete_p95: 5000
+
+metrics:
+  prometheus:
+    pushgateway_url: "http://localhost:9091"
+    job_name: "active_call_tester"
+  opentelemetry:
+    endpoint: "http://localhost:4317"
+    service_name: "active-call-tester"
