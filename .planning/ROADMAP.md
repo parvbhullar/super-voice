@@ -175,7 +175,10 @@ Plans:
   2. DTMF digit pressed on a SIP phone is detected inband by SpanDSP and logged with digit and timestamp
   3. A T.38 fax call completes successfully in terminal mode; a page is transmitted and received without data loss
   4. Simulated packet loss on an RTP stream is concealed by PLC; audio does not exhibit clicks or silence gaps of more than 60ms
-**Plans**: TBD
+**Plans:** 2 plans
+Plans:
+- [ ] 10-01-PLAN.md — Complete ToneDetector/FaxEngine stubs, upgrade EchoCanceller AEC, add tone/fax Processor adapters
+- [ ] 10-02-PLAN.md — Wire DSP into proxy call legs, integration tests for all 5 DSP requirements
 
 ### Phase 11: API Completion & Hardening
 **Goal**: The REST API control plane is complete with diagnostic tools, system health and cluster endpoints; the system passes end-to-end integration tests under carrier-scale load and all existing AI agent functionality is preserved.
@@ -205,5 +208,5 @@ Note: Phase 8 depends on Phase 3 (not Phase 7), so it can proceed in parallel af
 | 7. Bridge Modes | 2/2 | Complete    | 2026-03-29 |
 | 8. Capacity & Security | 2/3 | Complete    | 2026-03-29 |
 | 9. CDR Engine & Webhooks | 2/3 | Complete    | 2026-03-30 |
-| 10. DSP Processing | 0/? | Not started | - |
+| 10. DSP Processing | 0/2 | Not started | - |
 | 11. API Completion & Hardening | 0/? | Not started | - |
