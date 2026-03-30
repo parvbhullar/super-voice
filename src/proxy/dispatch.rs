@@ -11,7 +11,7 @@ use crate::capacity::guard::CapacityCheckResult;
 use crate::cdr::{CarrierCdr, CdrLeg, CdrStatus, CdrTiming};
 use crate::manipulation::engine::{ManipulationContext, ManipulationEngine};
 use crate::proxy::session::ProxyCallSession;
-use crate::proxy::types::{ProxyCallContext, ProxyCallEvent, ProxyCallPhase};
+use crate::proxy::types::{DspConfig, ProxyCallContext, ProxyCallEvent, ProxyCallPhase};
 use crate::redis_state::types::DidConfig;
 use crate::routing::engine::{RouteContext, RoutingEngine};
 use crate::translation::engine::{TranslationEngine, TranslationInput};
@@ -263,6 +263,16 @@ pub async fn dispatch_proxy_call(
     }
 
     // ------------------------------------------------------------------ //
+    // 4.5: Build DspConfig from trunk media class                         //
+    // ------------------------------------------------------------------ //
+
+    // Carrier-grade defaults: echo cancellation, DTMF detection, and PLC are
+    // enabled by default for all proxy calls. They can be overridden via the
+    // trunk's media configuration (media_mode field) in future iterations.
+    // Tone detection and fax terminal mode require explicit opt-in.
+    let dsp_config = build_dsp_config(&trunk.media);
+
+    // ------------------------------------------------------------------ //
     // 5. Build ProxyCallContext                                            //
     // ------------------------------------------------------------------ //
 
@@ -273,6 +283,7 @@ pub async fn dispatch_proxy_call(
         trunk.name.clone(),
     );
     context.did_number = Some(did.number.clone());
+    context.dsp = dsp_config;
     // routing_table stays None when not used — the DID's trunk was used directly.
 
     // ------------------------------------------------------------------ //
@@ -286,6 +297,7 @@ pub async fn dispatch_proxy_call(
         caller_dialog,
         app_state.dialog_layer.clone(),
         config_store,
+        app_state.stream_engine.clone(),
     );
 
     // ------------------------------------------------------------------ //
@@ -524,6 +536,42 @@ pub async fn dispatch_bridge_call(
             Err(anyhow!("unknown bridge mode: {}", other))
         }
     }
+}
+
+/// Build a [`DspConfig`] from a trunk's optional [`MediaConfig`].
+///
+/// Carrier-grade defaults: echo cancellation, DTMF detection, and PLC are
+/// on by default for all proxy calls. Tone detection and fax terminal mode
+/// require opt-in via `media_mode` (values: "fax_terminal", "tone_detect").
+fn build_dsp_config(media: &Option<crate::redis_state::types::MediaConfig>) -> DspConfig {
+    let mut cfg = DspConfig {
+        echo_cancellation: true,
+        dtmf_detection: true,
+        tone_detection: false,
+        plc: true,
+        fax_terminal: false,
+    };
+    if let Some(m) = media {
+        if let Some(ref mode) = m.media_mode {
+            match mode.as_str() {
+                "fax_terminal" => {
+                    cfg.fax_terminal = true;
+                    cfg.echo_cancellation = false;
+                    cfg.dtmf_detection = false;
+                }
+                "tone_detect" => {
+                    cfg.tone_detection = true;
+                }
+                "minimal" => {
+                    cfg.echo_cancellation = false;
+                    cfg.dtmf_detection = false;
+                    cfg.plc = false;
+                }
+                _ => {}
+            }
+        }
+    }
+    cfg
 }
 
 /// Map a SIP termination reason string to a [`CdrStatus`].

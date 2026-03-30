@@ -1,6 +1,25 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
+/// DSP processing options for a proxy call leg.
+///
+/// Populated from trunk media configuration at call dispatch time.
+/// All fields default to `false`; carrier-grade defaults are applied
+/// in `dispatch_proxy_call` based on trunk configuration.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct DspConfig {
+    /// Enable acoustic echo cancellation on the caller leg.
+    pub echo_cancellation: bool,
+    /// Enable inband DTMF digit detection on the caller leg.
+    pub dtmf_detection: bool,
+    /// Enable call-progress tone detection on the callee leg.
+    pub tone_detection: bool,
+    /// Enable packet loss concealment on both legs.
+    pub plc: bool,
+    /// Enable T.38 fax terminal mode (gateway mode deferred to v2).
+    pub fax_terminal: bool,
+}
+
 /// Phases of a proxy call lifecycle.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -27,6 +46,9 @@ pub struct ProxyCallContext {
     pub did_number: Option<String>,
     pub routing_table: Option<String>,
     pub max_forwards: u32,
+    /// DSP processing configuration for this call.
+    #[serde(default)]
+    pub dsp: DspConfig,
 }
 
 impl ProxyCallContext {
@@ -46,6 +68,7 @@ impl ProxyCallContext {
             did_number: None,
             routing_table: None,
             max_forwards: 70,
+            dsp: DspConfig::default(),
         }
     }
 }
@@ -88,4 +111,16 @@ pub enum ProxyCallEvent {
     },
     HoldDetected,
     ResumeDetected,
+    /// A DTMF digit was detected inband on a call leg.
+    DtmfDetected {
+        /// The detected digit character (0-9, *, #, A-D).
+        digit: char,
+        /// Unix timestamp in milliseconds when the digit was detected.
+        timestamp: u64,
+    },
+    /// A call-progress tone was detected on a call leg.
+    ToneDetected {
+        /// Tone type string: "busy", "ringback", "sit", or "unknown".
+        tone_type: String,
+    },
 }

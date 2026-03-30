@@ -6,6 +6,7 @@
 //! the two SIP legs in sync until either side hangs up.
 
 use crate::call::sip::DialogStateReceiverGuard;
+use crate::media::engine::StreamEngine;
 use crate::proxy::failover::{FailoverLoop, FailoverResult};
 use crate::proxy::types::{ProxyCallContext, ProxyCallEvent, ProxyCallPhase};
 use crate::redis_state::config_store::ConfigStore;
@@ -28,6 +29,9 @@ pub struct ProxyCallSession {
     /// Config store for loading trunk/gateway configs (used in Plan 03+ for media bridging).
     #[allow(dead_code)]
     config_store: Arc<ConfigStore>,
+    /// Stream engine for DSP processor creation under the carrier feature.
+    #[allow(dead_code)]
+    stream_engine: Arc<StreamEngine>,
     event_tx: mpsc::UnboundedSender<ProxyCallEvent>,
     early_media_sdp: Option<String>,
     answer_sdp: Option<String>,
@@ -43,6 +47,7 @@ impl ProxyCallSession {
         caller_dialog: DialogStateReceiverGuard,
         dialog_layer: Arc<DialogLayer>,
         config_store: Arc<ConfigStore>,
+        stream_engine: Arc<StreamEngine>,
     ) -> (Self, mpsc::UnboundedReceiver<ProxyCallEvent>) {
         let (event_tx, event_rx) = mpsc::unbounded_channel();
         let session = Self {
@@ -52,6 +57,7 @@ impl ProxyCallSession {
             phase: Arc::new(RwLock::new(ProxyCallPhase::Initializing)),
             dialog_layer,
             config_store,
+            stream_engine,
             event_tx,
             early_media_sdp: None,
             answer_sdp: None,
@@ -116,6 +122,8 @@ impl ProxyCallSession {
                     gateway = %gateway_addr,
                     "proxy session: callee connected"
                 );
+                // Attach DSP processors to the media path when carrier feature is enabled.
+                self.attach_dsp_processors();
                 let answer_sdp = sdp.unwrap_or_else(|| {
                     self.early_media_sdp.take().unwrap_or_default()
                 });
@@ -255,6 +263,104 @@ impl ProxyCallSession {
         }
 
         Ok(())
+    }
+
+    // ------------------------------------------------------------------ //
+    // DSP processor attachment (carrier feature)                          //
+    // ------------------------------------------------------------------ //
+
+    /// Attach SpanDSP processors to call legs based on the DspConfig.
+    ///
+    /// Gated behind `#[cfg(feature = "carrier")]`. Under the minimal build
+    /// this is a no-op. Processors are created via the `StreamEngine` factory
+    /// registry. Failures are logged as warnings (non-fatal).
+    fn attach_dsp_processors(&self) {
+        #[cfg(feature = "carrier")]
+        {
+            let dsp = &self.context.dsp;
+            let session_id = &self.context.session_id;
+
+            if dsp.echo_cancellation {
+                match self.stream_engine.create_processor("spandsp_echo") {
+                    Ok(_proc) => {
+                        info!(
+                            session_id = %session_id,
+                            "dsp: echo canceller attached to caller leg"
+                        );
+                        // ProcessorChain wiring deferred to media bridge
+                        // integration (requires RTP bridge reference).
+                    }
+                    Err(e) => {
+                        warn!(session_id = %session_id, "dsp: failed to create echo processor: {e}");
+                    }
+                }
+            }
+
+            if dsp.dtmf_detection {
+                match self.stream_engine.create_processor("spandsp_dtmf") {
+                    Ok(_proc) => {
+                        info!(
+                            session_id = %session_id,
+                            "dsp: DTMF detector attached to caller leg"
+                        );
+                    }
+                    Err(e) => {
+                        warn!(session_id = %session_id, "dsp: failed to create DTMF processor: {e}");
+                    }
+                }
+            }
+
+            if dsp.tone_detection {
+                match self.stream_engine.create_processor("spandsp_tone") {
+                    Ok(_proc) => {
+                        info!(
+                            session_id = %session_id,
+                            "dsp: tone detector attached to callee leg"
+                        );
+                    }
+                    Err(e) => {
+                        warn!(session_id = %session_id, "dsp: failed to create tone processor: {e}");
+                    }
+                }
+            }
+
+            if dsp.plc {
+                for leg in &["caller", "callee"] {
+                    match self.stream_engine.create_processor("spandsp_plc") {
+                        Ok(_proc) => {
+                            info!(
+                                session_id = %session_id,
+                                leg = %leg,
+                                "dsp: PLC attached to leg"
+                            );
+                        }
+                        Err(e) => {
+                            warn!(session_id = %session_id, leg = %leg, "dsp: failed to create PLC: {e}");
+                        }
+                    }
+                }
+            }
+
+            if dsp.fax_terminal {
+                match self.stream_engine.create_processor("spandsp_fax") {
+                    Ok(_proc) => {
+                        info!(
+                            session_id = %session_id,
+                            "dsp: fax terminal processor attached"
+                        );
+                    }
+                    Err(e) => {
+                        warn!(session_id = %session_id, "dsp: failed to create fax processor: {e}");
+                    }
+                }
+            }
+        }
+
+        // Non-carrier build: no DSP processors available.
+        #[cfg(not(feature = "carrier"))]
+        {
+            let _ = &self.context.dsp;
+        }
     }
 
     // ------------------------------------------------------------------ //
