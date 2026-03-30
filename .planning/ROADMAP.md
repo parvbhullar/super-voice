@@ -20,7 +20,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 6: Proxy Call (B2BUA)** - Dual-dialog SIP bridge with RTP media relay, failover, call transfer, and active call API (completed 2026-03-29)
 - [x] **Phase 7: Bridge Modes** - SIP-to-WebRTC and SIP-to-WebSocket bridges with per-route mode selection (completed 2026-03-29)
 - [x] **Phase 8: Capacity & Security** - Token bucket CPS limits, concurrent call enforcement, anti-flood, IP ACL, brute-force protection (completed 2026-03-29)
-- [ ] **Phase 9: CDR Engine & Webhooks** - Carrier CDR with Redis queue, HTTP webhook delivery, disk fallback, CDR query API
+- [x] **Phase 9: CDR Engine & Webhooks** - Carrier CDR with Redis queue, HTTP webhook delivery, disk fallback, CDR query API (completed 2026-03-30)
 - [ ] **Phase 10: DSP Processing** - Echo cancellation, inband DTMF, T.38 fax, tone detection, PLC via SpanDSP
 - [ ] **Phase 11: API Completion & Hardening** - Diagnostics, system health, integration testing, performance validation
 
@@ -160,7 +160,7 @@ Plans:
   3. When the webhook endpoint is unreachable, CDR is written to a disk JSON file in the configured fallback directory
   4. GET /cdrs returns paginated CDR list filterable by trunk, DID, date range, and call status
   5. Operator registers a webhook via POST /webhooks and receives test event; DELETE /webhooks/{id} stops delivery
-**Plans:** 2/3 plans executed
+**Plans:** 3/3 plans complete
 Plans:
 - [ ] 09-01-PLAN.md — CarrierCdr types, Redis queue, CDR generation from proxy dispatch
 - [ ] 09-02-PLAN.md — Webhook registration API, HTTP delivery with retry, disk fallback, background processor
@@ -204,6 +204,6 @@ Note: Phase 8 depends on Phase 3 (not Phase 7), so it can proceed in parallel af
 | 6. Proxy Call (B2BUA) | 5/5 | Complete    | 2026-03-29 |
 | 7. Bridge Modes | 2/2 | Complete    | 2026-03-29 |
 | 8. Capacity & Security | 2/3 | Complete    | 2026-03-29 |
-| 9. CDR Engine & Webhooks | 2/3 | In Progress|  |
+| 9. CDR Engine & Webhooks | 2/3 | Complete    | 2026-03-30 |
 | 10. DSP Processing | 0/? | Not started | - |
 | 11. API Completion & Hardening | 0/? | Not started | - |
