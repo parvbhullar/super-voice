@@ -37,6 +37,7 @@ fn main() {
         // Allowlist functions
         .allowlist_function("dtmf_rx")
         .allowlist_function("dtmf_rx_.*")
+        .allowlist_function("super_tone_rx")
         .allowlist_function("echo_can_.*")
         .allowlist_function("super_tone_rx_.*")
         .allowlist_function("fax_.*")

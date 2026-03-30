@@ -8,10 +8,10 @@
 //! # Processors
 //!
 //! - [`DtmfDetector`] — DTMF digit detection
-//! - [`EchoCanceller`] — Acoustic echo cancellation
-//! - [`ToneDetector`] — Tone detection stub (full impl in Phase 10)
+//! - [`EchoCanceller`] — Acoustic echo cancellation with configurable tail length
+//! - [`ToneDetector`] — Tone detection (Busy, Ringback, SIT) via Goertzel algorithm
 //! - [`PlcProcessor`] — Packet loss concealment
-//! - [`FaxEngine`] — T.38 fax stub proving bindings compile (full impl in Phase 10)
+//! - [`FaxEngine`] — T.38 terminal-mode fax engine (gateway mode deferred to v2)
 
 pub mod dtmf;
 pub mod echo;
@@ -21,6 +21,6 @@ pub mod tone;
 
 pub use dtmf::DtmfDetector;
 pub use echo::EchoCanceller;
-pub use fax::FaxEngine;
+pub use fax::{FaxEngine, FaxEvent, FaxTone};
 pub use plc::PlcProcessor;
 pub use tone::{ToneDetector, ToneType};
