@@ -208,5 +208,5 @@ Note: Phase 8 depends on Phase 3 (not Phase 7), so it can proceed in parallel af
 | 7. Bridge Modes | 2/2 | Complete    | 2026-03-29 |
 | 8. Capacity & Security | 2/3 | Complete    | 2026-03-29 |
 | 9. CDR Engine & Webhooks | 2/3 | Complete    | 2026-03-30 |
-| 10. DSP Processing | 2/2 | Complete   | 2026-03-30 |
+| 10. DSP Processing | 2/2 | Complete    | 2026-03-30 |
 | 11. API Completion & Hardening | 0/? | Not started | - |
