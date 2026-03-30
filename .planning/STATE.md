@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: planning
-stopped_at: Completed 10-dsp-processing 10-01-PLAN.md
-last_updated: "2026-03-30T04:26:19.931Z"
+stopped_at: Completed 10-dsp-processing 10-02-PLAN.md
+last_updated: "2026-03-30T04:44:09.093Z"
 last_activity: 2026-03-27 — Roadmap created for v1.0 Carrier Edition (11 phases, 98 requirements mapped)
 progress:
   total_phases: 11
-  completed_phases: 9
+  completed_phases: 10
   total_plans: 32
-  completed_plans: 31
+  completed_plans: 32
   percent: 0
 ---
 
@@ -80,6 +80,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 09-cdr-engine-webhooks P03 | 7 | 2 tasks | 6 files |
 | Phase 09-cdr-engine-webhooks P02 | 10 | 2 tasks | 10 files |
 | Phase 10-dsp-processing P01 | 45 | 2 tasks | 7 files |
+| Phase 10-dsp-processing P02 | 15 | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -160,6 +161,9 @@ Recent decisions affecting current work:
 - [Phase 10-dsp-processing]: ToneDetector uses Goertzel fallback: SpanDSP 0.0.6 super_tone_rx callback never fires; pure-Rust Goertzel gives same coverage
 - [Phase 10-dsp-processing]: FaxEngine terminal mode only: gateway mode deferred to v2 pending SIP T.38 negotiation
 - [Phase 10-dsp-processing]: super_tone_rx added to spandsp-sys allowlist separately (super_tone_rx_.* pattern did not include base function)
+- [Phase 10-dsp-processing]: DspConfig carrier-grade defaults: echo/dtmf/plc on by default; fax_terminal and tone_detection are opt-in via media_mode
+- [Phase 10-dsp-processing]: attach_dsp_processors() log-and-continue: DSP failures are warnings not errors to preserve call continuity
+- [Phase 10-dsp-processing]: ProcessorChain wiring deferred to v2 RTP bridge: current session lacks AudioFrame/RTP bridge reference for full chain wiring
 
 ### Pending Todos
 
@@ -173,6 +177,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-30T04:26:19.928Z
-Stopped at: Completed 10-dsp-processing 10-01-PLAN.md
+Last session: 2026-03-30T04:44:09.090Z
+Stopped at: Completed 10-dsp-processing 10-02-PLAN.md
 Resume file: None

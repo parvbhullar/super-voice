@@ -21,7 +21,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 7: Bridge Modes** - SIP-to-WebRTC and SIP-to-WebSocket bridges with per-route mode selection (completed 2026-03-29)
 - [x] **Phase 8: Capacity & Security** - Token bucket CPS limits, concurrent call enforcement, anti-flood, IP ACL, brute-force protection (completed 2026-03-29)
 - [x] **Phase 9: CDR Engine & Webhooks** - Carrier CDR with Redis queue, HTTP webhook delivery, disk fallback, CDR query API (completed 2026-03-30)
-- [ ] **Phase 10: DSP Processing** - Echo cancellation, inband DTMF, T.38 fax, tone detection, PLC via SpanDSP
+- [x] **Phase 10: DSP Processing** - Echo cancellation, inband DTMF, T.38 fax, tone detection, PLC via SpanDSP (completed 2026-03-30)
 - [ ] **Phase 11: API Completion & Hardening** - Diagnostics, system health, integration testing, performance validation
 
 ## Phase Details
@@ -175,7 +175,7 @@ Plans:
   2. DTMF digit pressed on a SIP phone is detected inband by SpanDSP and logged with digit and timestamp
   3. A T.38 fax call completes successfully in terminal mode; a page is transmitted and received without data loss
   4. Simulated packet loss on an RTP stream is concealed by PLC; audio does not exhibit clicks or silence gaps of more than 60ms
-**Plans:** 1/2 plans executed
+**Plans:** 2/2 plans complete
 Plans:
 - [ ] 10-01-PLAN.md — Complete ToneDetector/FaxEngine stubs, upgrade EchoCanceller AEC, add tone/fax Processor adapters
 - [ ] 10-02-PLAN.md — Wire DSP into proxy call legs, integration tests for all 5 DSP requirements
@@ -208,5 +208,5 @@ Note: Phase 8 depends on Phase 3 (not Phase 7), so it can proceed in parallel af
 | 7. Bridge Modes | 2/2 | Complete    | 2026-03-29 |
 | 8. Capacity & Security | 2/3 | Complete    | 2026-03-29 |
 | 9. CDR Engine & Webhooks | 2/3 | Complete    | 2026-03-30 |
-| 10. DSP Processing | 1/2 | In Progress|  |
+| 10. DSP Processing | 2/2 | Complete   | 2026-03-30 |
 | 11. API Completion & Hardening | 0/? | Not started | - |

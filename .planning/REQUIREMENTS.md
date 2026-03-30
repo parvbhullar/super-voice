@@ -109,10 +109,10 @@
 ### DSP Processing
 
 - [x] **DSPP-01**: System provides echo cancellation via SpanDSP AEC processor
-- [ ] **DSPP-02**: System provides inband DTMF detection via SpanDSP Goertzel processor
+- [x] **DSPP-02**: System provides inband DTMF detection via SpanDSP Goertzel processor
 - [x] **DSPP-03**: System provides T.38 fax support (terminal mode; gateway mode deferred to v2)
 - [x] **DSPP-04**: System provides call progress tone detection (busy, ringback, SIT)
-- [ ] **DSPP-05**: System provides packet loss concealment (PLC)
+- [x] **DSPP-05**: System provides packet loss concealment (PLC)
 
 ### CDR Engine
 
@@ -285,10 +285,10 @@ Which phases cover which requirements. Updated during roadmap creation.
 | RAPI-08 | Phase 9 | Complete |
 | RAPI-10 | Phase 9 | Complete |
 | DSPP-01 | Phase 10 | Complete |
-| DSPP-02 | Phase 10 | Pending |
+| DSPP-02 | Phase 10 | Complete |
 | DSPP-03 | Phase 10 | Complete |
 | DSPP-04 | Phase 10 | Complete |
-| DSPP-05 | Phase 10 | Pending |
+| DSPP-05 | Phase 10 | Complete |
 | RAPI-12 | Phase 11 | Pending |
 | RAPI-13 | Phase 11 | Pending |
 
