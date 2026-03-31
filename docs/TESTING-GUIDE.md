@@ -1,15 +1,114 @@
 # Testing Guide
 
+## Quick Start (Just Commands)
+
+Install [just](https://github.com/casey/just) (`brew install just` or `cargo install just`), then:
+
+```bash
+# One-command smoke test (builds, starts server with Redis, health check, SIP ping)
+just smoke
+
+# Full E2E pipeline (unit tests + E2E tests + server + API health + SIP load)
+just e2e
+
+# Run all 647+ unit/integration tests
+just test
+
+# Run carrier E2E test suite (17 tests)
+just test-e2e
+
+# Start server in carrier mode (with Redis)
+just start
+
+# Create an API key
+just create-key myapp
+# → exports API_KEY=sv_xxxxx
+
+# Check health, entities, diagnostics
+export API_KEY=sv_xxxxx
+just health
+just entities
+just diagnostics
+just calls
+
+# SIP load testing
+just sip-ping 100      # 100 OPTIONS pings
+just sip-flood 50      # 50 concurrent INVITEs
+
+# Stop server
+just stop
+```
+
+### All Just Commands
+
+```bash
+# Build
+just build             # Release build with carrier features
+just build-minimal     # Pure Rust, no C deps
+just check             # Check both feature paths compile
+
+# Test
+just test              # All tests (requires Redis + Sofia-SIP + SpanDSP)
+just test-e2e          # Carrier E2E suite (17 tests)
+just test-carrier      # Carrier integration tests
+just test-minimal      # Tests without C deps
+just test-mod routing  # Test specific module
+just test-startup      # Validate startup <1s
+
+# Server
+just start             # Start in carrier mode (builds first)
+just stop              # Stop server
+just restart           # Restart
+just status            # Show status + health
+just log               # View last 50 lines of log
+just tail              # Follow log live
+
+# API Keys
+just create-key myapp  # Create and print API key
+just list-keys         # List key names in Redis
+
+# Carrier API
+just health            # GET /api/v1/system/health
+just info              # GET /api/v1/system/info
+just entities          # Count all entities
+just diagnostics       # GET /api/v1/diagnostics/summary
+just calls             # GET /api/v1/calls
+
+# SIP Load
+just sip-ping 100      # Send N OPTIONS pings
+just sip-flood 50      # Send N concurrent INVITEs
+
+# Pipelines
+just smoke             # Quick: build + start + health + SIP ping
+just e2e               # Full: build + test + start + smoke + SIP load
+
+# Tester (Python E2E)
+just tester test       # Python unit tests
+just api-check         # Validate all 86 carrier endpoints
+just tester test-smoke # Smoke tier bulk calls
+just tester test-load  # Load tier bulk calls
+
+# Docker
+just docker-build      # Build carrier Docker image
+just docker-run        # Run carrier Docker image
+
+# Cleanup
+just clean             # Stop server + cargo clean
+```
+
+---
+
 ## Prerequisites
 
 ### System Dependencies
 
 ```bash
 # macOS
-brew install sofia-sip spandsp redis sipsak
+brew install sofia-sip spandsp redis sipsak just
 
 # Debian/Ubuntu
 apt install libsofia-sip-ua-dev libspandsp-dev redis-server sipsak clang libclang-dev
+cargo install just
 ```
 
 ### Start Redis
@@ -20,7 +119,7 @@ redis-server &
 redis-cli ping  # should return PONG
 ```
 
-## Running Tests
+## Running Tests (Cargo)
 
 ### Full Test Suite
 
@@ -299,6 +398,196 @@ curl -s -X POST "$BASE/webhooks" \
 
 # List webhooks
 curl -s -H "Authorization: Bearer $API_KEY" "$BASE/webhooks" | python3 -m json.tool
+```
+
+## Active Call Tester (E2E & Load Testing)
+
+The `active-call-tester` is a Python CLI tool for bulk testing Active Call across all protocols (REST, WebSocket, SIP, WebRTC) with latency measurement and metrics export.
+
+### Prerequisites
+
+```bash
+# Install just (task runner)
+brew install just          # macOS
+cargo install just         # or via cargo
+
+# Install Python dependencies
+just tester install
+```
+
+### Quick Start (from repo root)
+
+```bash
+# Run unit tests (233 tests, no server needed)
+just test
+
+# Start server + run smoke test (one command)
+just smoke
+
+# Start server + check all REST API endpoints
+just api-check
+
+# Full pipeline: lint + typecheck + tests + server + API check + smoke
+just e2e
+
+# Stop the server when done
+just stop
+```
+
+### Server Management
+
+```bash
+just start                 # Start Active Call with playbook handler
+just stop                  # Stop the server
+just status                # Check if server is running + HTTP health
+just tester restart-server # Restart
+just tester server-log     # View last 50 lines of server log
+just tester server-tail    # Follow server log (live)
+```
+
+### Test Tiers
+
+The tester supports three tiers of concurrency. Start the server first (`just start`), then:
+
+```bash
+# Smoke: 1-5 concurrent calls, 30s
+just tester test-smoke
+
+# Load: 10-100 concurrent, 120s
+just tester test-load
+
+# Stress: 100-1000 concurrent, 300s
+just tester test-stress
+
+# All tiers
+just tester test-all
+
+# Specific scenario at specific tier
+just tester test-scenario offline-pcmu-ws load
+```
+
+### Test Matrix Configuration
+
+Tests are driven by YAML config files in `active-call-tester/config/`:
+
+- `test-matrix.yaml` — Full matrix (all protocols, codecs, providers)
+- `local-smoke.yaml` — Minimal local testing config
+
+Override the config for any command:
+
+```bash
+just tester test-smoke config=config/local-smoke.yaml
+```
+
+Example matrix entry:
+
+```yaml
+matrix:
+  - name: "sip-opus-smoke"
+    protocol: sip
+    codec: opus
+    asr: sensevoice
+    tts: supertonic
+    callee: "sip:+919738301026@127.0.0.1:13050"
+    caller: "sip:+918071539178@sip.unpod.tel"
+    tiers: [smoke, load]
+```
+
+### Protocols Tested
+
+| Protocol | Endpoint | Client | Bulk Support |
+|----------|----------|--------|-------------|
+| WebSocket | `/call` | `websockets` | Yes |
+| SIP | `/call/sip` | WS + SIP options | Yes |
+| WebRTC (headless) | `/call/webrtc` | `aiortc` | Yes |
+| WebRTC (browser) | `/call/webrtc` | Playwright | Smoke only |
+| REST API | `/api/v1/*` | `aiohttp` | Yes |
+
+### REST API Coverage
+
+The `api-check` command validates all 84+ carrier API endpoints:
+
+```bash
+just api-check
+```
+
+Covers CRUD cycles for: endpoints, gateways, trunks (+ sub-resources), DIDs, routing tables, translations, manipulations, webhooks. Plus operational endpoints: system health/stats/reload, diagnostics, security, CDRs, and playbook API.
+
+**Note:** Carrier API endpoints (`/api/v1/*`) require Bearer token auth with Redis. Without Redis, these return 401. The playbook API (`/api/playbooks`, `/api/records`) works without auth.
+
+### Viewing Results
+
+```bash
+just tester results        # List JSON result files
+just tester result-detail  # Pretty-print latest result
+
+# Console output includes per-scenario tables:
+#
+# ┌────────────────┬───────┬───────┬───────────┬─────────┬─────────┬────────┐
+# │ Scenario       │ Tier  │ Calls │ Setup p95 │ TTS p95 │ ASR p95 │ Status │
+# ├────────────────┼───────┼───────┼───────────┼─────────┼─────────┼────────┤
+# │ offline-pcmu-ws│ smoke │100/100│     45ms  │   82ms  │  120ms  │  PASS  │
+# └────────────────┴───────┴───────┴───────────┴─────────┴─────────┴────────┘
+```
+
+### Metrics Export
+
+Results are exported to three targets:
+
+| Target | Destination | Config Key |
+|--------|-------------|------------|
+| **Prometheus** | Pushgateway | `metrics.prometheus.pushgateway_url` |
+| **OpenTelemetry** | OTLP gRPC collector | `metrics.opentelemetry.endpoint` |
+| **JSON** | `active-call-tester/results/` | Always enabled |
+
+Prometheus metrics include: `active_call_setup_seconds`, `active_call_tts_first_byte_seconds`, `active_call_asr_first_result_seconds`, `active_call_errors_total`, `active_call_api_response_seconds`.
+
+Export a Grafana dashboard:
+
+```bash
+just tester grafana-dashboard
+# Writes to dashboards/active-call-tester.json
+```
+
+### Latency Thresholds
+
+Define pass/fail criteria in the YAML config:
+
+```yaml
+thresholds:
+  api_response_p95: 200      # ms
+  ws_command_rtt_p95: 100
+  call_setup_p95: 500
+  asr_first_result_p95: 800
+  tts_first_byte_p95: 300
+  webrtc_ice_complete_p95: 2000
+```
+
+The CLI exits with code 1 if any threshold fails — CI-friendly.
+
+### Debug Commands
+
+```bash
+just tester health         # Server health check
+just tester active-calls   # List active calls
+just tester playbooks      # List playbooks
+just tester records        # List call records
+just tester clean-results  # Clear result files
+```
+
+### Code Quality
+
+```bash
+just tester dev            # Format + unit tests (quick iteration)
+just tester check          # Lint + typecheck + tests (full check)
+just tester lint           # Ruff linter only
+just tester format         # Auto-format
+```
+
+### All Commands Reference
+
+```bash
+just tester                # List all available commands
 ```
 
 ## SIP Load Testing
