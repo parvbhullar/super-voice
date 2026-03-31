@@ -8,45 +8,44 @@ RustPBX's UserAgent (UA) mode introduces a decoupled architecture for AI voice a
 
 This architectural approach allows developers to focus on AI logic implementation without requiring deep knowledge of audio processing complexities.
 
-```mermaid
-graph TD
-    A[AI Agent] -->|WebSocket Commands| B[RustPBX UA]
-    B -->|WebSocket Events| A
-    B --> C[SIP Proxy/Registry]
-    B --> D[WebRTC Peer]
-    B --> E[Audio Processing Engine]
-    E --> F[ASR Plugins]
-    E --> G[TTS Plugins]
-    E --> H[VAD Module]
-    E --> I[Noise Reduction]
-    
-    subgraph "Decoupled Architecture"
-        A
-        B
-    end
-    
-    subgraph "Media Processing Layer"
-        E
-        F
-        G
-        H
-        I
-    end
-    
-    subgraph "Communication Layer"
-        C
-        D
-    end
-    
-    style A fill:#1a1a2e,stroke:#16213e,stroke-width:2px,color:#00d4aa
-    style B fill:#16213e,stroke:#0f3460,stroke-width:2px,color:#00d4aa
-    style C fill:#0f3460,stroke:#533483,stroke-width:2px,color:#eee
-    style D fill:#0f3460,stroke:#533483,stroke-width:2px,color:#eee
-    style E fill:#533483,stroke:#e94560,stroke-width:2px,color:#eee
-    style F fill:#e94560,stroke:#ff6b6b,stroke-width:2px,color:#fff
-    style G fill:#e94560,stroke:#ff6b6b,stroke-width:2px,color:#fff
-    style H fill:#e94560,stroke:#ff6b6b,stroke-width:2px,color:#fff
-    style I fill:#e94560,stroke:#ff6b6b,stroke-width:2px,color:#fff
+```
+  ┌─────────────────────────────────────────────────────────────────┐
+  │                   Decoupled Architecture                       │
+  │                                                                │
+  │  ┌──────────────┐  WebSocket Commands  ┌──────────────────┐   │
+  │  │   AI Agent    │ ──────────────────── │   RustPBX UA     │   │
+  │  │              │ <──────────────────── │                  │   │
+  │  └──────────────┘  WebSocket Events    └────────┬─────────┘   │
+  │                                                 │              │
+  └─────────────────────────────────────────────────┼──────────────┘
+                          ┌─────────────────────────┼───────────┐
+                          │                         │           │
+               ┌──────────┴──────────┐    ┌────────┴────────┐
+               │                     │    │                  │
+  ┌────────────┴──────────────┐      │    │                  │
+  │   Communication Layer     │      │    │                  │
+  │                           │      │    │                  │
+  │  ┌──────────────────────┐ │      │    │                  │
+  │  │  SIP Proxy/Registry  │ │      │    │                  │
+  │  └──────────────────────┘ │      │    │                  │
+  │  ┌──────────────────────┐ │      │    │                  │
+  │  │    WebRTC Peer       │ │      │    │                  │
+  │  └──────────────────────┘ │      │    │                  │
+  └───────────────────────────┘      │    │                  │
+                                     │    │                  │
+  ┌──────────────────────────────────┴────┴──────────────────┐
+  │                 Media Processing Layer                    │
+  │                                                          │
+  │  ┌──────────────────────────┐                            │
+  │  │  Audio Processing Engine │                            │
+  │  └─────────┬────────────────┘                            │
+  │            │                                             │
+  │    ┌───────┼──────────┬──────────────┐                   │
+  │    │       │          │              │                    │
+  │  ┌─┴───────┴─┐  ┌────┴─────┐  ┌────┴──────┐  ┌───────────────┐
+  │  │ASR Plugins│  │TTS Plugins│  │VAD Module │  │Noise Reduction│
+  │  └───────────┘  └──────────┘  └───────────┘  └───────────────┘
+  └──────────────────────────────────────────────────────────┘
 ```
 
 ### Key Architectural Features
@@ -65,27 +64,41 @@ graph TD
 
 UA mode supports two operational patterns: registering with a SIP proxy server to receive calls, or initiating outbound calls. Media channels can utilize either SIP/RTP or WebRTC, providing significant flexibility.
 
-```mermaid
-sequenceDiagram
-    participant AI as AI Agent
-    participant UA as RustPBX UA
-    participant SIP as SIP Proxy
-    participant Peer as Remote Device
-    
-    Note over AI,Peer: Outbound Call Scenario
-    AI->>UA: Invite Command (SIP/WebRTC)
-    UA->>SIP: INVITE Request
-    SIP->>Peer: INVITE Forward
-    Peer->>SIP: 200 OK (SDP Answer)
-    SIP->>UA: 200 OK Forward
-    UA->>AI: Answer Event (SDP)
-    
-    UA->>AI: TrackStart Event
-    AI->>UA: TTS Command
-    UA->>Peer: Audio Stream (TTS)
-    Peer->>UA: Audio Stream (User Voice)
-    UA->>AI: ASR Events (Speech Recognition)
-    AI->>UA: Response Commands
+```
+  AI Agent          RustPBX UA          SIP Proxy        Remote Device
+     │                  │                   │                  │
+     │    Outbound Call Scenario            │                  │
+     │                  │                   │                  │
+     │  Invite Command  │                   │                  │
+     │  (SIP/WebRTC)    │                   │                  │
+     │ ────────────────>│                   │                  │
+     │                  │  INVITE Request   │                  │
+     │                  │ ────────────────> │                  │
+     │                  │                   │  INVITE Forward  │
+     │                  │                   │ ────────────────>│
+     │                  │                   │  200 OK          │
+     │                  │                   │  (SDP Answer)    │
+     │                  │                   │ <────────────────│
+     │                  │  200 OK Forward   │                  │
+     │                  │ <──────────────── │                  │
+     │  Answer Event    │                   │                  │
+     │  (SDP)           │                   │                  │
+     │ <────────────────│                   │                  │
+     │                  │                   │                  │
+     │  TrackStart Event│                   │                  │
+     │ <────────────────│                   │                  │
+     │  TTS Command     │                   │                  │
+     │ ────────────────>│                   │                  │
+     │                  │       Audio Stream (TTS)             │
+     │                  │ ─────────────────────────────────── >│
+     │                  │       Audio Stream (User Voice)      │
+     │                  │ <─────────────────────────────────── │
+     │  ASR Events      │                   │                  │
+     │  (Speech Recog.) │                   │                  │
+     │ <────────────────│                   │                  │
+     │  Response Commands                   │                  │
+     │ ────────────────>│                   │                  │
+     │                  │                   │                  │
 ```
 
 ### Key Component Interactions
@@ -101,37 +114,29 @@ The UA manages the complete call lifecycle, including media streams, event proce
 
 RustPBX implements a decoupled architecture where AI Agents send commands via WebSocket to control UA behavior, while UA provides status feedback through events.
 
-```mermaid
-graph LR
-    subgraph "AI Agent Process"
-        A[Business Logic]
-        B[LLM Integration]
-        C[Decision Engine]
-    end
-    
-    subgraph "RustPBX UA Process"
-        D[Command Handler]
-        E[Event Generator]
-        F[Media Engine]
-    end
-    
-    A -->|TTS Command| D
-    A -->|Play Command| D
-    A -->|Hangup Command| D
-    
-    E -->|ASR Events| A
-    E -->|DTMF Events| A
-    E -->|TrackStart/End Events| A
-    
-    D --> F
-    F --> E
-    
-    style A fill:#1a1a2e,stroke:#16213e,stroke-width:2px,color:#00d4aa
-    style B fill:#1a1a2e,stroke:#16213e,stroke-width:2px,color:#00d4aa
-    style C fill:#1a1a2e,stroke:#16213e,stroke-width:2px,color:#00d4aa
-    style D fill:#16213e,stroke:#0f3460,stroke-width:2px,color:#00d4aa
-    style E fill:#16213e,stroke:#0f3460,stroke-width:2px,color:#00d4aa
-    style F fill:#16213e,stroke:#0f3460,stroke-width:2px,color:#00d4aa
+```
+  ┌─────────────────────────────┐         ┌─────────────────────────────┐
+  │      AI Agent Process       │         │     RustPBX UA Process      │
+  │                             │         │                             │
+  │  ┌───────────────────────┐  │  TTS    │  ┌───────────────────────┐  │
+  │  │    Business Logic     │──┼─Command──┼─>│    Command Handler    │  │
+  │  └───────────────────────┘  │         │  └───────────┬───────────┘  │
+  │  ┌───────────────────────┐  │  Play   │              │              │
+  │  │    LLM Integration    │  │ Command │              v              │
+  │  └───────────────────────┘  │─────────┼─>┌───────────────────────┐  │
+  │  ┌───────────────────────┐  │  Hangup │  │     Media Engine      │  │
+  │  │    Decision Engine    │  │ Command │  └───────────┬───────────┘  │
+  │  └───────────────────────┘  │─────────┼─>            │              │
+  │              ^               │         │              v              │
+  │              │               │         │  ┌───────────────────────┐  │
+  │              │  ASR Events   │         │  │    Event Generator    │  │
+  │              ├───────────────┼─────────┼──│                       │  │
+  │              │  DTMF Events  │         │  └───────────────────────┘  │
+  │              ├───────────────┼─────────┼──                          │
+  │              │  TrackStart/  │         │                             │
+  │              │  End Events   │         │                             │
+  │              └───────────────┼─────────┼──                          │
+  └─────────────────────────────┘         └─────────────────────────────┘
 ```
 
 ### Core Command Types
@@ -164,44 +169,39 @@ enum Command {
 
 RustPBX employs a plugin architecture supporting various ASR/TTS service providers, including cloud services like Alibaba Cloud and Tencent Cloud, enabling developers to choose the most suitable provider or implement custom solutions.
 
-```mermaid
-graph TD
-    A[MediaStream] --> B[ASR Processor]
-    A --> C[TTS Engine]
-    
-    B --> D[Alibaba Cloud ASR]
-    B --> E[Tencent Cloud ASR]
-    B --> F[Custom ASR]
-    
-    C --> G[Alibaba Cloud TTS]
-    C --> H[Tencent Cloud TTS]
-    C --> I[Custom TTS]
-    
-    subgraph "ASR Plugins"
-        D
-        E
-        F
-    end
-    
-    subgraph "TTS Plugins"
-        G
-        H
-        I
-    end
-    
-    J[Configuration] --> B
-    J --> C
-    
-    style A fill:#1a1a2e,stroke:#16213e,stroke-width:2px,color:#00d4aa
-    style B fill:#16213e,stroke:#0f3460,stroke-width:2px,color:#00d4aa
-    style C fill:#16213e,stroke:#0f3460,stroke-width:2px,color:#00d4aa
-    style D fill:#0f3460,stroke:#533483,stroke-width:2px,color:#eee
-    style E fill:#0f3460,stroke:#533483,stroke-width:2px,color:#eee
-    style F fill:#0f3460,stroke:#533483,stroke-width:2px,color:#eee
-    style G fill:#533483,stroke:#e94560,stroke-width:2px,color:#eee
-    style H fill:#533483,stroke:#e94560,stroke-width:2px,color:#eee
-    style I fill:#533483,stroke:#e94560,stroke-width:2px,color:#eee
-    style J fill:#e94560,stroke:#ff6b6b,stroke-width:2px,color:#fff
+```
+                    ┌─────────────────┐
+                    │   MediaStream   │
+                    └────┬───────┬────┘
+                         │       │
+                         v       v
+               ┌─────────────┐ ┌───────────┐
+               │ASR Processor│ │ TTS Engine│
+               └──┬──┬──┬────┘ └──┬──┬──┬──┘
+                  │  │  │         │  │  │
+     ┌────────────┘  │  └───┐    │  │  └──────────────┐
+     │               │      │    │  │                  │
+     v               v      v    v  v                  v
+  ┌──────────────────────────┐  ┌──────────────────────────┐
+  │       ASR Plugins        │  │       TTS Plugins        │
+  │                          │  │                          │
+  │  ┌────────────────────┐  │  │  ┌────────────────────┐  │
+  │  │ Alibaba Cloud ASR  │  │  │  │ Alibaba Cloud TTS  │  │
+  │  └────────────────────┘  │  │  └────────────────────┘  │
+  │  ┌────────────────────┐  │  │  ┌────────────────────┐  │
+  │  │ Tencent Cloud ASR  │  │  │  │ Tencent Cloud TTS  │  │
+  │  └────────────────────┘  │  │  └────────────────────┘  │
+  │  ┌────────────────────┐  │  │  ┌────────────────────┐  │
+  │  │    Custom ASR      │  │  │  │    Custom TTS      │  │
+  │  └────────────────────┘  │  │  └────────────────────┘  │
+  └──────────────────────────┘  └──────────────────────────┘
+                  ^                        ^
+                  │                        │
+                  └────────┬───────────────┘
+                           │
+                    ┌──────┴──────┐
+                    │Configuration│
+                    └─────────────┘
 ```
 
 ### Extension Benefits
@@ -220,42 +220,48 @@ graph TD
 
 RustPBX includes comprehensive audio processing features such as VAD (Voice Activity Detection), noise reduction, and background noise enhancement, significantly improving voice interaction quality.
 
-```mermaid
-graph TB
-    A[Raw Audio Stream] --> B[VAD Detection]
-    B --> C{Voice Detected?}
-    C -->|Yes| D[Noise Reduction]
-    C -->|No| E[Silence Processing]
-    
-    D --> F[Audio Enhancement]
-    F --> G[ASR Processing]
-    
-    E --> H[Background Noise Detection]
-    H --> I[Silence Events]
-    
-    subgraph "Audio Processing Pipeline"
-        J[Jitter Buffer]
-        K[Echo Cancellation]
-        L[Automatic Gain Control]
-    end
-    
-    G --> M[Recognition Results]
-    I --> N[Silence Events]
-    
-    style A fill:#1a1a2e,stroke:#16213e,stroke-width:2px,color:#00d4aa
-    style B fill:#16213e,stroke:#0f3460,stroke-width:2px,color:#00d4aa
-    style C fill:#0f3460,stroke:#533483,stroke-width:2px,color:#eee
-    style D fill:#533483,stroke:#e94560,stroke-width:2px,color:#eee
-    style E fill:#533483,stroke:#e94560,stroke-width:2px,color:#eee
-    style F fill:#e94560,stroke:#ff6b6b,stroke-width:2px,color:#fff
-    style G fill:#e94560,stroke:#ff6b6b,stroke-width:2px,color:#fff
-    style H fill:#e94560,stroke:#ff6b6b,stroke-width:2px,color:#fff
-    style I fill:#ff6b6b,stroke:#4ecdc4,stroke-width:2px,color:#fff
-    style J fill:#0f3460,stroke:#533483,stroke-width:2px,color:#eee
-    style K fill:#0f3460,stroke:#533483,stroke-width:2px,color:#eee
-    style L fill:#0f3460,stroke:#533483,stroke-width:2px,color:#eee
-    style M fill:#4ecdc4,stroke:#45b7b8,stroke-width:2px,color:#fff
-    style N fill:#4ecdc4,stroke:#45b7b8,stroke-width:2px,color:#fff
+```
+  ┌──────────────────┐
+  │ Raw Audio Stream │
+  └────────┬─────────┘
+           v
+  ┌──────────────────┐
+  │  VAD Detection   │
+  └────────┬─────────┘
+           v
+     ┌───────────┐
+     │  Voice    │
+     │ Detected? │
+     └──┬─────┬──┘
+   Yes  │     │  No
+        v     v
+  ┌───────────────┐   ┌─────────────────────┐
+  │Noise Reduction│   │ Silence Processing  │
+  └───────┬───────┘   └──────────┬──────────┘
+          v                      v
+  ┌───────────────┐   ┌─────────────────────────┐
+  │Audio Enhance- │   │Background Noise Detection│
+  │ment           │   └──────────┬──────────────┘
+  └───────┬───────┘              v
+          v              ┌───────────────┐
+  ┌───────────────┐      │Silence Events │
+  │ASR Processing │      └───────┬───────┘
+  └───────┬───────┘              v
+          v              ┌───────────────┐
+  ┌───────────────────┐  │Silence Events │
+  │Recognition Results│  └───────────────┘
+  └───────────────────┘
+
+  ┌──────────────────────────────────────────┐
+  │        Audio Processing Pipeline         │
+  │                                          │
+  │  ┌───────────────┐ ┌──────────────────┐  │
+  │  │ Jitter Buffer │ │Echo Cancellation │  │
+  │  └───────────────┘ └──────────────────┘  │
+  │  ┌──────────────────────┐                │
+  │  │Automatic Gain Control│                │
+  │  └──────────────────────┘                │
+  └──────────────────────────────────────────┘
 ```
 
 ### Advanced TTS/Play Features
@@ -288,80 +294,66 @@ TtsCommand {
 
 RustPBX UA mode represents a decoupled architectural approach for AI voice agents. While some frameworks utilize monolithic architectures with all components in a single process, RustPBX separates AI logic from media processing entirely.
 
-```mermaid
-graph TB
-    subgraph "Monolithic Architecture"
-        P1[AI Logic]
-        P2[Audio Processing]
-        P3[Protocol Stack]
-        P4[Media Codecs]
-        P5[ASR/TTS]
-        
-        P1 --> P2
-        P2 --> P3
-        P3 --> P4
-        P4 --> P5
-    end
-    
-    subgraph "RustPBX Decoupled Architecture"
-        R1[AI Agent Process]
-        R2[WebSocket Interface]
-        R3[RustPBX UA Process]
-        R4[Built-in Audio Processing]
-        R5[Built-in Protocol Stack]
-        
-        R1 --> R2
-        R2 --> R3
-        R3 --> R4
-        R3 --> R5
-    end
-    
-    style P1 fill:#ff6b6b,stroke:#ee5a52,stroke-width:2px,color:#fff
-    style P2 fill:#ff6b6b,stroke:#ee5a52,stroke-width:2px,color:#fff
-    style P3 fill:#ff6b6b,stroke:#ee5a52,stroke-width:2px,color:#fff
-    style P4 fill:#ff6b6b,stroke:#ee5a52,stroke-width:2px,color:#fff
-    style P5 fill:#ff6b6b,stroke:#ee5a52,stroke-width:2px,color:#fff
-    style R1 fill:#1a1a2e,stroke:#16213e,stroke-width:2px,color:#00d4aa
-    style R2 fill:#16213e,stroke:#0f3460,stroke-width:2px,color:#00d4aa
-    style R3 fill:#0f3460,stroke:#533483,stroke-width:2px,color:#eee
-    style R4 fill:#533483,stroke:#e94560,stroke-width:2px,color:#eee
-    style R5 fill:#533483,stroke:#e94560,stroke-width:2px,color:#eee
+```
+  ┌──────────────────────────┐    ┌────────────────────────────────────┐
+  │  Monolithic Architecture │    │  RustPBX Decoupled Architecture   │
+  │                          │    │                                    │
+  │  ┌────────────────────┐  │    │  ┌──────────────────────────────┐  │
+  │  │     AI Logic       │  │    │  │     AI Agent Process         │  │
+  │  └─────────┬──────────┘  │    │  └──────────────┬───────────────┘  │
+  │            v             │    │                 v                  │
+  │  ┌────────────────────┐  │    │  ┌──────────────────────────────┐  │
+  │  │  Audio Processing  │  │    │  │    WebSocket Interface       │  │
+  │  └─────────┬──────────┘  │    │  └──────────────┬───────────────┘  │
+  │            v             │    │                 v                  │
+  │  ┌────────────────────┐  │    │  ┌──────────────────────────────┐  │
+  │  │  Protocol Stack    │  │    │  │    RustPBX UA Process        │  │
+  │  └─────────┬──────────┘  │    │  └──────────┬──────┬────────────┘  │
+  │            v             │    │             v      v              │
+  │  ┌────────────────────┐  │    │  ┌──────────────┐ ┌────────────┐  │
+  │  │   Media Codecs     │  │    │  │ Built-in     │ │ Built-in   │  │
+  │  └─────────┬──────────┘  │    │  │ Audio        │ │ Protocol   │  │
+  │            v             │    │  │ Processing   │ │ Stack      │  │
+  │  ┌────────────────────┐  │    │  └──────────────┘ └────────────┘  │
+  │  │     ASR/TTS        │  │    │                                    │
+  │  └────────────────────┘  │    │                                    │
+  └──────────────────────────┘    └────────────────────────────────────┘
 ```
 
 ### Development Approach Comparison
 
-```mermaid
-graph LR
-    subgraph "Traditional Approach"
-        A1[Single Language Stack]
-        A2[Integrated Components]
-        A3[Synchronous Processing]
-        A4[Framework Coupling]
-        
-        A1 --> A2
-        A2 --> A3
-        A3 --> A4
-    end
-    
-    subgraph "RustPBX Approach"
-        B1[Multi-language Support]
-        B2[Process Separation]
-        B3[Event-driven Architecture]
-        B4[Technology Freedom]
-        
-        B1 --> B2
-        B2 --> B3
-        B3 --> B4
-    end
-    
-    style A1 fill:#ff6b6b,stroke:#ee5a52,stroke-width:2px,color:#fff
-    style A2 fill:#ff6b6b,stroke:#ee5a52,stroke-width:2px,color:#fff
-    style A3 fill:#ff6b6b,stroke:#ee5a52,stroke-width:2px,color:#fff
-    style A4 fill:#ff6b6b,stroke:#ee5a52,stroke-width:2px,color:#fff
-    style B1 fill:#1a1a2e,stroke:#16213e,stroke-width:2px,color:#00d4aa
-    style B2 fill:#16213e,stroke:#0f3460,stroke-width:2px,color:#00d4aa
-    style B3 fill:#0f3460,stroke:#533483,stroke-width:2px,color:#eee
-    style B4 fill:#533483,stroke:#e94560,stroke-width:2px,color:#eee
+```
+  ┌──────────────────────────────────────────────────────────────┐
+  │                   Traditional Approach                       │
+  │                                                              │
+  │  ┌────────────────────┐    ┌──────────────────────┐          │
+  │  │Single Language     │───>│Integrated Components │          │
+  │  │Stack               │    └──────────┬───────────┘          │
+  │  └────────────────────┘               v                      │
+  │                            ┌──────────────────────┐          │
+  │                            │Synchronous Processing│          │
+  │                            └──────────┬───────────┘          │
+  │                                       v                      │
+  │                            ┌──────────────────────┐          │
+  │                            │ Framework Coupling   │          │
+  │                            └──────────────────────┘          │
+  └──────────────────────────────────────────────────────────────┘
+
+  ┌──────────────────────────────────────────────────────────────┐
+  │                     RustPBX Approach                         │
+  │                                                              │
+  │  ┌────────────────────┐    ┌──────────────────────┐          │
+  │  │Multi-language      │───>│ Process Separation   │          │
+  │  │Support             │    └──────────┬───────────┘          │
+  │  └────────────────────┘               v                      │
+  │                            ┌──────────────────────────┐      │
+  │                            │Event-driven Architecture │      │
+  │                            └──────────┬───────────────┘      │
+  │                                       v                      │
+  │                            ┌──────────────────────┐          │
+  │                            │ Technology Freedom   │          │
+  │                            └──────────────────────┘          │
+  └──────────────────────────────────────────────────────────────┘
 ```
 
 ### Key Architectural Differences
@@ -394,50 +386,40 @@ graph LR
 
 ### Performance and Maintainability
 
-```mermaid
-graph TB
-    subgraph "Performance Characteristics"
-        PA[Traditional Performance]
-        PB[Single Process Limits]
-        PC[Runtime Constraints]
-        
-        RA[RustPBX Performance]
-        RB[Multi-process Parallelism]
-        RC[High-performance Runtime]
-        
-        PA --> PB
-        PB --> PC
-        RA --> RB
-        RB --> RC
-    end
-    
-    subgraph "Maintainability Aspects"
-        PM[Traditional Maintenance]
-        PN[High Coupling]
-        PO[Complex Debugging]
-        
-        RM[RustPBX Maintenance]
-        RN[Modular Decoupling]
-        RO[Problem Isolation]
-        
-        PM --> PN
-        PN --> PO
-        RM --> RN
-        RN --> RO
-    end
-    
-    style PA fill:#ff6b6b,stroke:#ee5a52,stroke-width:2px,color:#fff
-    style PB fill:#ff6b6b,stroke:#ee5a52,stroke-width:2px,color:#fff
-    style PC fill:#ee5a52,stroke:#c44569,stroke-width:2px,color:#fff
-    style PM fill:#ff6b6b,stroke:#ee5a52,stroke-width:2px,color:#fff
-    style PN fill:#ff6b6b,stroke:#ee5a52,stroke-width:2px,color:#fff
-    style PO fill:#ee5a52,stroke:#c44569,stroke-width:2px,color:#fff
-    style RA fill:#1a1a2e,stroke:#16213e,stroke-width:2px,color:#00d4aa
-    style RB fill:#16213e,stroke:#0f3460,stroke-width:2px,color:#00d4aa
-    style RC fill:#4ecdc4,stroke:#45b7b8,stroke-width:2px,color:#fff
-    style RM fill:#1a1a2e,stroke:#16213e,stroke-width:2px,color:#00d4aa
-    style RN fill:#16213e,stroke:#0f3460,stroke-width:2px,color:#00d4aa
-    style RO fill:#4ecdc4,stroke:#45b7b8,stroke-width:2px,color:#fff
+```
+  ┌─────────────────────────────────────────────────────────────────┐
+  │                  Performance Characteristics                    │
+  │                                                                 │
+  │   Traditional                    RustPBX                        │
+  │  ┌──────────────────────┐       ┌──────────────────────────┐    │
+  │  │Traditional Performance│       │  RustPBX Performance    │    │
+  │  └──────────┬───────────┘       └────────────┬─────────────┘    │
+  │             v                                v                  │
+  │  ┌──────────────────────┐       ┌──────────────────────────┐    │
+  │  │Single Process Limits │       │Multi-process Parallelism │    │
+  │  └──────────┬───────────┘       └────────────┬─────────────┘    │
+  │             v                                v                  │
+  │  ┌──────────────────────┐       ┌──────────────────────────┐    │
+  │  │ Runtime Constraints  │       │High-performance Runtime  │    │
+  │  └──────────────────────┘       └──────────────────────────┘    │
+  └─────────────────────────────────────────────────────────────────┘
+
+  ┌─────────────────────────────────────────────────────────────────┐
+  │                   Maintainability Aspects                       │
+  │                                                                 │
+  │   Traditional                    RustPBX                        │
+  │  ┌──────────────────────┐       ┌──────────────────────────┐    │
+  │  │Traditional Maintenance│       │  RustPBX Maintenance    │    │
+  │  └──────────┬───────────┘       └────────────┬─────────────┘    │
+  │             v                                v                  │
+  │  ┌──────────────────────┐       ┌──────────────────────────┐    │
+  │  │   High Coupling      │       │  Modular Decoupling      │    │
+  │  └──────────┬───────────┘       └────────────┬─────────────┘    │
+  │             v                                v                  │
+  │  ┌──────────────────────┐       ┌──────────────────────────┐    │
+  │  │  Complex Debugging   │       │  Problem Isolation       │    │
+  │  └──────────────────────┘       └──────────────────────────┘    │
+  └─────────────────────────────────────────────────────────────────┘
 ```
 
 
@@ -449,43 +431,33 @@ graph TB
 
 RustPBX's UA mode provides significant productivity benefits for Voice Agent development, enabling developers to concentrate on AI logic without handling complex audio and communication protocols.
 
-```mermaid
-graph TD
-    subgraph "Traditional Development Model"
-        A1[AI Logic] 
-        A2[Audio Processing]
-        A3[Protocol Handling]
-        A4[Media Codecs]
-        A1 -.-> A2
-        A2 -.-> A3
-        A3 -.-> A4
-    end
-    
-    subgraph "RustPBX UA Mode"
-        B1[AI Logic]
-        B2[WebSocket Interface]
-        B3[RustPBX UA]
-        B4[Built-in Audio Processing]
-        B5[Built-in Protocol Stack]
-        
-        B1 --> B2
-        B2 --> B3
-        B3 --> B4
-        B3 --> B5
-    end
-    
-    C[Developer Focus Area] --> B1
-    
-    style A1 fill:#ff6b6b,stroke:#ee5a52,stroke-width:2px,color:#fff
-    style A2 fill:#ff6b6b,stroke:#ee5a52,stroke-width:2px,color:#fff
-    style A3 fill:#ff6b6b,stroke:#ee5a52,stroke-width:2px,color:#fff
-    style A4 fill:#ff6b6b,stroke:#ee5a52,stroke-width:2px,color:#fff
-    style B1 fill:#1a1a2e,stroke:#16213e,stroke-width:2px,color:#00d4aa
-    style B2 fill:#16213e,stroke:#0f3460,stroke-width:2px,color:#00d4aa
-    style B3 fill:#0f3460,stroke:#533483,stroke-width:2px,color:#eee
-    style B4 fill:#533483,stroke:#e94560,stroke-width:2px,color:#eee
-    style B5 fill:#533483,stroke:#e94560,stroke-width:2px,color:#eee
-    style C fill:#4ecdc4,stroke:#45b7b8,stroke-width:2px,color:#fff
+```
+  ┌─────────────────────────────┐    ┌─────────────────────────────────┐
+  │ Traditional Development     │    │       RustPBX UA Mode           │
+  │ Model                       │    │                                 │
+  │                             │    │  ┌────────────────────────────┐ │
+  │  ┌───────────────────────┐  │    │  │       AI Logic            │ │
+  │  │      AI Logic         │  │    │  └─────────────┬──────────────┘ │
+  │  └ ─ ─ ─ ─ ┬ ─ ─ ─ ─ ─ ┘  │    │               v               │
+  │             v               │    │  ┌────────────────────────────┐ │
+  │  ┌───────────────────────┐  │    │  │   WebSocket Interface     │ │
+  │  │  Audio Processing     │  │    │  └─────────────┬──────────────┘ │
+  │  └ ─ ─ ─ ─ ┬ ─ ─ ─ ─ ─ ┘  │    │               v               │
+  │             v               │    │  ┌────────────────────────────┐ │
+  │  ┌───────────────────────┐  │    │  │      RustPBX UA           │ │
+  │  │  Protocol Handling    │  │    │  └──────────┬──────┬──────────┘ │
+  │  └ ─ ─ ─ ─ ┬ ─ ─ ─ ─ ─ ┘  │    │            v      v           │
+  │             v               │    │  ┌────────────┐ ┌───────────┐  │
+  │  ┌───────────────────────┐  │    │  │ Built-in   │ │ Built-in  │  │
+  │  │    Media Codecs       │  │    │  │ Audio      │ │ Protocol  │  │
+  │  └───────────────────────┘  │    │  │ Processing │ │ Stack     │  │
+  │                             │    │  └────────────┘ └───────────┘  │
+  └─────────────────────────────┘    └─────────────────────────────────┘
+                                                  ^
+                                                  │
+                                     ┌────────────┴────────────┐
+                                     │  Developer Focus Area   │
+                                     └─────────────────────────┘
 ```
 
 ### Technology Stack Freedom
@@ -500,37 +472,33 @@ Developers can utilize any programming language and AI framework:
 
 ### Deployment Architecture Flexibility
 
-```mermaid
-graph TB
-    subgraph "AI Agent Server"
-        A[Business Logic]
-        B[LLM Services]
-        C[Knowledge Base]
-    end
-    
-    subgraph "RustPBX Server"
-        D[UA Instance]
-        E[Media Processing]
-        F[Protocol Stack]
-    end
-    
-    subgraph "External Services"
-        G[ASR/TTS Services]
-        H[SIP Carriers]
-    end
-    
-    A -->|WebSocket| D
-    D -->|API| G
-    D -->|SIP| H
-    
-    style A fill:#1a1a2e,stroke:#16213e,stroke-width:2px,color:#00d4aa
-    style B fill:#1a1a2e,stroke:#16213e,stroke-width:2px,color:#00d4aa
-    style C fill:#1a1a2e,stroke:#16213e,stroke-width:2px,color:#00d4aa
-    style D fill:#16213e,stroke:#0f3460,stroke-width:2px,color:#00d4aa
-    style E fill:#16213e,stroke:#0f3460,stroke-width:2px,color:#00d4aa
-    style F fill:#16213e,stroke:#0f3460,stroke-width:2px,color:#00d4aa
-    style G fill:#4ecdc4,stroke:#45b7b8,stroke-width:2px,color:#fff
-    style H fill:#4ecdc4,stroke:#45b7b8,stroke-width:2px,color:#fff
+```
+  ┌───────────────────────┐          ┌───────────────────────┐
+  │   AI Agent Server     │          │    RustPBX Server     │
+  │                       │WebSocket │                       │
+  │  ┌─────────────────┐  │         │  ┌─────────────────┐  │
+  │  │ Business Logic  │──┼─────────┼─>│   UA Instance   │  │
+  │  └─────────────────┘  │         │  └────────┬────────┘  │
+  │  ┌─────────────────┐  │         │  ┌────────┴────────┐  │
+  │  │  LLM Services   │  │         │  │Media Processing │  │
+  │  └─────────────────┘  │         │  └─────────────────┘  │
+  │  ┌─────────────────┐  │         │  ┌─────────────────┐  │
+  │  │ Knowledge Base  │  │         │  │ Protocol Stack  │  │
+  │  └─────────────────┘  │         │  └─────────────────┘  │
+  └───────────────────────┘          └───────────┬───────────┘
+                                          │           │
+                                     API  │           │  SIP
+                                          v           v
+                                  ┌───────────────────────────┐
+                                  │    External Services      │
+                                  │                           │
+                                  │  ┌───────────────────┐    │
+                                  │  │ ASR/TTS Services  │    │
+                                  │  └───────────────────┘    │
+                                  │  ┌───────────────────┐    │
+                                  │  │   SIP Carriers    │    │
+                                  │  └───────────────────┘    │
+                                  └───────────────────────────┘
 ```
 
 ### Development Advantages Summary

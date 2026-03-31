@@ -2,13 +2,18 @@
 
 ## 1. Voice Streaming over WebSocket
 **Sequence Diagram:**
-```mermaid
-sequenceDiagram
-    participant AppWeb as App/Web
-    participant VoiceAgent as VoiceAgent
-    AppWeb->>VoiceAgent: WebSocket signaling (start/stop/params)
-    AppWeb-->>VoiceAgent: WebSocket audio stream (continuous push)
-    VoiceAgent-->>AppWeb: Signaling response (result/status)
+```
+  App/Web                                    VoiceAgent
+    │                                            │
+    │  WebSocket signaling (start/stop/params)   │
+    │───────────────────────────────────────────>>│
+    │                                            │
+    │  WebSocket audio stream (continuous push)  │
+    │- - - - - - - - - - - - - - - - - - - - ->>│
+    │                                            │
+    │       Signaling response (result/status)   │
+    │<<- - - - - - - - - - - - - - - - - - - - -│
+    │                                            │
 ```
 Signaling and audio streams are both delivered over WebSocket.
 
@@ -31,13 +36,18 @@ Signaling and audio streams are both delivered over WebSocket.
 - **Security Requirement**: Browsers require WebRTC to be used in a Secure Context (**HTTPS** or **127.0.0.1**).
 
 **Sequence Diagram:**
-```mermaid
-sequenceDiagram
-    participant AppWeb as App/Web
-    participant VoiceAgent as VoiceAgent
-    AppWeb->>VoiceAgent: WebRTC signaling (SDP/ICE/control)
-    AppWeb-->>VoiceAgent: WebRTC audio stream (SRTP)
-    VoiceAgent-->>AppWeb: Signaling response (SDP/ICE/status)
+```
+  App/Web                                    VoiceAgent
+    │                                            │
+    │  WebRTC signaling (SDP/ICE/control)        │
+    │───────────────────────────────────────────>>│
+    │                                            │
+    │  WebRTC audio stream (SRTP)                │
+    │- - - - - - - - - - - - - - - - - - - - ->>│
+    │                                            │
+    │    Signaling response (SDP/ICE/status)     │
+    │<<- - - - - - - - - - - - - - - - - - - - -│
+    │                                            │
 ```
 Signaling is customizable; audio streams are transmitted via WebRTC.
 
@@ -55,13 +65,18 @@ Signaling is customizable; audio streams are transmitted via WebRTC.
 - Outstanding jitter resilience.
 
 **Sequence Diagram:**
-```mermaid
-sequenceDiagram
-    participant SIPPBX as SIPPBX
-    participant TelSystem as Telephony System
-    SIPPBX->>TelSystem: SIP signaling (register/call/hangup)
-    SIPPBX-->>TelSystem: RTP audio stream (continuous push)
-    TelSystem-->>SIPPBX: SIP signaling response (status/result)
+```
+  SIP PBX                                Telephony System
+    │                                            │
+    │  SIP signaling (register/call/hangup)      │
+    │───────────────────────────────────────────>>│
+    │                                            │
+    │  RTP audio stream (continuous push)        │
+    │- - - - - - - - - - - - - - - - - - - - ->>│
+    │                                            │
+    │    SIP signaling response (status/result)  │
+    │<<- - - - - - - - - - - - - - - - - - - - -│
+    │                                            │
 ```
 Signaling is handled via SIP; audio streams use RTP.
 
@@ -77,17 +92,32 @@ FreeSwitch is a widely adopted open-source platform for telephony integration. I
 WebRTC gateways serve as middleware, bridging WebRTC and SIP/RTP networks:
 
 **Sequence Diagram:**
-```mermaid
-sequenceDiagram
-    participant AppWeb as App/Web
-    participant WebRTC Gateway as WebRTC Gateway
-    participant TelSystem as Telephony System
-    AppWeb->>WebRTC Gateway: WebRTC signaling (SDP/ICE/control)
-    AppWeb-->>WebRTC Gateway: WebRTC audio stream (SRTP)
-    WebRTC Gateway->>TelSystem: SIP signaling (register/call/hangup)
-    WebRTC Gateway-->>TelSystem: RTP audio stream (continuous push)
-    TelSystem-->>WebRTC Gateway: SIP signaling response (status/result)
-    WebRTC Gateway-->>AppWeb: WebRTC signaling response (SDP/ICE/status)
+```
+  App/Web                    WebRTC Gateway              Telephony System
+    │                              │                            │
+    │  WebRTC signaling            │                            │
+    │  (SDP/ICE/control)           │                            │
+    │─────────────────────────────>>│                            │
+    │                              │                            │
+    │  WebRTC audio stream (SRTP)  │                            │
+    │- - - - - - - - - - - - - ->>│                            │
+    │                              │                            │
+    │                              │  SIP signaling             │
+    │                              │  (register/call/hangup)    │
+    │                              │───────────────────────────>>│
+    │                              │                            │
+    │                              │  RTP audio stream          │
+    │                              │  (continuous push)         │
+    │                              │- - - - - - - - - - - - ->>│
+    │                              │                            │
+    │                              │  SIP signaling response    │
+    │                              │  (status/result)           │
+    │                              │<<- - - - - - - - - - - - -│
+    │                              │                            │
+    │  WebRTC signaling response   │                            │
+    │  (SDP/ICE/status)            │                            │
+    │<<- - - - - - - - - - - - - -│                            │
+    │                              │                            │
 ```
 1. App/Web clients retain WebRTC advantages (native browser, noise reduction, echo cancellation, jitter resilience).
 2. The gateway performs protocol conversion, mapping WebRTC signaling and media streams to SIP/RTP standards for telephony integration.
