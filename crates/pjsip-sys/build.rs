@@ -14,12 +14,71 @@ fn main() {
             );
         });
 
-    // Emit link directives from pkg-config.
+    // Use link paths from pkg-config.
     for path in &pjsip.link_paths {
         println!("cargo:rustc-link-search=native={}", path.display());
     }
-    for lib_name in &pjsip.libs {
-        println!("cargo:rustc-link-lib={lib_name}");
+
+    // We need only the SIP+SDP+lib stack — NOT pjmedia-audiodev/videodev/codec.
+    // Linking pjsua2/pjsua/pjmedia-audiodev causes audio device initialization
+    // on macOS which can block or trigger permission dialogs.
+    //
+    // Determine the platform suffix from the "pjsip-aarch64-..." library name.
+    // The suffix is everything after "pjsip-" for the pjsip core library.
+    // We look for a lib named exactly "pjsip-<suffix>" (not "pjsip-ua-<suffix>").
+    let suffix = pjsip
+        .libs
+        .iter()
+        .find(|l| {
+            l.starts_with("pjsip-")
+                && !l.starts_with("pjsip-ua-")
+                && !l.starts_with("pjsip-simple-")
+        })
+        .map(|l| l.strip_prefix("pjsip-").unwrap_or("").to_string())
+        .unwrap_or_default();
+
+    // Only link the libraries we actually need for SIP B2BUA (no audio/video).
+    // Order matters for static linking: most specific first.
+    if !suffix.is_empty() {
+        let needed_libs = [
+            format!("pjsip-ua-{suffix}"),
+            format!("pjsip-simple-{suffix}"),
+            format!("pjsip-{suffix}"),
+            format!("pjmedia-{suffix}"),   // SDP negotiation lives here
+            format!("pjnath-{suffix}"),    // NAT traversal (needed by pjmedia)
+            format!("pjlib-util-{suffix}"),
+            format!("pj-{suffix}"),
+        ];
+        for lib in &needed_libs {
+            println!("cargo:rustc-link-lib={lib}");
+        }
+    } else {
+        // Fallback: link all pjproject libraries from pkg-config.
+        for lib_name in &pjsip.libs {
+            println!("cargo:rustc-link-lib={lib_name}");
+        }
+    }
+
+    // pjproject is typically compiled with OpenSSL for TLS and digest auth.
+    // Link OpenSSL via pkg-config to satisfy those references.
+    if let Ok(ssl) = pkg_config::Config::new().probe("openssl") {
+        for path in &ssl.link_paths {
+            println!("cargo:rustc-link-search=native={}", path.display());
+        }
+        for lib_name in &ssl.libs {
+            println!("cargo:rustc-link-lib={lib_name}");
+        }
+    } else {
+        // Fallback: try the Homebrew openssl path on macOS.
+        println!("cargo:rustc-link-search=native=/opt/homebrew/opt/openssl/lib");
+        println!("cargo:rustc-link-lib=ssl");
+        println!("cargo:rustc-link-lib=crypto");
+    }
+
+    // On macOS, pjproject uses CoreFoundation for UUID generation.
+    let target_os = env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();
+    if target_os == "macos" {
+        println!("cargo:rustc-link-lib=framework=CoreFoundation");
     }
 
     // Build -I flags for clang from pkg-config include paths.
