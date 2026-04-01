@@ -7,7 +7,7 @@ use crate::endpoint::{RsipEndpoint, SipEndpoint};
 use crate::redis_state::{ConfigStore, EndpointConfig};
 
 #[cfg(feature = "carrier")]
-use crate::endpoint::SofiaEndpoint;
+use crate::endpoint::PjsipEndpoint;
 
 /// Manages the lifecycle of all active SIP endpoints.
 ///
@@ -38,12 +38,14 @@ impl EndpointManager {
         }
 
         let mut endpoint: Box<dyn SipEndpoint> = match config.stack.as_str() {
+            // Accept both "pjsip" and "sofia" names for backward compatibility
+            // with existing Redis endpoint configs written before the migration.
             #[cfg(feature = "carrier")]
-            "sofia" => Box::new(SofiaEndpoint::from_config(config)?),
+            "pjsip" | "sofia" => Box::new(PjsipEndpoint::from_config(config)?),
             #[cfg(not(feature = "carrier"))]
-            "sofia" => {
+            "sofia" | "pjsip" => {
                 return Err(anyhow!(
-                    "Sofia-SIP stack requires 'carrier' feature"
+                    "pjsip/sofia stack requires 'carrier' feature"
                 ))
             }
             "rsipstack" => Box::new(RsipEndpoint::from_config(config)?),

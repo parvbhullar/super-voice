@@ -9,13 +9,13 @@ pub mod manager;
 pub mod rsip_endpoint;
 
 #[cfg(feature = "carrier")]
-pub mod sofia_endpoint;
+pub mod pjsip_endpoint;
 
 pub use manager::EndpointManager;
 pub use rsip_endpoint::RsipEndpoint;
 
 #[cfg(feature = "carrier")]
-pub use sofia_endpoint::SofiaEndpoint;
+pub use pjsip_endpoint::PjsipEndpoint;
 
 /// Common interface implemented by every SIP endpoint.
 #[async_trait]

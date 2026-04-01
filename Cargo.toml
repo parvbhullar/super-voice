@@ -16,7 +16,7 @@ categories = ["network-programming", "multimedia"]
 
 [features]
 default = ["carrier", "opus", "offline"]
-carrier = ["dep:sofia-sip", "dep:sofia-sip-sys", "dep:spandsp", "dep:pjsip"]
+carrier = ["dep:pjsip", "dep:pjsip-sys", "dep:spandsp"]
 minimal = []
 opus = ["dep:opusic-sys"]
 offline = [
@@ -31,6 +31,8 @@ not_vad = []
 
 [dependencies]
 pjsip = { path = "crates/pjsip", optional = true }
+pjsip-sys = { path = "crates/pjsip-sys", optional = true }
+# sofia-sip and sofia-sip-sys kept as optional deps for rollback reference (not in any feature)
 sofia-sip = { path = "crates/sofia-sip", optional = true }
 sofia-sip-sys = { path = "crates/sofia-sip-sys", optional = true }
 spandsp-sys = { path = "crates/spandsp-sys", optional = true }
