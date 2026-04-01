@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: planning
-stopped_at: Completed 11-api-completion-hardening 11-02-PLAN.md
-last_updated: "2026-03-30T06:12:57.953Z"
+stopped_at: Completed 12-replace-sofia-sip-with-pjsip-for-carrier-grade-sip-proxy 12-01-PLAN.md
+last_updated: "2026-04-01T18:14:59.329Z"
 last_activity: 2026-03-27 — Roadmap created for v1.0 Carrier Edition (11 phases, 98 requirements mapped)
 progress:
-  total_phases: 11
+  total_phases: 12
   completed_phases: 11
-  total_plans: 35
-  completed_plans: 35
+  total_plans: 40
+  completed_plans: 36
   percent: 0
 ---
 
@@ -83,6 +83,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 10-dsp-processing P02 | 15 | 2 tasks | 4 files |
 | Phase 11-api-completion-hardening P01 | 6 | 2 tasks | 5 files |
 | Phase 11-api-completion-hardening P02 | 10 | 2 tasks | 2 files |
+| Phase 12-replace-sofia-sip-with-pjsip-for-carrier-grade-sip-proxy P01 | 4 | 1 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -170,6 +171,8 @@ Recent decisions affecting current work:
 - [Phase 11-api-completion-hardening]: trunk_test resolves gateway proxy_addr from ConfigStore per-call rather than GatewayManager to avoid Mutex lock contention during parallel gateway probes
 - [Phase 11-api-completion-hardening]: auth_skip_paths bypass instead of ApiKeyStore for integration tests: ApiKeyStore requires Redis pool so tests use config.auth_skip_paths=['/api/v1/'] to bypass Bearer auth
 - [Phase 11-api-completion-hardening]: system health status is 'ok' when config_store is None (not 'degraded'): degraded path fires only when Redis IS configured but unreachable
+- [Phase 12-replace-sofia-sip-with-pjsip-for-carrier-grade-sip-proxy]: ARM endianness clang args required for pjproject build.rs: CARGO_CFG_TARGET_ARCH gates -DPJ_IS_LITTLE_ENDIAN=1 on aarch64
+- [Phase 12-replace-sofia-sip-with-pjsip-for-carrier-grade-sip-proxy]: pjsip-sys: no opaque_type — struct fields accessible; derive_debug+derive_default enabled for callback struct ergonomics
 
 ### Roadmap Evolution
 
@@ -187,6 +190,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-30T05:44:11.145Z
-Stopped at: Completed 11-api-completion-hardening 11-02-PLAN.md
+Last session: 2026-04-01T18:14:59.326Z
+Stopped at: Completed 12-replace-sofia-sip-with-pjsip-for-carrier-grade-sip-proxy 12-01-PLAN.md
 Resume file: None
