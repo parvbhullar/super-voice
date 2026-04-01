@@ -11,3 +11,9 @@ pub mod dispatch;
 
 // Phase 7 Plan 01
 pub mod bridge;
+
+// Phase 12 Plan 03
+#[cfg(feature = "carrier")]
+pub mod pj_dialog_layer;
+#[cfg(feature = "carrier")]
+pub mod pj_failover;

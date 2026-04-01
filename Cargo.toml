@@ -16,7 +16,7 @@ categories = ["network-programming", "multimedia"]
 
 [features]
 default = ["carrier", "opus", "offline"]
-carrier = ["dep:sofia-sip", "dep:sofia-sip-sys", "dep:spandsp"]
+carrier = ["dep:sofia-sip", "dep:sofia-sip-sys", "dep:spandsp", "dep:pjsip"]
 minimal = []
 opus = ["dep:opusic-sys"]
 offline = [
@@ -30,6 +30,7 @@ cross = ["opus", "offline", "aws-lc-rs/bindgen"]
 not_vad = []
 
 [dependencies]
+pjsip = { path = "crates/pjsip", optional = true }
 sofia-sip = { path = "crates/sofia-sip", optional = true }
 sofia-sip-sys = { path = "crates/sofia-sip-sys", optional = true }
 spandsp-sys = { path = "crates/spandsp-sys", optional = true }
