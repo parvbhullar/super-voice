@@ -171,6 +171,10 @@ Recent decisions affecting current work:
 - [Phase 11-api-completion-hardening]: auth_skip_paths bypass instead of ApiKeyStore for integration tests: ApiKeyStore requires Redis pool so tests use config.auth_skip_paths=['/api/v1/'] to bypass Bearer auth
 - [Phase 11-api-completion-hardening]: system health status is 'ok' when config_store is None (not 'degraded'): degraded path fires only when Redis IS configured but unreachable
 
+### Roadmap Evolution
+
+- Phase 12 added: Replace sofia-sip with pjsip for carrier-grade SIP proxy
+
 ### Pending Todos
 
 None yet.
