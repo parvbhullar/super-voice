@@ -216,7 +216,7 @@ Note: Phase 8 depends on Phase 3 (not Phase 7), so it can proceed in parallel af
 | 9. CDR Engine & Webhooks | 2/3 | Complete    | 2026-03-30 |
 | 10. DSP Processing | 2/2 | Complete    | 2026-03-30 |
 | 11. API Completion & Hardening | 2/3 | Complete    | 2026-03-30 |
-| 12. Replace sofia-sip with pjsip | 2/5 | In Progress|  |
+| 12. Replace sofia-sip with pjsip | 3/5 | In Progress|  |
 
 ### Phase 12: Replace sofia-sip with pjsip for carrier-grade SIP proxy
 
@@ -230,7 +230,7 @@ Note: Phase 8 depends on Phase 3 (not Phase 7), so it can proceed in parallel af
   4. `cargo check --features carrier` compiles with pjsip (not sofia-sip) as the SIP stack
   5. `cargo check --features minimal` still compiles (rsipstack path unaffected)
   6. sofia_endpoint.rs is removed; no functional sofia references remain in src/
-**Plans:** 2/5 plans executed
+**Plans:** 3/5 plans executed
 
 Plans:
 - [ ] 12-01-PLAN.md — pjsip-sys crate: install script + raw FFI bindings via bindgen
