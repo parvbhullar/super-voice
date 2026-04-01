@@ -19,6 +19,9 @@
 
 /* pjsip core: transport, transaction, message parsing */
 #include <pjsip/sip_transport.h>
+#include <pjsip/sip_transport_udp.h>
+#include <pjsip/sip_transport_tcp.h>
+#include <pjsip/sip_transport_tls.h>
 #include <pjsip/sip_transaction.h>
 #include <pjsip/sip_endpoint.h>
 #include <pjsip/sip_module.h>

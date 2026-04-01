@@ -91,6 +91,11 @@ fn main() {
         .allowlist_function("pjsip_generic_string_hdr_.*")
         .allowlist_function("pjsip_parse_uri")
         .allowlist_function("pjsip_uri_print")
+        // pjsip-ua: UA layer (required for dialog/INVITE)
+        .allowlist_function("pjsip_ua_init_module")
+        .allowlist_function("pjsip_ua_instance")
+        .allowlist_function("pjsip_ua_destroy")
+        .allowlist_type("pjsip_user_agent")
         // pjsip-ua: dialog
         .allowlist_function("pjsip_dlg_.*")
         .allowlist_type("pjsip_dialog")
