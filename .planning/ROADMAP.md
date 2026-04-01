@@ -23,6 +23,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 9: CDR Engine & Webhooks** - Carrier CDR with Redis queue, HTTP webhook delivery, disk fallback, CDR query API (completed 2026-03-30)
 - [x] **Phase 10: DSP Processing** - Echo cancellation, inband DTMF, T.38 fax, tone detection, PLC via SpanDSP (completed 2026-03-30)
 - [x] **Phase 11: API Completion & Hardening** - Diagnostics, system health, integration testing, performance validation (completed 2026-03-30)
+- [ ] **Phase 12: Replace sofia-sip with pjsip** - Replace sofia-sip FFI with pjproject for carrier SIP proxy, gaining Session Timers, PRACK, NAPTR, UPDATE, Replaces
 
 ## Phase Details
 
@@ -199,7 +200,7 @@ Plans:
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10 -> 11
+Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10 -> 11 -> 12
 Note: Phase 8 depends on Phase 3 (not Phase 7), so it can proceed in parallel after Phase 3 completes.
 
 | Phase | Plans Complete | Status | Completed |
@@ -215,3 +216,25 @@ Note: Phase 8 depends on Phase 3 (not Phase 7), so it can proceed in parallel af
 | 9. CDR Engine & Webhooks | 2/3 | Complete    | 2026-03-30 |
 | 10. DSP Processing | 2/2 | Complete    | 2026-03-30 |
 | 11. API Completion & Hardening | 2/3 | Complete    | 2026-03-30 |
+| 12. Replace sofia-sip with pjsip | 0/5 | Planning    | - |
+
+### Phase 12: Replace sofia-sip with pjsip for carrier-grade SIP proxy
+
+**Goal:** The carrier SIP proxy uses pjsip (pjproject 2.14.x) instead of sofia-sip for both inbound and outbound SIP legs, gaining Session Timers (RFC 4028), PRACK (RFC 3262), NAPTR (RFC 3263), UPDATE (RFC 3311), and Replaces (RFC 3891) as built-in modules.
+**Requirements**: PJMIG-01, PJMIG-02, PJMIG-03, PJMIG-04, PJMIG-05, PJMIG-06
+**Depends on:** Phase 11
+**Success Criteria** (what must be TRUE):
+  1. pjsip-sys crate generates FFI bindings via bindgen and compiles against pjproject 2.14.x
+  2. PjBridge starts a dedicated OS thread, processes pjsip events, and shuts down cleanly
+  3. PjFailoverLoop tries gateways sequentially with per-call event isolation, early media fallback, and nofailover code respect
+  4. `cargo check --features carrier` compiles with pjsip (not sofia-sip) as the SIP stack
+  5. `cargo check --features minimal` still compiles (rsipstack path unaffected)
+  6. sofia_endpoint.rs is removed; no functional sofia references remain in src/
+**Plans:** 5 plans
+
+Plans:
+- [ ] 12-01-PLAN.md — pjsip-sys crate: install script + raw FFI bindings via bindgen
+- [ ] 12-02-PLAN.md — pjsip safe wrapper crate: error, pool, event, command, endpoint, session, bridge modules
+- [ ] 12-03-PLAN.md — PjDialogLayer adapter + PjFailoverLoop for proxy integration
+- [ ] 12-04-PLAN.md — Wire into proxy: Cargo.toml feature swap, PjsipEndpoint, AppState, dispatch
+- [ ] 12-05-PLAN.md — Integration tests + cleanup: remove sofia_endpoint.rs
