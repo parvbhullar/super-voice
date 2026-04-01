@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: planning
-stopped_at: Completed 12-replace-sofia-sip-with-pjsip-for-carrier-grade-sip-proxy 12-01-PLAN.md
-last_updated: "2026-04-01T18:14:59.329Z"
+stopped_at: Completed 12-replace-sofia-sip-with-pjsip-for-carrier-grade-sip-proxy 12-02-PLAN.md
+last_updated: "2026-04-01T19:36:22.572Z"
 last_activity: 2026-03-27 — Roadmap created for v1.0 Carrier Edition (11 phases, 98 requirements mapped)
 progress:
   total_phases: 12
   completed_phases: 11
   total_plans: 40
-  completed_plans: 36
+  completed_plans: 37
   percent: 0
 ---
 
@@ -84,6 +84,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 11-api-completion-hardening P01 | 6 | 2 tasks | 5 files |
 | Phase 11-api-completion-hardening P02 | 10 | 2 tasks | 2 files |
 | Phase 12-replace-sofia-sip-with-pjsip-for-carrier-grade-sip-proxy P01 | 4 | 1 tasks | 5 files |
+| Phase 12-replace-sofia-sip-with-pjsip-for-carrier-grade-sip-proxy P02 | 15 | 2 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -173,6 +174,8 @@ Recent decisions affecting current work:
 - [Phase 11-api-completion-hardening]: system health status is 'ok' when config_store is None (not 'degraded'): degraded path fires only when Redis IS configured but unreachable
 - [Phase 12-replace-sofia-sip-with-pjsip-for-carrier-grade-sip-proxy]: ARM endianness clang args required for pjproject build.rs: CARGO_CFG_TARGET_ARCH gates -DPJ_IS_LITTLE_ENDIAN=1 on aarch64
 - [Phase 12-replace-sofia-sip-with-pjsip-for-carrier-grade-sip-proxy]: pjsip-sys: no opaque_type — struct fields accessible; derive_debug+derive_default enabled for callback struct ergonomics
+- [Phase 12-replace-sofia-sip-with-pjsip-for-carrier-grade-sip-proxy]: pjsip_endpt_destroy skipped on macOS: blocks indefinitely on kqueue I/O drain; CachingPool drop releases endpoint memory
+- [Phase 12-replace-sofia-sip-with-pjsip-for-carrier-grade-sip-proxy]: Selective pjproject linking in pjsip-sys/build.rs: omit pjmedia-audiodev/videodev to avoid audio device initialization blocking on macOS
 
 ### Roadmap Evolution
 
@@ -190,6 +193,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-04-01T18:14:59.326Z
-Stopped at: Completed 12-replace-sofia-sip-with-pjsip-for-carrier-grade-sip-proxy 12-01-PLAN.md
+Last session: 2026-04-01T19:36:22.568Z
+Stopped at: Completed 12-replace-sofia-sip-with-pjsip-for-carrier-grade-sip-proxy 12-02-PLAN.md
 Resume file: None
