@@ -27,7 +27,7 @@ impl EndpointManager {
 
     /// Create an endpoint from `config`, start it, and store it.
     ///
-    /// Dispatches to [`SofiaEndpoint`] (when the `carrier` feature is enabled)
+    /// Dispatches to [`PjsipEndpoint`] (when the `carrier` feature is enabled)
     /// or [`RsipEndpoint`] based on `config.stack`.
     ///
     /// Returns an error if an endpoint with the same name already exists, or if

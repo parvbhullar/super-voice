@@ -29,10 +29,12 @@ pub async fn create_endpoint(
             Json(json!({"error": "port must be > 0"})),
         );
     }
-    if !matches!(config.stack.as_str(), "sofia" | "rsipstack") {
+    // Accept "pjsip" (current carrier stack), "sofia" (backward compat alias
+    // for existing Redis configs), and "rsipstack" (minimal/WebRTC path).
+    if !matches!(config.stack.as_str(), "pjsip" | "sofia" | "rsipstack") {
         return (
             StatusCode::BAD_REQUEST,
-            Json(json!({"error": "stack must be 'sofia' or 'rsipstack'"})),
+            Json(json!({"error": "stack must be 'pjsip', 'sofia', or 'rsipstack'"})),
         );
     }
     if !matches!(config.transport.to_lowercase().as_str(), "udp" | "tcp" | "tls") {
