@@ -23,7 +23,7 @@ pub trait SipEndpoint: Send + Sync {
     /// Unique name that identifies this endpoint.
     fn name(&self) -> &str;
 
-    /// Underlying SIP stack: `"sofia"` or `"rsipstack"`.
+    /// Underlying SIP stack: `"pjsip"`, `"sofia"`, or `"rsipstack"`.
     fn stack(&self) -> &str;
 
     /// Local address the endpoint listens on, e.g. `"0.0.0.0:5060"`.
@@ -37,6 +37,12 @@ pub trait SipEndpoint: Send + Sync {
 
     /// Returns `true` while the endpoint is actively running.
     fn is_running(&self) -> bool;
+
+    /// Downcast support — returns `self` as `&dyn Any`.
+    ///
+    /// Used by [`EndpointManager::get_pjsip_bridge`] to extract the
+    /// `Arc<PjBridge>` from a `PjsipEndpoint` via type erasure.
+    fn as_any(&self) -> &dyn std::any::Any;
 }
 
 /// Validate a SIP Digest Authorization header against expected credentials.

@@ -84,6 +84,11 @@ pub struct AppStateInner {
     pub cdr_queue: Option<Arc<crate::cdr::CdrQueue>>,
     /// CDR store for indexed query support (Some if Redis configured).
     pub cdr_store: Option<Arc<crate::cdr::CdrStore>>,
+    /// pjsip bridge handle (Some when carrier feature is enabled and a pjsip
+    /// endpoint has been started). Used by `dispatch_proxy_call` to construct
+    /// `PjDialogLayer` for outbound SIP INVITEs.
+    #[cfg(feature = "carrier")]
+    pub pj_bridge: Option<Arc<pjsip::PjBridge>>,
 }
 
 pub type AppState = Arc<AppStateInner>;
@@ -1231,6 +1236,13 @@ impl AppStateBuilder {
             crate::security::SipSecurityModule::new(crate::security::SecurityConfig::default()),
         )));
 
+        // Extract pj_bridge from the endpoint manager after all endpoints have
+        // been started. This is the explicit wiring path that resolves research
+        // gap 4: endpoint start -> bridge stored -> AppState.pj_bridge populated
+        // -> dispatch_proxy_call reads bridge -> PjDialogLayer created.
+        #[cfg(feature = "carrier")]
+        let pj_bridge = endpoint_manager.lock().await.get_pjsip_bridge();
+
         let app_state = Arc::new(AppStateInner {
             config,
             token,
@@ -1263,6 +1275,8 @@ impl AppStateBuilder {
             security_module,
             cdr_queue,
             cdr_store,
+            #[cfg(feature = "carrier")]
+            pj_bridge,
         });
 
         // Spawn CDR processor background task when Redis is configured.

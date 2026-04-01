@@ -88,6 +88,26 @@ impl EndpointManager {
         self.endpoints.values().map(|b| b.as_ref()).collect()
     }
 
+    /// Return the `PjBridge` from the first running pjsip/sofia endpoint.
+    ///
+    /// Used by `AppStateBuilder` to populate `AppStateInner.pj_bridge` after
+    /// all endpoints have been started (research gap 4 fix).
+    #[cfg(feature = "carrier")]
+    pub fn get_pjsip_bridge(&self) -> Option<std::sync::Arc<pjsip::PjBridge>> {
+        use crate::endpoint::PjsipEndpoint;
+
+        for endpoint in self.endpoints.values() {
+            if endpoint.stack() == "pjsip" || endpoint.stack() == "sofia" {
+                if let Some(pj_ep) = endpoint.as_any().downcast_ref::<PjsipEndpoint>() {
+                    if let Some(bridge) = pj_ep.bridge() {
+                        return Some(bridge);
+                    }
+                }
+            }
+        }
+        None
+    }
+
     /// Load all [`EndpointConfig`] records from the Redis [`ConfigStore`] and
     /// start an endpoint for each one.
     ///

@@ -20,6 +20,11 @@ use chrono::{DateTime, Utc};
 use tracing::{info, warn};
 use uuid::Uuid;
 
+#[cfg(feature = "carrier")]
+use crate::proxy::pj_dialog_layer::PjDialogLayer;
+#[cfg(feature = "carrier")]
+use crate::proxy::pj_failover::{PjFailoverLoop, PjFailoverResult};
+
 /// Dispatch an inbound INVITE to a proxy call session.
 ///
 /// This function:
@@ -287,16 +292,20 @@ pub async fn dispatch_proxy_call(
     // routing_table stays None when not used — the DID's trunk was used directly.
 
     // ------------------------------------------------------------------ //
-    // 6. Create ProxyCallSession                                           //
+    // 6. Create ProxyCallSession (rsipstack path — minimal/fallback only)  //
     // ------------------------------------------------------------------ //
 
     let cancel_token = app_state.token.child_token();
+
+    // Under the minimal feature (no carrier), use ProxyCallSession (rsipstack).
+    // Under the carrier feature, the pjsip path is used below after URI translation.
+    #[cfg(not(feature = "carrier"))]
     let (mut session, event_rx) = ProxyCallSession::new(
-        context,
-        cancel_token,
+        context.clone(),
+        cancel_token.clone(),
         caller_dialog,
         app_state.dialog_layer.clone(),
-        config_store,
+        config_store.clone(),
         app_state.stream_engine.clone(),
     );
 
@@ -333,68 +342,182 @@ pub async fn dispatch_proxy_call(
     );
 
     // ------------------------------------------------------------------ //
-    // 8a. Spawn event collector for CDR timing capture                   //
+    // 8a. Carrier path: use PjFailoverLoop directly (no ProxyCallSession) //
     // ------------------------------------------------------------------ //
 
-    let timing_handle = {
-        let mut rx = event_rx;
-        tokio::spawn(async move {
-            let mut ring_time: Option<DateTime<Utc>> = None;
-            let mut answer_time: Option<DateTime<Utc>> = None;
-            let mut cdr_status = CdrStatus::Completed;
-            while let Some(event) = rx.recv().await {
-                match event {
-                    ProxyCallEvent::PhaseChanged(ProxyCallPhase::Ringing) => {
-                        ring_time.get_or_insert_with(Utc::now);
-                    }
-                    ProxyCallEvent::PhaseChanged(ProxyCallPhase::EarlyMedia) => {
-                        ring_time.get_or_insert_with(Utc::now);
-                    }
-                    ProxyCallEvent::Answered { .. } => {
-                        answer_time.get_or_insert_with(Utc::now);
-                    }
-                    ProxyCallEvent::Terminated { reason, .. } => {
-                        cdr_status = terminated_reason_to_cdr_status(&reason);
-                    }
-                    _ => {}
+    #[cfg(feature = "carrier")]
+    {
+        let start_time = context.start_time;
+
+        // Use PjFailoverLoop when pj_bridge is available.
+        let pj_result = if let Some(ref pj_bridge) = app_state.pj_bridge {
+            let pj_dialog_layer = PjDialogLayer::new(pj_bridge.clone());
+            let pj_failover = PjFailoverLoop::new(pj_dialog_layer.clone(), cancel_token.clone());
+
+            info!(
+                session_id = %session_id,
+                callee = %final_callee_uri,
+                trunk = %trunk.name,
+                "dispatch: starting pjsip failover dial"
+            );
+
+            let result = pj_failover
+                .try_routes(&trunk, &caller_sdp, &final_caller_uri, &final_callee_uri)
+                .await;
+
+            match result {
+                Ok(PjFailoverResult::Connected { gateway_addr, sdp, call_id, .. }) => {
+                    info!(
+                        session_id = %session_id,
+                        gateway = %gateway_addr,
+                        "dispatch: pjsip callee connected"
+                    );
+                    // TODO: bridge loop monitoring both legs via pjsip events
+                    // For now, return success — full bridge loop is Phase 12+ work
+                    Ok(CdrStatus::Completed)
+                }
+                Ok(PjFailoverResult::NoFailover { code, reason }) => {
+                    warn!(session_id = %session_id, code = %code, "dispatch: pjsip nofailover");
+                    Ok(CdrStatus::Failed)
+                }
+                Ok(PjFailoverResult::Exhausted { last_code, last_reason }) => {
+                    warn!(session_id = %session_id, code = %last_code, "dispatch: pjsip all gateways exhausted");
+                    Ok(CdrStatus::Failed)
+                }
+                Ok(PjFailoverResult::NoRoutes) => {
+                    warn!(session_id = %session_id, "dispatch: pjsip no routes");
+                    Ok(CdrStatus::Failed)
+                }
+                Err(e) => {
+                    warn!(session_id = %session_id, "dispatch: pjsip failover error: {e}");
+                    Err(e)
                 }
             }
-            (ring_time, answer_time, cdr_status)
-        })
-    };
+        } else {
+            // No pj_bridge — fall back to rsipstack ProxyCallSession.
+            let (mut session, event_rx) = ProxyCallSession::new(
+                context.clone(),
+                cancel_token.clone(),
+                caller_dialog,
+                app_state.dialog_layer.clone(),
+                config_store.clone(),
+                app_state.stream_engine.clone(),
+            );
+            let timing_handle = spawn_event_collector(event_rx);
+            let session_result = session
+                .run(&trunk, &caller_sdp, &final_caller_uri, &final_callee_uri)
+                .await;
+            let (ring_time, answer_time, cdr_status) =
+                timing_handle.await.unwrap_or((None, None, CdrStatus::Failed));
+            let status = if session_result.is_err() { CdrStatus::Failed } else { cdr_status };
+            Ok(status)
+        };
 
-    // ------------------------------------------------------------------ //
-    // 8b. Run session                                                     //
-    // ------------------------------------------------------------------ //
+        // Decrement capacity.
+        if let Some(ref guard) = app_state.capacity_guard {
+            guard.release_call(&trunk.name, &session_id).await;
+        }
 
-    let session_result = session
-        .run(&trunk, &caller_sdp, &final_caller_uri, &final_callee_uri)
-        .await;
+        let final_status = match pj_result {
+            Ok(s) => s,
+            Err(e) => {
+                warn!(session_id = %session_id, "dispatch: session error: {e}");
+                CdrStatus::Failed
+            }
+        };
 
-    if let Err(ref e) = session_result {
-        warn!(session_id = %session_id, "dispatch: session ended with error: {e}");
+        generate_and_enqueue_cdr(
+            &app_state, &session_id, &did, &trunk, &final_caller_uri, &final_callee_uri,
+            final_status, start_time, None, None,
+        ).await;
+
+        info!(session_id = %session_id, "dispatch: session complete");
+        return Ok(());
     }
 
-    // Decrement the concurrent call counter now that the session has ended.
-    if let Some(ref guard) = app_state.capacity_guard {
-        guard.release_call(&trunk.name, &session_id).await;
+    // ------------------------------------------------------------------ //
+    // 8a-minimal. Non-carrier path: use rsipstack ProxyCallSession        //
+    // ------------------------------------------------------------------ //
+
+    #[cfg(not(feature = "carrier"))]
+    {
+        let timing_handle = spawn_event_collector(event_rx);
+
+        let session_result = session
+            .run(&trunk, &caller_sdp, &final_caller_uri, &final_callee_uri)
+            .await;
+
+        if let Err(ref e) = session_result {
+            warn!(session_id = %session_id, "dispatch: session ended with error: {e}");
+        }
+
+        // Decrement the concurrent call counter now that the session has ended.
+        if let Some(ref guard) = app_state.capacity_guard {
+            guard.release_call(&trunk.name, &session_id).await;
+        }
+
+        let (ring_time, answer_time, cdr_status) =
+            timing_handle.await.unwrap_or((None, None, CdrStatus::Failed));
+
+        let final_status = if session_result.is_err() {
+            CdrStatus::Failed
+        } else {
+            cdr_status
+        };
+
+        generate_and_enqueue_cdr(
+            &app_state, &session_id, &did, &trunk, &final_caller_uri, &final_callee_uri,
+            final_status, session.context().start_time, ring_time, answer_time,
+        ).await;
+
+        info!(session_id = %session_id, "dispatch: session complete");
+        Ok(())
     }
+}
 
-    // ------------------------------------------------------------------ //
-    // 9. Generate and enqueue CDR                                         //
-    // ------------------------------------------------------------------ //
+/// Spawn an event collector task for CDR timing capture.
+fn spawn_event_collector(
+    event_rx: tokio::sync::mpsc::UnboundedReceiver<ProxyCallEvent>,
+) -> tokio::task::JoinHandle<(Option<DateTime<Utc>>, Option<DateTime<Utc>>, CdrStatus)> {
+    let mut rx = event_rx;
+    tokio::spawn(async move {
+        let mut ring_time: Option<DateTime<Utc>> = None;
+        let mut answer_time: Option<DateTime<Utc>> = None;
+        let mut cdr_status = CdrStatus::Completed;
+        while let Some(event) = rx.recv().await {
+            match event {
+                ProxyCallEvent::PhaseChanged(ProxyCallPhase::Ringing) => {
+                    ring_time.get_or_insert_with(Utc::now);
+                }
+                ProxyCallEvent::PhaseChanged(ProxyCallPhase::EarlyMedia) => {
+                    ring_time.get_or_insert_with(Utc::now);
+                }
+                ProxyCallEvent::Answered { .. } => {
+                    answer_time.get_or_insert_with(Utc::now);
+                }
+                ProxyCallEvent::Terminated { reason, .. } => {
+                    cdr_status = terminated_reason_to_cdr_status(&reason);
+                }
+                _ => {}
+            }
+        }
+        (ring_time, answer_time, cdr_status)
+    })
+}
 
-    let (ring_time, answer_time, cdr_status) =
-        timing_handle.await.unwrap_or((None, None, CdrStatus::Failed));
-
-    // Derive status from session result when the event channel did not
-    // emit a Terminated event (e.g. cancelled calls).
-    let final_status = if let Err(_) = session_result {
-        CdrStatus::Failed
-    } else {
-        cdr_status
-    };
-
+/// Generate and enqueue a CDR record.
+async fn generate_and_enqueue_cdr(
+    app_state: &AppState,
+    session_id: &str,
+    did: &DidConfig,
+    trunk: &crate::redis_state::types::TrunkConfig,
+    caller_uri: &str,
+    callee_uri: &str,
+    final_status: CdrStatus,
+    start_time: DateTime<Utc>,
+    ring_time: Option<DateTime<Utc>>,
+    answer_time: Option<DateTime<Utc>>,
+) {
     let node_id = std::env::var("NODE_ID").unwrap_or_else(|_| {
         std::fs::read_to_string("/etc/hostname")
             .ok()
@@ -406,16 +529,12 @@ pub async fn dispatch_proxy_call(
     let inbound_leg = CdrLeg {
         trunk: did.trunk.clone(),
         gateway: None,
-        caller: extract_user(&final_caller_uri),
-        callee: extract_user(&final_callee_uri),
+        caller: extract_user(caller_uri),
+        callee: extract_user(callee_uri),
         codec: None,
         transport: "udp".to_string(),
         srtp: false,
-        sip_status: if final_status == CdrStatus::Completed {
-            200
-        } else {
-            0
-        },
+        sip_status: if final_status == CdrStatus::Completed { 200 } else { 0 },
         hangup_cause: None,
         source_ip: None,
         destination_ip: None,
@@ -424,16 +543,12 @@ pub async fn dispatch_proxy_call(
     let outbound_leg = Some(CdrLeg {
         trunk: trunk.name.clone(),
         gateway: trunk.gateways.first().map(|g| g.name.clone()),
-        caller: extract_user(&final_caller_uri),
-        callee: extract_user(&final_callee_uri),
+        caller: extract_user(caller_uri),
+        callee: extract_user(callee_uri),
         codec: None,
         transport: "udp".to_string(),
         srtp: false,
-        sip_status: if final_status == CdrStatus::Completed {
-            200
-        } else {
-            0
-        },
+        sip_status: if final_status == CdrStatus::Completed { 200 } else { 0 },
         hangup_cause: None,
         source_ip: None,
         destination_ip: None,
@@ -441,14 +556,14 @@ pub async fn dispatch_proxy_call(
 
     let cdr = CarrierCdr {
         uuid: Uuid::new_v4(),
-        session_id: session_id.clone(),
-        call_id: session_id.clone(),
+        session_id: session_id.to_string(),
+        call_id: session_id.to_string(),
         node_id,
         created_at: Utc::now(),
         inbound_leg,
         outbound_leg,
         timing: CdrTiming {
-            start_time: session.context().start_time,
+            start_time,
             ring_time,
             answer_time,
             end_time: Utc::now(),
@@ -468,9 +583,6 @@ pub async fn dispatch_proxy_call(
             );
         }
     }
-
-    info!(session_id = %session_id, "dispatch: session complete");
-    Ok(())
 }
 
 // ------------------------------------------------------------------ //

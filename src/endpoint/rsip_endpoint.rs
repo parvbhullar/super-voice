@@ -87,4 +87,8 @@ impl SipEndpoint for RsipEndpoint {
     fn is_running(&self) -> bool {
         self.running.load(Ordering::SeqCst)
     }
+
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
 }
