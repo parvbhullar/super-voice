@@ -15,3 +15,7 @@ bank-demo/
 models/
 .venv*/
 .claude/
+active-call-tester/results
+.github
+docs/plans
+dump.rdb

@@ -272,6 +272,34 @@ e2e: build
     echo "══ DONE ══"
 
 # ──────────────────────────────────────────────
+# Call Flow E2E Tests
+# ──────────────────────────────────────────────
+
+# Test all call flows (SIP→SIP, SIP→WS, SIP→WebRTC)
+test-flows: build
+    bash scripts/test-call-flows.sh all
+
+# Test SIP-to-SIP proxy flow only
+test-sip: build
+    bash scripts/test-call-flows.sh sip
+
+# Test SIP-to-WebSocket bridge flow only
+test-ws: build
+    bash scripts/test-call-flows.sh ws
+
+# Test SIP-to-WebRTC bridge flow only
+test-webrtc: build
+    bash scripts/test-call-flows.sh webrtc
+
+# Setup test entities without running tests
+test-setup: build
+    bash scripts/test-call-flows.sh setup
+
+# Clean up test entities and stop server
+test-teardown:
+    bash scripts/test-call-flows.sh teardown
+
+# ──────────────────────────────────────────────
 # Tester (Python E2E tool)
 # ──────────────────────────────────────────────
 
