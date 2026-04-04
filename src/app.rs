@@ -44,7 +44,7 @@ use std::{
 use tokio::select;
 use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
-use tracing::{info, warn};
+use tracing::{debug, info, warn};
 
 pub struct AppStateInner {
     pub config: Arc<Config>,
@@ -244,6 +244,12 @@ impl AppStateInner {
     ) -> Result<()> {
         while let Some(mut tx) = incoming.recv().await {
             let key: &rsipstack::transaction::key::TransactionKey = &tx.key;
+            // Demote OPTIONS keepalives to debug — they fire every few seconds and are not actionable
+            if tx.original.method == rsip::Method::Options {
+                debug!(?key, "received out-of-dialog OPTIONS, replying 200");
+                let _ = tx.reply(rsip::StatusCode::OK).await;
+                continue;
+            }
             info!(?key, "received transaction");
 
             // ── SIP Security Check ────────────────────────────────────────────
@@ -555,6 +561,121 @@ impl AppStateInner {
                     }
                     // -------------------------------------------------- //
 
+                    // ── Outbound routing-table fallback ─────────────────────────────────── //
+                    // Handles calls where the Request-URI is a PSTN destination (not a DID). //
+                    // Iterates all routing tables; if any resolves the number to a trunk,    //
+                    // the call is proxied directly without going through the playbook.        //
+                    {
+                        let is_routed = 'rt: {
+                            let Some(ref cs) = self.config_store else {
+                                break 'rt false;
+                            };
+
+                            let called_number = tx
+                                .original
+                                .uri
+                                .auth
+                                .as_ref()
+                                .map(|a| a.user.clone())
+                                .unwrap_or_default();
+                            if called_number.is_empty() {
+                                break 'rt false;
+                            }
+
+                            let caller_uri = tx
+                                .original
+                                .from_header()
+                                .ok()
+                                .and_then(|h| h.uri().ok())
+                                .map(|u| u.to_string())
+                                .unwrap_or_else(|| "sip:unknown@unknown".to_string());
+
+                            let caller_number = tx
+                                .original
+                                .from_header()
+                                .ok()
+                                .and_then(|h| h.uri().ok())
+                                .and_then(|u| u.auth.map(|a| a.user))
+                                .unwrap_or_default();
+
+                            let tables = match cs.list_routing_tables().await {
+                                Ok(t) => t,
+                                Err(_) => break 'rt false,
+                            };
+
+                            if tables.is_empty() {
+                                break 'rt false;
+                            }
+
+                            let engine =
+                                crate::routing::engine::RoutingEngine::new(cs.clone());
+                            let ctx = crate::routing::engine::RouteContext {
+                                destination_number: called_number.clone(),
+                                caller_number: caller_number.clone(),
+                                caller_name: None,
+                            };
+
+                            let mut resolved_trunk = None;
+                            for table in &tables {
+                                if let Ok(Some(result)) =
+                                    engine.resolve(&table.name, &ctx).await
+                                {
+                                    resolved_trunk = Some(result.trunk.clone());
+                                    break;
+                                }
+                            }
+
+                            let Some(trunk_name) = resolved_trunk else {
+                                break 'rt false;
+                            };
+
+                            let synthetic_did = crate::redis_state::DidConfig {
+                                number: called_number.clone(),
+                                trunk: trunk_name,
+                                routing: crate::redis_state::types::DidRouting {
+                                    mode: "sip_proxy".to_string(),
+                                    playbook: None,
+                                    webrtc_config: None,
+                                    ws_config: None,
+                                },
+                                caller_name: None,
+                            };
+
+                            let callee_uri = format!("sip:{}", called_number);
+                            let caller_sdp =
+                                String::from_utf8_lossy(tx.original.body()).to_string();
+                            let session_id = uuid::Uuid::new_v4().to_string();
+                            let receiver = state_receiver_opt.take().unwrap();
+                            let caller_guard = DialogStateReceiverGuard::new(
+                                dialog_layer.clone(),
+                                receiver,
+                                None,
+                            );
+                            let app_clone = self.clone();
+                            crate::spawn(async move {
+                                if let Err(e) =
+                                    crate::proxy::dispatch::dispatch_bridge_call(
+                                        app_clone,
+                                        session_id,
+                                        caller_guard,
+                                        caller_sdp,
+                                        caller_uri,
+                                        callee_uri,
+                                        &synthetic_did,
+                                    )
+                                    .await
+                                {
+                                    warn!("outbound routing dispatch error: {e}");
+                                }
+                            });
+                            true
+                        };
+                        if is_routed {
+                            continue;
+                        }
+                    }
+                    // ─────────────────────────────────────────────────────────────────────── //
+
                     // Non-proxy path: unwrap state_receiver (not consumed above).
                     let state_receiver = state_receiver_opt.unwrap();
 
@@ -633,10 +754,6 @@ impl AppStateInner {
                              } => {}
                         }
                     });
-                }
-                rsip::Method::Options => {
-                    info!(?key, "ignoring out-of-dialog OPTIONS request");
-                    continue;
                 }
                 _ => {
                     info!(?key, "received request: {:?}", tx.original.method);

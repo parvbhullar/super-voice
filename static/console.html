@@ -346,9 +346,11 @@
                       <td class="px-3 py-2 font-medium text-slate-700 font-mono text-xs" x-text="call.caller"></td>
                       <td class="px-3 py-2 text-slate-600 font-mono text-xs" x-text="call.callee"></td>
                       <td class="px-3 py-2">
-                        <span class="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-1 text-xs font-medium text-slate-600">
-                          <span class="h-1.5 w-1.5 rounded-full" :class="call.status==='answered'?'bg-emerald-500':'bg-amber-500'"></span>
-                          <span x-text="call.status"></span>
+                        <span class="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold"
+                              :class="call.status==='answered'?'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200':['ringing','connecting','trying'].includes(call.status)?'bg-amber-50 text-amber-700 ring-1 ring-amber-200':call.status==='failed'?'bg-red-50 text-red-700 ring-1 ring-red-200':'bg-slate-100 text-slate-500 ring-1 ring-slate-200'">
+                          <span class="h-2 w-2 rounded-full"
+                                :class="call.status==='answered'?'bg-emerald-500':['ringing','connecting','trying'].includes(call.status)?'bg-amber-500':call.status==='failed'?'bg-red-500':'bg-slate-400'"></span>
+                          <span x-text="(call.status||'').charAt(0).toUpperCase()+(call.status||'').slice(1)"></span>
                         </span>
                       </td>
                       <td class="px-3 py-2 text-slate-500" x-text="formatDuration(call.duration_secs)"></td>
@@ -399,10 +401,11 @@
                     </td>
                     <td class="px-4 py-3 text-slate-500 text-xs" x-text="gw.auth?.username ? '🔒 '+gw.auth.username : '—'"></td>
                     <td class="px-4 py-3">
-                      <span class="inline-flex items-center gap-1.5 text-xs font-medium"
-                            :class="gw.status==='online'?'text-emerald-600':gw.status==='offline'?'text-red-500':'text-slate-400'">
-                        <span class="h-1.5 w-1.5 rounded-full" :class="gw.status==='online'?'bg-emerald-500':gw.status==='offline'?'bg-red-400':'bg-slate-300'"></span>
-                        <span x-text="gw.status||'unknown'"></span>
+                      <span class="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold"
+                            :class="['online','active'].includes(gw.status)?'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200':['offline','inactive','error'].includes(gw.status)?'bg-red-50 text-red-700 ring-1 ring-red-200':['degraded','warning'].includes(gw.status)?'bg-amber-50 text-amber-700 ring-1 ring-amber-200':'bg-slate-100 text-slate-500 ring-1 ring-slate-200'">
+                        <span class="h-2 w-2 rounded-full"
+                              :class="['online','active'].includes(gw.status)?'bg-emerald-500':['offline','inactive','error'].includes(gw.status)?'bg-red-500':['degraded','warning'].includes(gw.status)?'bg-amber-500':'bg-slate-400'"></span>
+                        <span x-text="(gw.status||'unknown').charAt(0).toUpperCase()+(gw.status||'unknown').slice(1)"></span>
                       </span>
                     </td>
                     <td class="px-4 py-3">
@@ -519,7 +522,9 @@
                         <tr class="hover:bg-slate-50">
                           <td class="px-4 py-2.5 text-slate-500" x-text="rec.priority??100"></td>
                           <td class="px-4 py-2.5">
-                            <span class="rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-mono font-medium text-slate-700" x-text="rec.match_type"></span>
+                            <span class="rounded-full px-2.5 py-0.5 text-xs font-mono font-medium"
+                                  :class="rec.match_type==='lpm'?'bg-sky-100 text-sky-700':rec.match_type==='regex'?'bg-purple-100 text-purple-700':rec.match_type==='exact_match'?'bg-emerald-100 text-emerald-700':rec.match_type==='compare'?'bg-orange-100 text-orange-700':rec.match_type==='http_query'?'bg-cyan-100 text-cyan-700':'bg-slate-100 text-slate-700'"
+                                  x-text="rec.match_type"></span>
                             <span x-show="rec.is_default" class="ml-1 rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-medium text-amber-700">default</span>
                           </td>
                           <td class="px-4 py-2.5 font-mono text-xs text-slate-600" x-text="rec.value||'—'"></td>
@@ -624,9 +629,11 @@
                     <td class="px-4 py-3 font-mono text-xs text-slate-500" x-text="ep.bind_addr||'0.0.0.0'"></td>
                     <td class="px-4 py-3 text-slate-500" x-text="ep.port"></td>
                     <td class="px-4 py-3">
-                      <span class="inline-flex items-center gap-1.5 text-xs font-medium" :class="ep.status==='running'?'text-emerald-600':'text-slate-400'">
-                        <span class="h-1.5 w-1.5 rounded-full" :class="ep.status==='running'?'bg-emerald-500':'bg-slate-300'"></span>
-                        <span x-text="ep.status||'unknown'"></span>
+                      <span class="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold"
+                            :class="['running','active','ok'].includes(ep.status)?'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200':['stopped','error','failed'].includes(ep.status)?'bg-red-50 text-red-700 ring-1 ring-red-200':'bg-slate-100 text-slate-500 ring-1 ring-slate-200'">
+                        <span class="h-2 w-2 rounded-full"
+                              :class="['running','active','ok'].includes(ep.status)?'bg-emerald-500':['stopped','error','failed'].includes(ep.status)?'bg-red-500':'bg-slate-400'"></span>
+                        <span x-text="(ep.status||'unknown').charAt(0).toUpperCase()+(ep.status||'unknown').slice(1)"></span>
                       </span>
                     </td>
                     <td class="px-4 py-3">
@@ -673,9 +680,11 @@
                     <td class="px-4 py-3 font-mono text-xs text-slate-700" x-text="call.callee"></td>
                     <td class="px-4 py-3 text-slate-500" x-text="formatDuration(call.duration_secs)"></td>
                     <td class="px-4 py-3">
-                      <span class="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-1 text-xs font-medium text-slate-600">
-                        <span class="h-1.5 w-1.5 rounded-full" :class="call.status==='answered'?'bg-emerald-500':'bg-amber-500'"></span>
-                        <span x-text="call.status"></span>
+                      <span class="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold"
+                            :class="call.status==='answered'?'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200':['ringing','connecting','trying'].includes(call.status)?'bg-amber-50 text-amber-700 ring-1 ring-amber-200':call.status==='failed'?'bg-red-50 text-red-700 ring-1 ring-red-200':'bg-slate-100 text-slate-500 ring-1 ring-slate-200'">
+                        <span class="h-2 w-2 rounded-full"
+                              :class="call.status==='answered'?'bg-emerald-500':['ringing','connecting','trying'].includes(call.status)?'bg-amber-500':call.status==='failed'?'bg-red-500':'bg-slate-400'"></span>
+                        <span x-text="(call.status||'').charAt(0).toUpperCase()+(call.status||'').slice(1)"></span>
                       </span>
                     </td>
                     <td class="px-4 py-3">

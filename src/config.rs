@@ -96,7 +96,7 @@ fn default_graceful_shutdown() -> Option<bool> {
 
 fn default_config_useragent() -> Option<String> {
     Some(format!(
-        "active-call({} miuda.ai)",
+        "RustPBX/{}",
         env!("CARGO_PKG_VERSION")
     ))
 }
