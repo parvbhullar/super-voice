@@ -27,6 +27,13 @@ pub async fn index() -> impl IntoResponse {
     }
 }
 
+pub async fn console() -> impl IntoResponse {
+    match std::fs::read_to_string("static/console.html") {
+        Ok(content) => (StatusCode::OK, [("content-type", "text/html")], content).into_response(),
+        Err(_) => (StatusCode::NOT_FOUND, "Console not found").into_response(),
+    }
+}
+
 enum ShutdownSignal {
     CtrlC,
     SigTerm,
@@ -309,6 +316,7 @@ async fn main() -> Result<()> {
         .merge(active_call::handler::iceservers_router())
         .merge(active_call::handler::carrier_admin_router(app_state.clone()))
         .route("/", get(index))
+        .route("/console", get(console))
         .nest_service("/static", ServeDir::new("static"))
         .with_state(app_state.clone());
 

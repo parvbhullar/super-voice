@@ -1,4 +1,4 @@
-//! Integration tests for the carrier feature — proves Sofia-SIP + rsipstack coexist.
+//! Integration tests for the carrier feature — proves PJSIP + rsipstack coexist.
 //!
 //! All tests in this file are gated behind `#[cfg(feature = "carrier")]` so
 //! they compile only when the carrier feature is enabled, e.g.:
@@ -7,53 +7,6 @@
 #![cfg(feature = "carrier")]
 
 use spandsp::DtmfDetector;
-
-// ─── Sofia-SIP agent tests ───────────────────────────────────────────────────
-
-/// Prove NuaAgent can be created and shut down cleanly on a random port.
-///
-/// Sofia-SIP binds a UDP socket; we use a high-numbered port to avoid
-/// conflicts with other tests.
-#[tokio::test]
-async fn test_sofia_sip_agent_starts() {
-    use sofia_sip::NuaAgent;
-
-    // Port 15_900 is unlikely to be in use during CI.
-    let mut agent =
-        NuaAgent::new("sip:127.0.0.1:15900").expect("NuaAgent::new must succeed");
-
-    // Initiate a graceful shutdown — this exercises the full bridge teardown
-    // path (command channel → Sofia thread → nua_shutdown → event loop exit).
-    agent.shutdown().expect("shutdown command must be accepted");
-
-    // Drain events until the channel closes (bridge thread exits on shutdown).
-    // We allow up to a handful of events before giving up so the test doesn't
-    // hang indefinitely if the bridge gets stuck.
-    let mut iterations = 0usize;
-    loop {
-        let ev = tokio::time::timeout(
-            std::time::Duration::from_secs(3),
-            agent.next_event(),
-        )
-        .await;
-        match ev {
-            // Channel closed — clean shutdown confirmed.
-            Ok(None) => break,
-            // Got an event (e.g. ShutdownComplete); keep draining.
-            Ok(Some(_event)) => {
-                iterations += 1;
-                if iterations > 20 {
-                    break;
-                }
-            }
-            // Timeout — bridge didn't close in time; still counts as "started".
-            Err(_timeout) => break,
-        }
-    }
-
-    // If we reach here without panicking, Sofia-SIP started and shut down
-    // without crashing the process.
-}
 
 // ─── SpanDSP DTMF tests ──────────────────────────────────────────────────────
 
@@ -100,17 +53,11 @@ fn test_dtmf_silent_frame() {
 
 // ─── Coexistence test ────────────────────────────────────────────────────────
 
-/// Prove Sofia-SIP and rsipstack (Tokio-native SIP) can be initialized in the same binary.
+/// Prove PJSIP (via FFI) and rsipstack (Tokio-native SIP) can be initialized in the same binary.
 ///
-/// This is the critical FFI foundation invariant: the two SIP stacks must not
-/// conflict — neither at the C library level (Sofia) nor at the async runtime
-/// level (rsipstack uses Tokio; Sofia runs on its own OS thread).
-///
-/// Note: Sofia-SIP uses global C library state (su_home, su_root) that may
-/// conflict with a second NuaAgent in the same process. We therefore test
-/// coexistence by running rsipstack alongside a Sofia NuaAgent on a single
-/// dedicated port, which is sufficient to prove the FFI and async runtimes
-/// do not conflict.
+/// This is the critical FFI foundation invariant: rsipstack uses Tokio and PJSIP
+/// runs on its own OS thread — they must not conflict at the async runtime or
+/// C library level.
 #[tokio::test]
 async fn test_both_stacks_coexist() {
     use rsipstack::transport::udp::UdpConnection;
@@ -119,12 +66,11 @@ async fn test_both_stacks_coexist() {
     use tokio_util::sync::CancellationToken;
 
     // Build a minimal rsipstack endpoint — just prove it can be constructed in
-    // the same binary as Sofia-SIP (which is already loaded as a shared library).
+    // the same binary as PJSIP (which is loaded as a shared library).
     let token = CancellationToken::new();
     let tl = TransportLayer::new(token.child_token());
 
-    // Use port 0 so the OS picks a free port — avoids conflicts with the
-    // sofia agent test that uses 15900.
+    // Use port 0 so the OS picks a free port.
     let udp =
         UdpConnection::create_connection("127.0.0.1:0".parse().unwrap(), None, None)
             .await
@@ -136,9 +82,7 @@ async fn test_both_stacks_coexist() {
         .with_transport_layer(tl)
         .build();
 
-    // rsipstack endpoint is alive. Sofia-SIP is loaded as a shared library in
-    // this process. Verify both can be used concurrently by exercising the
-    // SpanDSP DTMF detector (which uses the same C FFI layer) alongside rsipstack.
+    // Verify SpanDSP FFI works concurrently with rsipstack.
     let mut detector =
         spandsp::DtmfDetector::new().expect("DtmfDetector must be usable alongside rsipstack");
     let silence = vec![0i16; 160];

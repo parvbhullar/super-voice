@@ -721,6 +721,10 @@
         }
 
         async function startCall(sessionId) {
+            if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+                alert('Microphone access requires a secure context (HTTPS or localhost). Please access this page via HTTPS.');
+                return;
+            }
             const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
             const iceServers = await fetch('/iceservers').then(r => r.json());
             pc = new RTCPeerConnection({ iceServers });

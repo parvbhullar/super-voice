@@ -31,7 +31,9 @@ fn main() {
         .iter()
         .find(|l| {
             l.starts_with("pjsip-")
+                && *l != "pjsip-ua"
                 && !l.starts_with("pjsip-ua-")
+                && *l != "pjsip-simple"
                 && !l.starts_with("pjsip-simple-")
         })
         .map(|l| l.strip_prefix("pjsip-").unwrap_or("").to_string())

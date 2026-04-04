@@ -19,3 +19,4 @@ active-call-tester/results
 .github
 docs/plans
 dump.rdb
+onnxruntime-linux-*
