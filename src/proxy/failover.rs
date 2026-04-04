@@ -121,10 +121,31 @@ impl FailoverLoop {
 
             let (state_sender, state_receiver) = self.dialog_layer.new_dialog_state_channel();
 
-            let callee_sip_uri: rsip::Uri = match callee_uri.try_into() {
+            // Extract the number/user from the callee URI and build a fully-qualified
+            // SIP URI with the gateway host. Without a host, rsipstack treats the
+            // number as a hostname and the Request-URI ends up malformed — FreeSWITCH
+            // then sees the caller number as the destination_number instead.
+            let callee_number = {
+                let stripped = callee_uri
+                    .strip_prefix("sips:")
+                    .or_else(|| callee_uri.strip_prefix("sip:"))
+                    .unwrap_or(callee_uri);
+                if let Some(at) = stripped.find('@') {
+                    stripped[..at].to_string()
+                } else {
+                    stripped.to_string()
+                }
+            };
+            let callee_uri_with_host = format!("sip:{}@{}", callee_number, gateway_proxy_addr);
+            info!(
+                gateway = %gateway_ref.name,
+                callee_uri = %callee_uri_with_host,
+                "failover: outbound Request-URI"
+            );
+            let callee_sip_uri: rsip::Uri = match callee_uri_with_host.as_str().try_into() {
                 Ok(u) => u,
                 Err(e) => {
-                    warn!("failover: invalid callee URI {}: {}", callee_uri, e);
+                    warn!("failover: invalid callee URI {}: {}", callee_uri_with_host, e);
                     continue;
                 }
             };
