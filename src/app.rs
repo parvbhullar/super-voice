@@ -62,6 +62,8 @@ pub struct AppStateInner {
     pub learned_public_addresses: LearnedPublicAddresses,
 
     pub active_calls: Arc<std::sync::Mutex<HashMap<String, ActiveCallRef>>>,
+    /// Live SIP-proxy (B2BUA) calls — registered by dispatch_proxy_call.
+    pub proxy_calls: Arc<std::sync::Mutex<HashMap<String, crate::proxy::types::ProxyCallRecord>>>,
     pub total_calls: AtomicU64,
     pub total_failed_calls: AtomicU64,
     pub uptime: DateTime<Local>,
@@ -487,6 +489,12 @@ impl AppStateInner {
                             continue;
                         }
                     };
+
+                    // Send 100 Trying immediately to stop SIP retransmissions.
+                    // RFC 3261 §17.2.1: a 100 Trying MUST be sent if the TU
+                    // cannot respond within 200 ms; we always send it here so
+                    // that LiveKit/carrier UACs do not retransmit the INVITE.
+                    let _ = tx.reply(rsip::StatusCode::Trying).await;
 
                     // -------------------------------------------------- //
                     // Bridge-mode DID routing check                        //
@@ -1375,6 +1383,7 @@ impl AppStateBuilder {
             pending_playbooks: Arc::new(Mutex::new(HashMap::new())),
             learned_public_addresses,
             active_calls: Arc::new(std::sync::Mutex::new(HashMap::new())),
+            proxy_calls: Arc::new(std::sync::Mutex::new(HashMap::new())),
             total_calls: AtomicU64::new(0),
             total_failed_calls: AtomicU64::new(0),
             uptime: Local::now(),

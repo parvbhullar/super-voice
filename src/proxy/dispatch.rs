@@ -17,6 +17,7 @@ use crate::routing::engine::{RouteContext, RoutingEngine};
 use crate::translation::engine::{TranslationEngine, TranslationInput};
 use anyhow::{Result, anyhow};
 use chrono::{DateTime, Utc};
+use std::sync::atomic::Ordering;
 use tracing::{info, warn};
 use uuid::Uuid;
 
@@ -310,14 +311,6 @@ pub async fn dispatch_proxy_call(
     );
 
     // ------------------------------------------------------------------ //
-    // 7. Register in active_calls                                          //
-    // ------------------------------------------------------------------ //
-
-    // We do not wrap in an ActiveCallRef here because the proxy session does
-    // not expose the full ActiveCall interface yet; a lightweight string
-    // registration is done below with drop-on-exit semantics.
-
-    // ------------------------------------------------------------------ //
     // 8. Run session                                                       //
     // ------------------------------------------------------------------ //
 
@@ -332,6 +325,24 @@ pub async fn dispatch_proxy_call(
     } else {
         callee_uri.clone()
     };
+
+    // ------------------------------------------------------------------ //
+    // 7. Register in proxy_calls + increment total_calls                  //
+    // ------------------------------------------------------------------ //
+
+    app_state.total_calls.fetch_add(1, Ordering::Relaxed);
+    {
+        let record = crate::proxy::types::ProxyCallRecord {
+            session_id: session_id.clone(),
+            caller: extract_user(&final_caller_uri),
+            callee: extract_user(&final_callee_uri),
+            trunk: trunk.name.clone(),
+            start_time: context.start_time,
+            answer_time: None,
+            status: "ringing".to_string(),
+        };
+        app_state.proxy_calls.lock().unwrap().insert(session_id.clone(), record);
+    }
 
     info!(
         session_id = %session_id,
@@ -372,6 +383,14 @@ pub async fn dispatch_proxy_call(
                         gateway = %gateway_addr,
                         "dispatch: pjsip callee connected"
                     );
+                    // Mark answered in proxy_calls
+                    {
+                        let mut map = app_state.proxy_calls.lock().unwrap();
+                        if let Some(rec) = map.get_mut(&session_id) {
+                            rec.answer_time = Some(Utc::now());
+                            rec.status = "answered".to_string();
+                        }
+                    }
                     // TODO: bridge loop monitoring both legs via pjsip events
                     // For now, return success — full bridge loop is Phase 12+ work
                     Ok(CdrStatus::Completed)
@@ -403,7 +422,7 @@ pub async fn dispatch_proxy_call(
                 config_store.clone(),
                 app_state.stream_engine.clone(),
             );
-            let timing_handle = spawn_event_collector(event_rx);
+            let timing_handle = spawn_event_collector(event_rx, app_state.proxy_calls.clone(), session_id.clone());
             let session_result = session
                 .run(&trunk, &caller_sdp, &final_caller_uri, &final_callee_uri)
                 .await;
@@ -431,6 +450,9 @@ pub async fn dispatch_proxy_call(
             final_status, start_time, None, None,
         ).await;
 
+        // Remove from proxy_calls on session end.
+        app_state.proxy_calls.lock().unwrap().remove(&session_id);
+
         info!(session_id = %session_id, "dispatch: session complete");
         return Ok(());
     }
@@ -441,7 +463,7 @@ pub async fn dispatch_proxy_call(
 
     #[cfg(not(feature = "carrier"))]
     {
-        let timing_handle = spawn_event_collector(event_rx);
+        let timing_handle = spawn_event_collector(event_rx, app_state.proxy_calls.clone(), session_id.clone());
 
         let session_result = session
             .run(&trunk, &caller_sdp, &final_caller_uri, &final_callee_uri)
@@ -465,6 +487,9 @@ pub async fn dispatch_proxy_call(
             cdr_status
         };
 
+        // Remove from proxy_calls on session end.
+        app_state.proxy_calls.lock().unwrap().remove(&session_id);
+
         generate_and_enqueue_cdr(
             &app_state, &session_id, &did, &trunk, &final_caller_uri, &final_callee_uri,
             final_status, session.context().start_time, ring_time, answer_time,
@@ -475,9 +500,11 @@ pub async fn dispatch_proxy_call(
     }
 }
 
-/// Spawn an event collector task for CDR timing capture.
+/// Spawn an event collector task for CDR timing capture and proxy_calls status updates.
 fn spawn_event_collector(
     event_rx: tokio::sync::mpsc::UnboundedReceiver<ProxyCallEvent>,
+    proxy_calls: std::sync::Arc<std::sync::Mutex<std::collections::HashMap<String, crate::proxy::types::ProxyCallRecord>>>,
+    session_id: String,
 ) -> tokio::task::JoinHandle<(Option<DateTime<Utc>>, Option<DateTime<Utc>>, CdrStatus)> {
     let mut rx = event_rx;
     tokio::spawn(async move {
@@ -493,7 +520,13 @@ fn spawn_event_collector(
                     ring_time.get_or_insert_with(Utc::now);
                 }
                 ProxyCallEvent::Answered { .. } => {
-                    answer_time.get_or_insert_with(Utc::now);
+                    let now = Utc::now();
+                    answer_time.get_or_insert(now);
+                    let mut map = proxy_calls.lock().unwrap();
+                    if let Some(rec) = map.get_mut(&session_id) {
+                        rec.answer_time = Some(now);
+                        rec.status = "answered".to_string();
+                    }
                 }
                 ProxyCallEvent::Terminated { reason, .. } => {
                     cdr_status = terminated_reason_to_cdr_status(&reason);

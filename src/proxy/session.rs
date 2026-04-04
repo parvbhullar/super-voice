@@ -105,6 +105,7 @@ impl ProxyCallSession {
         let failover = FailoverLoop::new(
             self.dialog_layer.clone(),
             self.cancel_token.clone(),
+            self.config_store.clone(),
         );
 
         let result = failover

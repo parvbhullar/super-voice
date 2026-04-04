@@ -422,9 +422,7 @@ impl ActiveCall {
                 }
             }
         };
-        self.app_state
-            .total_calls
-            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        // total_calls is already incremented in ActiveCallGuard::new() at call registration time.
 
         tokio::join!(
             self.dump_loop(self.dump_events, dump_cmd_receiver, dump_event_receiver),

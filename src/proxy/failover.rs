@@ -5,6 +5,7 @@
 //! permanent failures.
 
 use crate::call::sip::DialogStateReceiverGuard;
+use crate::redis_state::config_store::ConfigStore;
 use crate::redis_state::types::TrunkConfig;
 use anyhow::Result;
 use rsipstack::dialog::dialog::DialogState;
@@ -46,14 +47,20 @@ pub fn is_nofailover(code: u16, trunk: &TrunkConfig) -> bool {
 pub struct FailoverLoop {
     dialog_layer: Arc<DialogLayer>,
     cancel_token: CancellationToken,
+    config_store: Arc<ConfigStore>,
 }
 
 impl FailoverLoop {
     /// Create a new failover loop bound to the given dialog layer.
-    pub fn new(dialog_layer: Arc<DialogLayer>, cancel_token: CancellationToken) -> Self {
+    pub fn new(
+        dialog_layer: Arc<DialogLayer>,
+        cancel_token: CancellationToken,
+        config_store: Arc<ConfigStore>,
+    ) -> Self {
         Self {
             dialog_layer,
             cancel_token,
+            config_store,
         }
     }
 
@@ -85,6 +92,33 @@ impl FailoverLoop {
                 "failover: trying gateway"
             );
 
+            // Fetch the actual gateway config to get the real proxy_addr (host:port).
+            let gateway_proxy_addr = match self.config_store.get_gateway(&gateway_ref.name).await {
+                Ok(Some(gw_cfg)) => gw_cfg.proxy_addr.clone(),
+                Ok(None) => {
+                    warn!(
+                        gateway = %gateway_ref.name,
+                        "failover: gateway config not found — skipping"
+                    );
+                    last_reason = format!("gateway '{}' not configured", gateway_ref.name);
+                    continue;
+                }
+                Err(e) => {
+                    warn!(
+                        gateway = %gateway_ref.name,
+                        "failover: error loading gateway config: {e} — skipping"
+                    );
+                    last_reason = e.to_string();
+                    continue;
+                }
+            };
+
+            info!(
+                gateway = %gateway_ref.name,
+                proxy_addr = %gateway_proxy_addr,
+                "failover: resolved gateway address"
+            );
+
             let (state_sender, state_receiver) = self.dialog_layer.new_dialog_state_channel();
 
             let callee_sip_uri: rsip::Uri = match callee_uri.try_into() {
@@ -102,13 +136,25 @@ impl FailoverLoop {
                 }
             };
 
-            // Build the proxy address as a SIP URI for the Route/destination.
-            let proxy_addr = format!("sip:{}", gateway_ref.name);
+            // Build the proxy address SIP URI from the actual gateway proxy_addr.
+            let proxy_addr = format!("sip:{}", gateway_proxy_addr);
             let destination_uri: rsip::Uri = match proxy_addr.as_str().try_into() {
                 Ok(u) => u,
                 Err(e) => {
                     warn!("failover: invalid gateway URI {}: {}", proxy_addr, e);
                     continue;
+                }
+            };
+
+            // Extract credentials from gateway config for outbound auth.
+            let credential = {
+                match self.config_store.get_gateway(&gateway_ref.name).await {
+                    Ok(Some(gw_cfg)) => gw_cfg.auth.map(|auth| rsipstack::dialog::authenticate::Credential {
+                        username: auth.username,
+                        password: auth.password,
+                        realm: auth.realm,
+                    }),
+                    _ => None,
                 }
             };
 
@@ -122,7 +168,7 @@ impl FailoverLoop {
                 }),
                 offer: Some(caller_sdp.as_bytes().to_vec()),
                 content_type: Some("application/sdp".to_string()),
-                credential: None,
+                credential,
                 headers: None,
                 caller_display_name: None,
                 caller_params: vec![],

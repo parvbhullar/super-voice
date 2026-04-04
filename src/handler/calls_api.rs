@@ -58,9 +58,10 @@ fn call_type_str(call_type: &crate::call::ActiveCallType) -> String {
 
 // ── Handlers ─────────────────────────────────────────────────────────────────
 
-/// `GET /api/v1/calls` — list all active calls.
+/// `GET /api/v1/calls` — list all active calls (playbook/AI + SIP proxy).
 pub async fn list_calls(State(app_state): State<AppState>) -> impl IntoResponse {
-    let calls = {
+    let now = Utc::now();
+    let mut calls: Vec<CallSummary> = {
         let active_calls = app_state.active_calls.lock().unwrap();
         active_calls
             .iter()
@@ -98,7 +99,7 @@ pub async fn list_calls(State(app_state): State<AppState>) -> impl IntoResponse 
                         (
                             String::new(),
                             String::new(),
-                            Utc::now().to_rfc3339(),
+                            now.to_rfc3339(),
                             None,
                             "unknown".to_string(),
                         )
@@ -107,7 +108,6 @@ pub async fn list_calls(State(app_state): State<AppState>) -> impl IntoResponse 
                 let duration_secs = answer_time
                     .as_ref()
                     .map(|_| {
-                        let now = Utc::now();
                         let start = chrono::DateTime::parse_from_rfc3339(&start_time)
                             .map(|t| t.with_timezone(&Utc))
                             .unwrap_or(now);
@@ -126,8 +126,32 @@ pub async fn list_calls(State(app_state): State<AppState>) -> impl IntoResponse 
                     status,
                 }
             })
-            .collect::<Vec<_>>()
+            .collect()
     };
+
+    // Merge proxy (B2BUA/SIP) calls.
+    {
+        let proxy_calls = app_state.proxy_calls.lock().unwrap();
+        for rec in proxy_calls.values() {
+            let start_time = rec.start_time.to_rfc3339();
+            let answer_time = rec.answer_time.map(|t| t.to_rfc3339());
+            let duration_secs = answer_time
+                .as_ref()
+                .map(|_| (now - rec.start_time).num_seconds())
+                .unwrap_or(0);
+            calls.push(CallSummary {
+                session_id: rec.session_id.clone(),
+                call_type: "sip_proxy".to_string(),
+                caller: rec.caller.clone(),
+                callee: rec.callee.clone(),
+                start_time,
+                answer_time,
+                duration_secs,
+                status: rec.status.clone(),
+            });
+        }
+    }
+
     (StatusCode::OK, Json(calls)).into_response()
 }
 

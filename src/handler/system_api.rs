@@ -22,7 +22,8 @@ pub async fn system_health(State(state): State<AppState>) -> impl IntoResponse {
     let now = Local::now();
     let uptime_seconds = (now - state.uptime).num_seconds().max(0) as u64;
 
-    let active_calls = state.active_calls.lock().unwrap().len() as u64;
+    let active_calls = state.active_calls.lock().unwrap().len() as u64
+        + state.proxy_calls.lock().unwrap().len() as u64;
     let total_calls = state.total_calls.load(Ordering::Relaxed);
 
     let redis_connected = if let Some(cs) = state.config_store.as_ref() {
@@ -165,7 +166,8 @@ pub async fn system_stats(State(state): State<AppState>) -> impl IntoResponse {
     let now = Local::now();
     let uptime_seconds = (now - state.uptime).num_seconds().max(0) as u64;
 
-    let active_calls = state.active_calls.lock().unwrap().len() as u64;
+    let active_calls = state.active_calls.lock().unwrap().len() as u64
+        + state.proxy_calls.lock().unwrap().len() as u64;
     let total_calls = state.total_calls.load(Ordering::Relaxed);
     let total_failed_calls = state.total_failed_calls.load(Ordering::Relaxed);
 

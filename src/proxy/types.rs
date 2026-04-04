@@ -92,6 +92,23 @@ pub enum SessionAction {
     ResumeCall,
 }
 
+/// Lightweight record for a live SIP-proxy (B2BUA) call.
+///
+/// Inserted into `AppState::proxy_calls` at dispatch time and removed when
+/// the session ends.  Used by the `/api/v1/calls` list endpoint so proxy
+/// calls appear alongside playbook/AI-agent calls.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProxyCallRecord {
+    pub session_id: String,
+    pub caller: String,
+    pub callee: String,
+    pub trunk: String,
+    pub start_time: DateTime<Utc>,
+    pub answer_time: Option<DateTime<Utc>>,
+    /// "ringing" | "answered" | "on_hold" | "transferring"
+    pub status: String,
+}
+
 /// Events emitted by a proxy call session.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum ProxyCallEvent {
