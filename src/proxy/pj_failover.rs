@@ -11,6 +11,7 @@ use crate::proxy::pj_dialog_layer::PjDialogLayer;
 use crate::redis_state::types::{TrunkConfig, TrunkCredential};
 use anyhow::Result;
 use pjsip::{PjCallEvent, PjCallEventReceiver, PjCredential};
+use rsipstack::dialog::server_dialog::ServerInviteDialog;
 use tokio_util::sync::CancellationToken;
 use tracing::{info, warn};
 
@@ -62,16 +63,18 @@ impl PjFailoverLoop {
     ///
     /// # Arguments
     ///
-    /// * `trunk`      – Trunk config containing gateways and credentials.
-    /// * `caller_sdp` – SDP offer from the inbound caller.
-    /// * `caller_uri` – From URI for the outbound INVITE.
-    /// * `callee_uri` – Request-URI / To URI.
+    /// * `trunk`         – Trunk config containing gateways and credentials.
+    /// * `caller_sdp`    – SDP offer from the inbound caller.
+    /// * `caller_uri`    – From URI for the outbound INVITE.
+    /// * `callee_uri`    – Request-URI / To URI.
+    /// * `server_dialog` – Inbound UAS dialog; used to relay 180/183 to the caller in real time.
     pub async fn try_routes(
         &self,
         trunk: &TrunkConfig,
         caller_sdp: &str,
         caller_uri: &str,
         callee_uri: &str,
+        server_dialog: &ServerInviteDialog,
     ) -> Result<PjFailoverResult> {
         let gateways = &trunk.gateways;
 
@@ -120,7 +123,7 @@ impl PjFailoverLoop {
             };
 
             let outcome = self
-                .wait_for_outcome(event_rx, trunk, &gateway_ref.name)
+                .wait_for_outcome(event_rx, trunk, &gateway_ref.name, server_dialog)
                 .await;
 
             match outcome {
@@ -155,6 +158,10 @@ impl PjFailoverLoop {
 
     /// Wait for the per-call event channel to reach a terminal state.
     ///
+    /// Relays 180 Ringing and 183 Session Progress to `server_dialog` in real
+    /// time so the inbound caller (LiveKit) hears ring-back without waiting for
+    /// the final 200 OK.
+    ///
     /// Returns after the first Confirmed or Terminated event, or on timeout /
     /// cancellation.
     async fn wait_for_outcome(
@@ -162,6 +169,7 @@ impl PjFailoverLoop {
         mut event_rx: PjCallEventReceiver,
         trunk: &TrunkConfig,
         gateway_name: &str,
+        server_dialog: &ServerInviteDialog,
     ) -> WaitOutcome {
         let mut early_media_sdp: Option<String> = None;
         let timeout_duration = tokio::time::Duration::from_secs(30);
@@ -199,14 +207,22 @@ impl PjFailoverLoop {
                     // Still in progress — keep waiting.
                 }
                 PjCallEvent::Ringing { .. } => {
-                    // Keep waiting.
+                    // Relay 180 Ringing to the inbound caller (no SDP).
+                    if let Err(e) = server_dialog.ringing(None, None) {
+                        warn!(gateway = %gateway_name, "pj_failover: failed to relay 180 to inbound: {e}");
+                    }
                 }
                 PjCallEvent::EarlyMedia { sdp, .. } => {
                     info!(
                         gateway = %gateway_name,
-                        "pj_failover: early media SDP received"
+                        "pj_failover: early media (183) SDP received — relaying to inbound caller"
                     );
-                    early_media_sdp = Some(sdp);
+                    early_media_sdp = Some(sdp.clone());
+                    // Relay 183 Session Progress + SDP to the inbound caller.
+                    let ct = rsip::Header::ContentType("application/sdp".to_string().into());
+                    if let Err(e) = server_dialog.ringing(Some(vec![ct]), Some(sdp.into_bytes())) {
+                        warn!(gateway = %gateway_name, "pj_failover: failed to relay 183 to inbound: {e}");
+                    }
                 }
                 PjCallEvent::Confirmed { call_id, sdp } => {
                     // Use early-media SDP as fallback when 200 OK has no body.

@@ -107,6 +107,11 @@ pub struct ProxyCallRecord {
     pub answer_time: Option<DateTime<Utc>>,
     /// "ringing" | "answered" | "on_hold" | "transferring"
     pub status: String,
+    /// Cancellation token for the bridge loop.
+    /// Cancelling this terminates both legs (BYE to gateway + BYE to caller).
+    /// Skipped during serialization; None for non-carrier sessions.
+    #[serde(skip)]
+    pub cancel_token: Option<tokio_util::sync::CancellationToken>,
 }
 
 /// Events emitted by a proxy call session.

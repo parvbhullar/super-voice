@@ -252,31 +252,40 @@ pub async fn get_call(
 }
 
 /// `POST /api/v1/calls/:id/hangup` — terminate an active call.
+///
+/// Checks both playbook/AI calls (`active_calls`) and SIP proxy calls
+/// (`proxy_calls`). For proxy calls, cancels the bridge loop's token which
+/// sends BYE to both legs.
 pub async fn hangup_call(
     State(app_state): State<AppState>,
     Path(id): Path<String>,
 ) -> impl IntoResponse {
-    let call = {
+    // Check playbook/AI-agent calls first.
+    let active_call = {
         let active_calls = app_state.active_calls.lock().unwrap();
         active_calls.get(&id).cloned()
     };
-
-    match call {
-        None => (
-            StatusCode::NOT_FOUND,
-            Json(json!({"error": "call not found"})),
-        )
-            .into_response(),
-        Some(call) => {
-            let cmd = crate::call::Command::Hangup {
-                reason: Some("api-hangup".to_string()),
-                initiator: Some("api".to_string()),
-                headers: None,
-            };
-            let _ = call.cmd_sender.send(cmd);
-            (StatusCode::OK, Json(json!({"status": "terminating"}))).into_response()
-        }
+    if let Some(call) = active_call {
+        let cmd = crate::call::Command::Hangup {
+            reason: Some("api-hangup".to_string()),
+            initiator: Some("api".to_string()),
+            headers: None,
+        };
+        let _ = call.cmd_sender.send(cmd);
+        return (StatusCode::OK, Json(json!({"status": "terminating"}))).into_response();
     }
+
+    // Check SIP proxy (B2BUA) calls.
+    let proxy_token = {
+        let proxy_calls = app_state.proxy_calls.lock().unwrap();
+        proxy_calls.get(&id).and_then(|r| r.cancel_token.clone())
+    };
+    if let Some(token) = proxy_token {
+        token.cancel();
+        return (StatusCode::OK, Json(json!({"status": "terminating"}))).into_response();
+    }
+
+    (StatusCode::NOT_FOUND, Json(json!({"error": "call not found"}))).into_response()
 }
 
 /// `POST /api/v1/calls/:id/transfer` — initiate call transfer.

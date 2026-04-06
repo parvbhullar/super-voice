@@ -26,6 +26,10 @@ use uuid::Uuid;
 use crate::proxy::pj_dialog_layer::PjDialogLayer;
 #[cfg(feature = "carrier")]
 use crate::proxy::pj_failover::{PjFailoverLoop, PjFailoverResult};
+#[cfg(feature = "carrier")]
+use pjsip::PjCallEvent;
+#[cfg(feature = "carrier")]
+use rsipstack::dialog::dialog::DialogState;
 
 /// Dispatch an inbound INVITE to a proxy call session.
 ///
@@ -343,6 +347,7 @@ pub async fn dispatch_proxy_call(
             start_time: context.start_time,
             answer_time: None,
             status: "ringing".to_string(),
+            cancel_token: Some(cancel_token.clone()),
         };
         app_state.proxy_calls.lock().unwrap().insert(session_id.clone(), record);
     }
@@ -362,6 +367,8 @@ pub async fn dispatch_proxy_call(
     #[cfg(feature = "carrier")]
     {
         let start_time = context.start_time;
+        // Make caller_dialog mutable so recv() can be called in the bridge loop.
+        let mut caller_dialog = caller_dialog;
 
         // Use PjFailoverLoop when pj_bridge is available.
         let pj_result = if let Some(ref pj_bridge) = app_state.pj_bridge {
@@ -376,15 +383,16 @@ pub async fn dispatch_proxy_call(
             );
 
             let result = pj_failover
-                .try_routes(&trunk, &caller_sdp, &final_caller_uri, &final_callee_uri)
+                .try_routes(&trunk, &caller_sdp, &final_caller_uri, &final_callee_uri, &server_dialog)
                 .await;
 
             match result {
-                Ok(PjFailoverResult::Connected { gateway_addr, sdp, call_id, .. }) => {
+                Ok(PjFailoverResult::Connected { gateway_addr, sdp, call_id, mut call_event_rx }) => {
                     info!(
                         session_id = %session_id,
                         gateway = %gateway_addr,
-                        "dispatch: pjsip callee connected"
+                        has_sdp = sdp.is_some(),
+                        "dispatch: pjsip callee connected — relaying 200 OK to inbound caller"
                     );
                     // Mark answered in proxy_calls
                     {
@@ -394,8 +402,70 @@ pub async fn dispatch_proxy_call(
                             rec.status = "answered".to_string();
                         }
                     }
-                    // TODO: bridge loop monitoring both legs via pjsip events
-                    // For now, return success — full bridge loop is Phase 12+ work
+
+                    // Relay 200 OK + SDP to the inbound caller (LiveKit).
+                    if let Some(ref answer_sdp) = sdp {
+                        let ct = rsip::Header::ContentType("application/sdp".to_string().into());
+                        if let Err(e) = server_dialog.accept(Some(vec![ct]), Some(answer_sdp.as_bytes().to_vec())) {
+                            warn!(session_id = %session_id, "dispatch: failed to accept inbound call: {e}");
+                        }
+                    } else {
+                        // No SDP — send 200 OK without body (unusual but valid)
+                        if let Err(e) = server_dialog.accept(None, None) {
+                            warn!(session_id = %session_id, "dispatch: failed to accept inbound call (no sdp): {e}");
+                        }
+                    }
+
+                    // Bridge monitoring loop: keep both legs alive until one terminates.
+                    // - Gateway hangs up → PjCallEvent::Terminated → drop caller_dialog → auto-BYE to LiveKit
+                    // - LiveKit hangs up  → DialogState::Terminated → send BYE to gateway
+                    let call_id_for_bye = call_id.clone();
+                    loop {
+                        tokio::select! {
+                            _ = cancel_token.cancelled() => {
+                                let _ = pj_dialog_layer.send_bye(&call_id_for_bye);
+                                break;
+                            }
+                            gw_event = call_event_rx.recv() => {
+                                match gw_event {
+                                    Some(PjCallEvent::Terminated { code, reason }) => {
+                                        info!(
+                                            session_id = %session_id,
+                                            code = %code,
+                                            reason = %reason,
+                                            "dispatch: gateway terminated call"
+                                        );
+                                        // caller_dialog drop at function end sends BYE to LiveKit.
+                                        break;
+                                    }
+                                    Some(PjCallEvent::ReInvite { sdp }) => {
+                                        // Gateway sent re-INVITE (hold/resume/codec change) —
+                                        // relay it to the inbound caller via server_dialog.
+                                        info!(session_id = %session_id, "dispatch: relaying re-INVITE to inbound caller");
+                                        let ct = rsip::Header::ContentType("application/sdp".to_string().into());
+                                        if let Err(e) = server_dialog.reinvite(Some(vec![ct]), Some(sdp.into_bytes())).await {
+                                            warn!(session_id = %session_id, "dispatch: failed to relay re-INVITE: {e}");
+                                        }
+                                    }
+                                    None => {
+                                        warn!(session_id = %session_id, "dispatch: gateway event channel closed");
+                                        break;
+                                    }
+                                    _ => {} // Ringing, Info — continue
+                                }
+                            }
+                            caller_event = caller_dialog.recv() => {
+                                match caller_event {
+                                    Some(DialogState::Terminated(_, _)) | None => {
+                                        info!(session_id = %session_id, "dispatch: inbound caller terminated");
+                                        let _ = pj_dialog_layer.send_bye(&call_id_for_bye);
+                                        break;
+                                    }
+                                    _ => {} // Early, Confirmed, etc. — continue
+                                }
+                            }
+                        }
+                    }
                     Ok(CdrStatus::Completed)
                 }
                 Ok(PjFailoverResult::NoFailover { code, reason }) => {
