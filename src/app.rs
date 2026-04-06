@@ -551,14 +551,14 @@ impl AppStateInner {
                                     crate::spawn(async move {
                                         let mut tx = tx_alive;
                                         let mut dialog_handle = server_dialog.clone();
-                                        // Drive tx.receive() in a separate task so SIP
-                                        // responses (183, 200 OK) are actually transmitted.
-                                        // This naturally ends after the INVITE transaction
-                                        // finishes (post-ACK). Spawned separately so that
-                                        // its completion does NOT cancel dispatch_bridge_call
-                                        // (which must run to completion to clean up proxy_calls).
+                                        // Cancelled when the INVITE transaction ends (ACK or timeout).
+                                        // Passed to dispatch so the bridge loop can detect when the
+                                        // dialog never reaches Confirmed (WaitAck timeout) and break.
+                                        let invite_done = tokio_util::sync::CancellationToken::new();
+                                        let invite_done_for_spawn = invite_done.clone();
                                         crate::spawn(async move {
                                             let _ = dialog_handle.handle(&mut tx).await;
+                                            invite_done_for_spawn.cancel();
                                         });
                                         if let Err(e) =
                                             crate::proxy::dispatch::dispatch_bridge_call(
@@ -570,6 +570,7 @@ impl AppStateInner {
                                                 caller_uri_did,
                                                 callee_uri,
                                                 &did_cfg,
+                                                invite_done,
                                             )
                                             .await
                                         {
@@ -661,8 +662,11 @@ impl AppStateInner {
                             crate::spawn(async move {
                                 let mut tx = tx_alive;
                                 let mut dialog_handle = server_dialog.clone();
+                                let invite_done = tokio_util::sync::CancellationToken::new();
+                                let invite_done_for_spawn = invite_done.clone();
                                 crate::spawn(async move {
                                     let _ = dialog_handle.handle(&mut tx).await;
+                                    invite_done_for_spawn.cancel();
                                 });
                                 if let Err(e) =
                                     crate::proxy::dispatch::dispatch_bridge_call(
@@ -674,6 +678,7 @@ impl AppStateInner {
                                         caller_uri,
                                         callee_uri,
                                         &synthetic_did,
+                                        invite_done,
                                     )
                                     .await
                                 {

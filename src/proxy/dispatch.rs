@@ -52,6 +52,7 @@ pub async fn dispatch_proxy_call(
     caller_uri: String,
     callee_uri: String,
     did: &DidConfig,
+    invite_done: tokio_util::sync::CancellationToken,
 ) -> Result<()> {
     let config_store = app_state
         .config_store
@@ -419,12 +420,24 @@ pub async fn dispatch_proxy_call(
                     // Bridge monitoring loop: keep both legs alive until one terminates.
                     // - Gateway hangs up → PjCallEvent::Terminated → drop caller_dialog → auto-BYE to LiveKit
                     // - LiveKit hangs up  → DialogState::Terminated → send BYE to gateway
+                    // - INVITE tx ends without ACK (WaitAck timeout) → invite_done fires → break
                     let call_id_for_bye = call_id.clone();
+                    let mut dialog_confirmed = false;
                     loop {
                         tokio::select! {
                             _ = cancel_token.cancelled() => {
                                 let _ = pj_dialog_layer.send_bye(&call_id_for_bye);
                                 break;
+                            }
+                            _ = invite_done.cancelled() => {
+                                // INVITE transaction ended. If dialog never reached Confirmed,
+                                // the ACK timed out (e.g. wrong Contact IP) — treat as dead.
+                                if !dialog_confirmed {
+                                    warn!(session_id = %session_id, "dispatch: INVITE tx ended without ACK — terminating bridge");
+                                    let _ = pj_dialog_layer.send_bye(&call_id_for_bye);
+                                    break;
+                                }
+                                // Already confirmed: handle() exiting post-ACK is expected; continue.
                             }
                             gw_event = call_event_rx.recv() => {
                                 match gw_event {
@@ -456,12 +469,15 @@ pub async fn dispatch_proxy_call(
                             }
                             caller_event = caller_dialog.recv() => {
                                 match caller_event {
+                                    Some(DialogState::Confirmed(_, _)) => {
+                                        dialog_confirmed = true;
+                                    }
                                     Some(DialogState::Terminated(_, _)) | None => {
                                         info!(session_id = %session_id, "dispatch: inbound caller terminated");
                                         let _ = pj_dialog_layer.send_bye(&call_id_for_bye);
                                         break;
                                     }
-                                    _ => {} // Early, Confirmed, etc. — continue
+                                    _ => {} // Early, etc. — continue
                                 }
                             }
                         }
@@ -713,6 +729,7 @@ pub async fn dispatch_bridge_call(
     caller_uri: String,
     callee_uri: String,
     did: &DidConfig,
+    invite_done: tokio_util::sync::CancellationToken,
 ) -> Result<()> {
     match did.routing.mode.as_str() {
         "sip_proxy" => {
@@ -725,6 +742,7 @@ pub async fn dispatch_bridge_call(
                 caller_uri,
                 callee_uri,
                 did,
+                invite_done,
             )
             .await
         }
