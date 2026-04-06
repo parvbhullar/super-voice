@@ -8,6 +8,7 @@
 use crate::app::AppState;
 use crate::call::sip::DialogStateReceiverGuard;
 use crate::capacity::guard::CapacityCheckResult;
+use rsipstack::dialog::server_dialog::ServerInviteDialog;
 use crate::cdr::{CarrierCdr, CdrLeg, CdrStatus, CdrTiming};
 use crate::manipulation::engine::{ManipulationContext, ManipulationEngine};
 use crate::proxy::session::ProxyCallSession;
@@ -42,6 +43,7 @@ pub async fn dispatch_proxy_call(
     app_state: AppState,
     session_id: String,
     caller_dialog: DialogStateReceiverGuard,
+    server_dialog: ServerInviteDialog,
     caller_sdp: String,
     caller_uri: String,
     callee_uri: String,
@@ -305,6 +307,7 @@ pub async fn dispatch_proxy_call(
         context.clone(),
         cancel_token.clone(),
         caller_dialog,
+        server_dialog,
         app_state.dialog_layer.clone(),
         config_store.clone(),
         app_state.stream_engine.clone(),
@@ -418,6 +421,7 @@ pub async fn dispatch_proxy_call(
                 context.clone(),
                 cancel_token.clone(),
                 caller_dialog,
+                server_dialog,
                 app_state.dialog_layer.clone(),
                 config_store.clone(),
                 app_state.stream_engine.clone(),
@@ -634,6 +638,7 @@ pub async fn dispatch_bridge_call(
     app_state: AppState,
     session_id: String,
     caller_dialog: DialogStateReceiverGuard,
+    server_dialog: ServerInviteDialog,
     caller_sdp: String,
     caller_uri: String,
     callee_uri: String,
@@ -645,6 +650,7 @@ pub async fn dispatch_bridge_call(
                 app_state,
                 session_id,
                 caller_dialog,
+                server_dialog,
                 caller_sdp,
                 caller_uri,
                 callee_uri,

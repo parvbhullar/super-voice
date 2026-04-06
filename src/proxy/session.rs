@@ -14,6 +14,7 @@ use crate::redis_state::types::TrunkConfig;
 use anyhow::Result;
 use rsipstack::dialog::dialog::DialogState;
 use rsipstack::dialog::dialog_layer::DialogLayer;
+use rsipstack::dialog::server_dialog::ServerInviteDialog;
 use std::sync::Arc;
 use tokio::sync::{RwLock, mpsc};
 use tokio_util::sync::CancellationToken;
@@ -23,7 +24,10 @@ use tracing::{info, warn};
 pub struct ProxyCallSession {
     context: ProxyCallContext,
     cancel_token: CancellationToken,
+    /// UAS dialog toward the inbound caller — used to relay provisional and final responses.
     caller_dialog: DialogStateReceiverGuard,
+    /// Server INVITE dialog for sending responses (180/183/200) back to the inbound caller.
+    server_dialog: ServerInviteDialog,
     phase: Arc<RwLock<ProxyCallPhase>>,
     dialog_layer: Arc<DialogLayer>,
     /// Config store for loading trunk/gateway configs (used in Plan 03+ for media bridging).
@@ -45,6 +49,7 @@ impl ProxyCallSession {
         context: ProxyCallContext,
         cancel_token: CancellationToken,
         caller_dialog: DialogStateReceiverGuard,
+        server_dialog: ServerInviteDialog,
         dialog_layer: Arc<DialogLayer>,
         config_store: Arc<ConfigStore>,
         stream_engine: Arc<StreamEngine>,
@@ -54,6 +59,7 @@ impl ProxyCallSession {
             context,
             cancel_token,
             caller_dialog,
+            server_dialog,
             phase: Arc::new(RwLock::new(ProxyCallPhase::Initializing)),
             dialog_layer,
             config_store,
@@ -108,9 +114,27 @@ impl ProxyCallSession {
             self.config_store.clone(),
         );
 
-        let result = failover
-            .try_routes(trunk, caller_sdp, caller_uri, callee_uri)
-            .await?;
+        // Race the outbound failover dial against inbound caller cancellation.
+        // If the inbound caller sends CANCEL before the outbound answers, we must
+        // abort the outbound INVITE immediately rather than waiting for the 30s
+        // gateway timeout.  Dropping the failover future causes its internal
+        // DialogStateReceiverGuard to drop, which sends CANCEL to the gateway.
+        // rsipstack already replied 487 to the inbound CANCEL automatically.
+        let result = tokio::select! {
+            r = failover.try_routes(trunk, caller_sdp, caller_uri, callee_uri, &self.server_dialog) => r?,
+            _ = Self::watch_for_inbound_cancel(&mut self.caller_dialog) => {
+                info!(
+                    session_id = %self.context.session_id,
+                    "proxy session: inbound caller cancelled during dialing — aborting outbound"
+                );
+                self.set_phase(ProxyCallPhase::Failed).await;
+                self.emit(ProxyCallEvent::Terminated {
+                    reason: "caller_cancelled".to_string(),
+                    code: 487,
+                });
+                return Ok(());
+            }
+        };
 
         match result {
             FailoverResult::Connected {
@@ -129,6 +153,23 @@ impl ProxyCallSession {
                     self.early_media_sdp.take().unwrap_or_default()
                 });
                 self.answer_sdp = Some(answer_sdp.clone());
+
+                // Relay 200 OK + SDP back to the inbound caller (LiveKit / UAC).
+                // Without this the inbound leg never gets an answer and hangs up.
+                let sdp_bytes = answer_sdp.as_bytes().to_vec();
+                let ct_header = rsip::Header::ContentType("application/sdp".to_string().into());
+                if let Err(e) = self.server_dialog.accept(Some(vec![ct_header]), Some(sdp_bytes)) {
+                    warn!(
+                        session_id = %self.context.session_id,
+                        "proxy session: failed to accept inbound call: {e}"
+                    );
+                } else {
+                    info!(
+                        session_id = %self.context.session_id,
+                        "proxy session: sent 200 OK to inbound caller"
+                    );
+                }
+
                 self.set_phase(ProxyCallPhase::Bridged).await;
                 self.emit(ProxyCallEvent::Answered { sdp: answer_sdp });
                 self.bridge_loop(callee_dialog).await?;
@@ -367,6 +408,21 @@ impl ProxyCallSession {
     // ------------------------------------------------------------------ //
     // Internal helpers                                                     //
     // ------------------------------------------------------------------ //
+
+    /// Poll the inbound caller dialog until it transitions to Terminated.
+    ///
+    /// Used in a `tokio::select!` during the dialing phase so that a CANCEL
+    /// from the inbound caller aborts the outbound failover loop immediately.
+    /// Any non-Terminated state (should not normally appear during dialing)
+    /// is discarded and polling continues.
+    async fn watch_for_inbound_cancel(caller_dialog: &mut DialogStateReceiverGuard) {
+        loop {
+            match caller_dialog.recv().await {
+                Some(DialogState::Terminated(_, _)) | None => return,
+                Some(_) => continue,
+            }
+        }
+    }
 
     async fn set_phase(&self, phase: ProxyCallPhase) {
         let mut p = self.phase.write().await;

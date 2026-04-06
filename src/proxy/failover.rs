@@ -11,6 +11,7 @@ use anyhow::Result;
 use rsipstack::dialog::dialog::DialogState;
 use rsipstack::dialog::dialog::TerminatedReason;
 use rsipstack::dialog::dialog_layer::DialogLayer;
+use rsipstack::dialog::server_dialog::ServerInviteDialog;
 use std::sync::Arc;
 use tokio_util::sync::CancellationToken;
 use tracing::{info, warn};
@@ -69,12 +70,14 @@ impl FailoverLoop {
     /// `caller_sdp` is the SDP offer from the inbound caller.
     /// `caller_uri` is the From URI for the outbound INVITE.
     /// `callee_uri` is the Request-URI / To URI.
+    /// `server_dialog` is used to relay provisional responses (183) to the inbound caller.
     pub async fn try_routes(
         &self,
         trunk: &TrunkConfig,
         caller_sdp: &str,
         caller_uri: &str,
         callee_uri: &str,
+        server_dialog: &ServerInviteDialog,
     ) -> Result<FailoverResult> {
         let gateways = &trunk.gateways;
 
@@ -208,7 +211,7 @@ impl FailoverLoop {
                 Ok((_client_dialog, _join_handle)) => {
                     // Dialog created — now wait for outcome.
                     let result = self
-                        .wait_for_outcome(dialog_guard, trunk, &gateway_ref.name)
+                        .wait_for_outcome(dialog_guard, trunk, &gateway_ref.name, server_dialog)
                         .await;
 
                     match result {
@@ -251,6 +254,7 @@ impl FailoverLoop {
         mut guard: DialogStateReceiverGuard,
         trunk: &TrunkConfig,
         gateway_name: &str,
+        server_dialog: &ServerInviteDialog,
     ) -> WaitOutcome {
         let mut early_media_sdp: Option<String> = None;
         let timeout_duration = tokio::time::Duration::from_secs(30);
@@ -291,8 +295,18 @@ impl FailoverLoop {
                     let body = resp.body();
                     if !body.is_empty() {
                         let sdp = String::from_utf8_lossy(body).to_string();
-                        info!(gateway=%gateway_name, "failover: early media (183) SDP received");
-                        early_media_sdp = Some(sdp);
+                        info!(gateway=%gateway_name, "failover: early media (183) SDP received — relaying to inbound caller");
+                        early_media_sdp = Some(sdp.clone());
+                        // Relay 183 Session Progress + SDP to the inbound caller.
+                        let ct = rsip::Header::ContentType("application/sdp".to_string().into());
+                        if let Err(e) = server_dialog.ringing(Some(vec![ct]), Some(sdp.into_bytes())) {
+                            warn!(gateway=%gateway_name, "failover: failed to relay 183 to inbound: {e}");
+                        }
+                    } else {
+                        // No SDP — relay plain 180 Ringing.
+                        if let Err(e) = server_dialog.ringing(None, None) {
+                            warn!(gateway=%gateway_name, "failover: failed to relay 180 to inbound: {e}");
+                        }
                     }
                 }
                 DialogState::WaitAck(_, _) => {

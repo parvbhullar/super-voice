@@ -504,10 +504,11 @@ impl AppStateInner {
                     // and dispatch to the unified bridge dispatcher instead.
                     // ai_agent mode falls through to the playbook handler below.
                     //
-                    // Wrap state_receiver in Option so that ownership can be
-                    // transferred to the sip_proxy branch while still allowing
-                    // the non-proxy path below to use it.
+                    // Wrap state_receiver and dialog in Option so that ownership
+                    // can be transferred to the dispatch branch while still
+                    // allowing the non-proxy path below to use them.
                     let mut state_receiver_opt = Some(state_receiver);
+                    let mut server_dialog_opt = Some(dialog);
 
                     {
                         let called_number = tx.original.uri.auth.as_ref()
@@ -533,6 +534,7 @@ impl AppStateInner {
                                         String::from_utf8_lossy(tx.original.body()).to_string();
                                     let session_id = uuid::Uuid::new_v4().to_string();
                                     let receiver = state_receiver_opt.take().unwrap();
+                                    let server_dialog = server_dialog_opt.take().unwrap();
                                     let caller_guard = DialogStateReceiverGuard::new(
                                         dialog_layer.clone(),
                                         receiver,
@@ -545,6 +547,7 @@ impl AppStateInner {
                                                 app_clone,
                                                 session_id,
                                                 caller_guard,
+                                                server_dialog,
                                                 caller_sdp,
                                                 caller_uri,
                                                 callee_uri,
@@ -654,6 +657,7 @@ impl AppStateInner {
                                 String::from_utf8_lossy(tx.original.body()).to_string();
                             let session_id = uuid::Uuid::new_v4().to_string();
                             let receiver = state_receiver_opt.take().unwrap();
+                            let server_dialog = server_dialog_opt.take().unwrap();
                             let caller_guard = DialogStateReceiverGuard::new(
                                 dialog_layer.clone(),
                                 receiver,
@@ -666,6 +670,7 @@ impl AppStateInner {
                                         app_clone,
                                         session_id,
                                         caller_guard,
+                                        server_dialog,
                                         caller_sdp,
                                         caller_uri,
                                         callee_uri,
@@ -684,8 +689,9 @@ impl AppStateInner {
                     }
                     // ─────────────────────────────────────────────────────────────────────── //
 
-                    // Non-proxy path: unwrap state_receiver (not consumed above).
+                    // Non-proxy path: unwrap state_receiver and server_dialog (not consumed above).
                     let state_receiver = state_receiver_opt.unwrap();
+                    let dialog = server_dialog_opt.unwrap();
 
                     let dialog_id = dialog.id();
                     let dialog_id_str = dialog_id.to_string();
