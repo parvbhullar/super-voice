@@ -571,6 +571,80 @@ pub(crate) extern "C" fn on_inv_state_changed(
     }
 }
 
+/// Called by pjsip when a re-INVITE is received mid-call.
+///
+/// Returning `PJ_SUCCESS` (0) means we handle the answer manually via
+/// `pjsip_inv_answer` + `pjsip_inv_send_msg`. This accepts the re-INVITE
+/// with the current active local SDP (hold/resume/codec-change) and prevents
+/// pjsip from auto-responding 501 Not Implemented.
+#[allow(unsafe_op_in_unsafe_fn)]
+pub(crate) unsafe extern "C" fn on_rx_reinvite(
+    inv: *mut pjsip_sys::pjsip_inv_session,
+    _offer: *const pjsip_sys::pjmedia_sdp_session,
+    _rdata: *mut pjsip_sys::pjsip_rx_data,
+) -> pjsip_sys::pj_status_t {
+    if inv.is_null() {
+        return 1; // non-success fallback
+    }
+
+    let call_id = extract_call_id(inv);
+
+    // Fire ReInvite event so the bridge loop can optionally relay to LiveKit.
+    if let Some(ref id) = call_id {
+        let event_tx = {
+            if let Ok(registry) = CALL_REGISTRY.lock() {
+                registry.get(id).map(|e| e.event_tx.clone())
+            } else {
+                None
+            }
+        };
+        if let Some(tx) = event_tx {
+            // Extract the remote (offer) SDP string for the event.
+            let offer_sdp = if !_offer.is_null() {
+                let mut buf = vec![0u8; 4096];
+                let len = pjsip_sys::pjmedia_sdp_print(
+                    _offer,
+                    buf.as_mut_ptr() as *mut libc::c_char,
+                    buf.len(),
+                );
+                if len > 0 {
+                    buf.truncate(len as usize);
+                    String::from_utf8_lossy(&buf).into_owned()
+                } else {
+                    String::new()
+                }
+            } else {
+                String::new()
+            };
+            let _ = tx.send(PjCallEvent::ReInvite { sdp: offer_sdp });
+        }
+    }
+
+    // Answer the re-INVITE with 200 OK using the current active local SDP.
+    // Passing NULL for local_sdp tells pjsip to use the negotiated SDP.
+    let mut tdata: *mut pjsip_sys::pjsip_tx_data = ptr::null_mut();
+    unsafe {
+        let status = pjsip_sys::pjsip_inv_answer(inv, 200, ptr::null(), ptr::null(), &mut tdata);
+        if status == 0 && !tdata.is_null() {
+            let send_status = pjsip_sys::pjsip_inv_send_msg(inv, tdata);
+            if send_status != 0 {
+                warn!(
+                    call_id = ?call_id,
+                    "on_rx_reinvite: pjsip_inv_send_msg failed: {send_status}"
+                );
+            }
+        } else if status != 0 {
+            warn!(
+                call_id = ?call_id,
+                "on_rx_reinvite: pjsip_inv_answer failed: {status}"
+            );
+        }
+    }
+
+    // Return PJ_SUCCESS — we handled the answer manually above.
+    0
+}
+
 /// Called when a new INVITE session is created (for incoming calls).
 pub(crate) extern "C" fn on_inv_new_session(
     inv: *mut pjsip_sys::pjsip_inv_session,

@@ -145,7 +145,7 @@ impl PjEndpoint {
             on_state_changed: Some(crate::bridge::on_inv_state_changed),
             on_new_session: Some(crate::bridge::on_inv_new_session),
             on_rx_offer: None,
-            on_rx_reinvite: None,
+            on_rx_reinvite: Some(crate::bridge::on_rx_reinvite),
             on_tsx_state_changed: None,
             ..unsafe { std::mem::zeroed() }
         };
