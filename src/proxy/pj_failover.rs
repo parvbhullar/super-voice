@@ -8,10 +8,12 @@
 
 use crate::proxy::failover::is_nofailover;
 use crate::proxy::pj_dialog_layer::PjDialogLayer;
+use crate::redis_state::config_store::ConfigStore;
 use crate::redis_state::types::{TrunkConfig, TrunkCredential};
 use anyhow::Result;
 use pjsip::{PjCallEvent, PjCallEventReceiver, PjCredential};
 use rsipstack::dialog::server_dialog::ServerInviteDialog;
+use std::sync::Arc;
 use tokio_util::sync::CancellationToken;
 use tracing::{info, warn};
 
@@ -48,14 +50,16 @@ pub enum PjFailoverResult {
 pub struct PjFailoverLoop {
     dialog_layer: PjDialogLayer,
     cancel_token: CancellationToken,
+    config_store: Arc<ConfigStore>,
 }
 
 impl PjFailoverLoop {
     /// Create a new failover loop.
-    pub fn new(dialog_layer: PjDialogLayer, cancel_token: CancellationToken) -> Self {
+    pub fn new(dialog_layer: PjDialogLayer, cancel_token: CancellationToken, config_store: Arc<ConfigStore>) -> Self {
         Self {
             dialog_layer,
             cancel_token,
+            config_store,
         }
     }
 
@@ -93,16 +97,32 @@ impl PjFailoverLoop {
         let mut last_reason = "Service Unavailable".to_string();
 
         for gateway_ref in gateways {
+            // Fetch the actual gateway config to get the real proxy_addr (host:port).
+            let gateway_proxy_addr = match self.config_store.get_gateway(&gateway_ref.name).await {
+                Ok(Some(gw_cfg)) => gw_cfg.proxy_addr.clone(),
+                Ok(None) => {
+                    warn!(gateway = %gateway_ref.name, "pj_failover: gateway not found in config store — skipping");
+                    last_reason = format!("gateway '{}' not configured", gateway_ref.name);
+                    continue;
+                }
+                Err(e) => {
+                    warn!(gateway = %gateway_ref.name, "pj_failover: failed to fetch gateway config: {e} — skipping");
+                    last_reason = e.to_string();
+                    continue;
+                }
+            };
+
             info!(
                 gateway = %gateway_ref.name,
+                proxy_addr = %gateway_proxy_addr,
                 callee = %callee_uri,
                 "pj_failover: trying gateway"
             );
 
             // Build the target SIP URI: extract user part from callee_uri and
-            // route via the gateway host.
+            // route via the gateway's real proxy_addr.
             let user = extract_user(callee_uri);
-            let target_uri = format!("sip:{}@{}", user, gateway_ref.name);
+            let target_uri = format!("sip:{}@{}", user, gateway_proxy_addr);
 
             let event_rx = match self.dialog_layer.create_invite(
                 &target_uri,

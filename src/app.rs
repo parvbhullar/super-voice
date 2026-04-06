@@ -545,17 +545,18 @@ impl AppStateInner {
                                         None,
                                     );
                                     let app_clone = self.clone();
-                                    // Move tx into the spawn so its tu_sender channel stays
-                                    // open for the entire proxy session lifetime.
-                                    // Clone String values so the originals remain available
-                                    // for the routing-table fallback if this branch is not taken.
                                     let tx_alive = tx_opt.take().unwrap();
                                     let caller_sdp_did = caller_sdp.clone();
                                     let caller_uri_did = caller_uri.clone();
                                     crate::spawn(async move {
-                                        let _keep_tx_alive = tx_alive;
-                                        if let Err(e) =
-                                            crate::proxy::dispatch::dispatch_bridge_call(
+                                        let mut tx = tx_alive;
+                                        // Clone dialog so handle() can drive tx.receive()
+                                        // concurrently with dispatch_bridge_call using the
+                                        // same underlying Arc — required for ringing()/accept()
+                                        // to actually transmit UDP packets.
+                                        let mut dialog_handle = server_dialog.clone();
+                                        tokio::select! {
+                                            result = crate::proxy::dispatch::dispatch_bridge_call(
                                                 app_clone,
                                                 session_id,
                                                 caller_guard,
@@ -564,10 +565,12 @@ impl AppStateInner {
                                                 caller_uri_did,
                                                 callee_uri,
                                                 &did_cfg,
-                                            )
-                                            .await
-                                        {
-                                            warn!("bridge dispatch error: {e}");
+                                            ) => {
+                                                if let Err(e) = result {
+                                                    warn!("bridge dispatch error: {e}");
+                                                }
+                                            }
+                                            _ = dialog_handle.handle(&mut tx) => {}
                                         }
                                     });
                                     true
@@ -651,13 +654,12 @@ impl AppStateInner {
                                 None,
                             );
                             let app_clone = self.clone();
-                            // Move tx into the spawn so its tu_sender channel stays
-                            // open for the entire proxy session lifetime.
                             let tx_alive = tx_opt.take().unwrap();
                             crate::spawn(async move {
-                                let _keep_tx_alive = tx_alive;
-                                if let Err(e) =
-                                    crate::proxy::dispatch::dispatch_bridge_call(
+                                let mut tx = tx_alive;
+                                let mut dialog_handle = server_dialog.clone();
+                                tokio::select! {
+                                    result = crate::proxy::dispatch::dispatch_bridge_call(
                                         app_clone,
                                         session_id,
                                         caller_guard,
@@ -666,10 +668,12 @@ impl AppStateInner {
                                         caller_uri,
                                         callee_uri,
                                         &synthetic_did,
-                                    )
-                                    .await
-                                {
-                                    warn!("outbound routing dispatch error: {e}");
+                                    ) => {
+                                        if let Err(e) = result {
+                                            warn!("outbound routing dispatch error: {e}");
+                                        }
+                                    }
+                                    _ = dialog_handle.handle(&mut tx) => {}
                                 }
                             });
                             true

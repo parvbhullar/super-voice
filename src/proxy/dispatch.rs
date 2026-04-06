@@ -373,7 +373,7 @@ pub async fn dispatch_proxy_call(
         // Use PjFailoverLoop when pj_bridge is available.
         let pj_result = if let Some(ref pj_bridge) = app_state.pj_bridge {
             let pj_dialog_layer = PjDialogLayer::new(pj_bridge.clone());
-            let pj_failover = PjFailoverLoop::new(pj_dialog_layer.clone(), cancel_token.clone());
+            let pj_failover = PjFailoverLoop::new(pj_dialog_layer.clone(), cancel_token.clone(), config_store.clone());
 
             info!(
                 session_id = %session_id,
