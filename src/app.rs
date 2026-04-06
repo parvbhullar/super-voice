@@ -496,25 +496,37 @@ impl AppStateInner {
                     // that LiveKit/carrier UACs do not retransmit the INVITE.
                     let _ = tx.reply(rsip::StatusCode::Trying).await;
 
+                    // Extract all INVITE data from tx before potentially moving it into a
+                    // spawned task. ServerInviteDialog stores a clone of tx.tu_sender
+                    // internally; tx must stay alive for the duration of the proxy session
+                    // or ringing()/accept() will fail with "channel closed".
+                    let called_number = tx.original.uri.auth.as_ref()
+                        .map(|auth| auth.user.clone())
+                        .unwrap_or_default();
+                    let caller_uri = tx.original
+                        .from_header()
+                        .ok()
+                        .and_then(|h| h.uri().ok())
+                        .map(|u| u.to_string())
+                        .unwrap_or_else(|| "sip:unknown@unknown".to_string());
+                    let caller_number = tx.original
+                        .from_header()
+                        .ok()
+                        .and_then(|h| h.uri().ok())
+                        .and_then(|u| u.auth.map(|a| a.user))
+                        .unwrap_or_default();
+                    let caller_sdp = String::from_utf8_lossy(tx.original.body()).to_string();
+                    // Wrap tx so it can be conditionally moved into a proxy spawn or the
+                    // non-proxy spawn without conflicting Rust ownership rules.
+                    let mut tx_opt = Some(tx);
+
                     // -------------------------------------------------- //
                     // Bridge-mode DID routing check                        //
                     // -------------------------------------------------- //
-                    // If this DID is configured for sip_proxy, webrtc_bridge,
-                    // or ws_bridge mode, bypass the normal invitation handler
-                    // and dispatch to the unified bridge dispatcher instead.
-                    // ai_agent mode falls through to the playbook handler below.
-                    //
-                    // Wrap state_receiver and dialog in Option so that ownership
-                    // can be transferred to the dispatch branch while still
-                    // allowing the non-proxy path below to use them.
                     let mut state_receiver_opt = Some(state_receiver);
                     let mut server_dialog_opt = Some(dialog);
 
                     {
-                        let called_number = tx.original.uri.auth.as_ref()
-                            .map(|auth| auth.user.clone())
-                            .unwrap_or_default();
-
                         let is_proxy = if let Some(ref cs) = self.config_store {
                             match cs.get_did(&called_number).await {
                                 Ok(Some(did_cfg))
@@ -523,15 +535,7 @@ impl AppStateInner {
                                         "sip_proxy" | "webrtc_bridge" | "ws_bridge"
                                     ) =>
                                 {
-                                    let caller_uri = tx.original
-                                        .from_header()
-                                        .ok()
-                                        .and_then(|h| h.uri().ok())
-                                        .map(|u| u.to_string())
-                                        .unwrap_or_else(|| "sip:unknown@unknown".to_string());
                                     let callee_uri = format!("sip:{}", called_number);
-                                    let caller_sdp =
-                                        String::from_utf8_lossy(tx.original.body()).to_string();
                                     let session_id = uuid::Uuid::new_v4().to_string();
                                     let receiver = state_receiver_opt.take().unwrap();
                                     let server_dialog = server_dialog_opt.take().unwrap();
@@ -541,15 +545,23 @@ impl AppStateInner {
                                         None,
                                     );
                                     let app_clone = self.clone();
+                                    // Move tx into the spawn so its tu_sender channel stays
+                                    // open for the entire proxy session lifetime.
+                                    // Clone String values so the originals remain available
+                                    // for the routing-table fallback if this branch is not taken.
+                                    let tx_alive = tx_opt.take().unwrap();
+                                    let caller_sdp_did = caller_sdp.clone();
+                                    let caller_uri_did = caller_uri.clone();
                                     crate::spawn(async move {
+                                        let _keep_tx_alive = tx_alive;
                                         if let Err(e) =
                                             crate::proxy::dispatch::dispatch_bridge_call(
                                                 app_clone,
                                                 session_id,
                                                 caller_guard,
                                                 server_dialog,
-                                                caller_sdp,
-                                                caller_uri,
+                                                caller_sdp_did,
+                                                caller_uri_did,
                                                 callee_uri,
                                                 &did_cfg,
                                             )
@@ -582,32 +594,9 @@ impl AppStateInner {
                                 break 'rt false;
                             };
 
-                            let called_number = tx
-                                .original
-                                .uri
-                                .auth
-                                .as_ref()
-                                .map(|a| a.user.clone())
-                                .unwrap_or_default();
                             if called_number.is_empty() {
                                 break 'rt false;
                             }
-
-                            let caller_uri = tx
-                                .original
-                                .from_header()
-                                .ok()
-                                .and_then(|h| h.uri().ok())
-                                .map(|u| u.to_string())
-                                .unwrap_or_else(|| "sip:unknown@unknown".to_string());
-
-                            let caller_number = tx
-                                .original
-                                .from_header()
-                                .ok()
-                                .and_then(|h| h.uri().ok())
-                                .and_then(|u| u.auth.map(|a| a.user))
-                                .unwrap_or_default();
 
                             let tables = match cs.list_routing_tables().await {
                                 Ok(t) => t,
@@ -653,8 +642,6 @@ impl AppStateInner {
                             };
 
                             let callee_uri = format!("sip:{}", called_number);
-                            let caller_sdp =
-                                String::from_utf8_lossy(tx.original.body()).to_string();
                             let session_id = uuid::Uuid::new_v4().to_string();
                             let receiver = state_receiver_opt.take().unwrap();
                             let server_dialog = server_dialog_opt.take().unwrap();
@@ -664,7 +651,11 @@ impl AppStateInner {
                                 None,
                             );
                             let app_clone = self.clone();
+                            // Move tx into the spawn so its tu_sender channel stays
+                            // open for the entire proxy session lifetime.
+                            let tx_alive = tx_opt.take().unwrap();
                             crate::spawn(async move {
+                                let _keep_tx_alive = tx_alive;
                                 if let Err(e) =
                                     crate::proxy::dispatch::dispatch_bridge_call(
                                         app_clone,
@@ -692,6 +683,8 @@ impl AppStateInner {
                     // Non-proxy path: unwrap state_receiver and server_dialog (not consumed above).
                     let state_receiver = state_receiver_opt.unwrap();
                     let dialog = server_dialog_opt.unwrap();
+                    // Take tx back from the Option for use in the dialog handle loop.
+                    let mut tx = tx_opt.take().unwrap();
 
                     let dialog_id = dialog.id();
                     let dialog_id_str = dialog_id.to_string();
