@@ -14,6 +14,7 @@ use crate::manipulation::engine::{ManipulationContext, ManipulationEngine};
 use crate::proxy::session::ProxyCallSession;
 use crate::proxy::types::{DspConfig, ProxyCallContext, ProxyCallEvent, ProxyCallPhase};
 use crate::redis_state::types::DidConfig;
+use crate::proxy::sdp_filter::{filter_sdp_codecs, resolve_trunk_codecs};
 use crate::routing::engine::{RouteContext, RoutingEngine};
 use crate::translation::engine::{TranslationEngine, TranslationInput};
 use anyhow::{Result, anyhow};
@@ -284,6 +285,33 @@ pub async fn dispatch_proxy_call(
     // trunk's media configuration (media_mode field) in future iterations.
     // Tone detection and fax terminal mode require explicit opt-in.
     let dsp_config = build_dsp_config(&trunk.media);
+
+    // ------------------------------------------------------------------ //
+    // 4.6: SDP codec filtering                                            //
+    // ------------------------------------------------------------------ //
+
+    let caller_sdp = if let Some(allowed) = resolve_trunk_codecs(&trunk.media, &trunk.codecs) {
+        match filter_sdp_codecs(&caller_sdp, &allowed) {
+            Ok(filtered) => {
+                info!(
+                    session_id = %session_id,
+                    allowed = ?allowed,
+                    "dispatch: SDP codec-filtered to allowed set"
+                );
+                filtered
+            }
+            Err(e) => {
+                warn!(
+                    session_id = %session_id,
+                    error = %e,
+                    "dispatch: SDP codec filter rejected call — no codec overlap"
+                );
+                return Err(anyhow!("SDP codec filter: {e}"));
+            }
+        }
+    } else {
+        caller_sdp
+    };
 
     // ------------------------------------------------------------------ //
     // 5. Build ProxyCallContext                                            //
