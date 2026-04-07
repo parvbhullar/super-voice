@@ -12,6 +12,9 @@ pub mod dispatch;
 // Phase 7 Plan 01
 pub mod bridge;
 
+// SDP codec filtering for trunk-level codec restrictions
+pub mod sdp_filter;
+
 // Phase 12 Plan 03
 #[cfg(feature = "carrier")]
 pub mod pj_dialog_layer;
