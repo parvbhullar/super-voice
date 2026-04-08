@@ -53,6 +53,13 @@ pub enum PjCommand {
         call_id: String,
     },
 
+    /// Answer a pending re-INVITE with caller's SDP.
+    AnswerReInvite {
+        call_id: String,
+        status: u16,
+        sdp: Option<String>,
+    },
+
     /// Shut down the pjsip endpoint gracefully.
     Shutdown,
 }

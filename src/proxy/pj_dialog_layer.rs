@@ -87,4 +87,18 @@ impl PjDialogLayer {
             sdp,
         })
     }
+
+    /// Answer a pending re-INVITE from the gateway with the caller's SDP.
+    pub fn answer_reinvite(
+        &self,
+        call_id: &str,
+        status: u16,
+        sdp: Option<String>,
+    ) -> Result<()> {
+        self.bridge.send_command(PjCommand::AnswerReInvite {
+            call_id: call_id.to_string(),
+            status,
+            sdp,
+        })
+    }
 }

@@ -189,6 +189,16 @@ fn handle_command(cmd: PjCommand, endpoint: &PjEndpoint, shutting_down: &mut boo
             }
         }
 
+        PjCommand::AnswerReInvite {
+            call_id,
+            status,
+            sdp,
+        } => {
+            if let Err(e) = answer_reinvite(&call_id, status, sdp.as_deref(), endpoint) {
+                warn!("AnswerReInvite failed for {call_id}: {e}");
+            }
+        }
+
         PjCommand::AcceptIncoming { call_id, event_tx } => {
             // Register the per-call event sender for an incoming call
             // that was already detected by on_rx_request.
@@ -439,6 +449,67 @@ fn respond_to_invite(
 }
 
 // ---------------------------------------------------------------------------
+// Answer a pending re-INVITE
+// ---------------------------------------------------------------------------
+
+fn answer_reinvite(
+    call_id: &str,
+    status_code: u16,
+    sdp: Option<&str>,
+    endpoint: &PjEndpoint,
+) -> Result<()> {
+    // Lookup inv_ptr — drop lock before pjsip calls (PITFALL 4)
+    let inv = {
+        let registry = CALL_REGISTRY.lock().map_err(|e| anyhow::anyhow!("{e}"))?;
+        registry
+            .get(call_id)
+            .map(|e| e.inv_ptr)
+            .ok_or_else(|| anyhow::anyhow!("call {call_id} not found"))?
+    }; // lock dropped here
+
+    // Parse SDP if provided
+    let local_sdp: *mut pjsip_sys::pjmedia_sdp_session = if let Some(sdp_str) = sdp {
+        let sdp_cstr = CString::new(sdp_str)?;
+        let mut sdp_session: *mut pjsip_sys::pjmedia_sdp_session = ptr::null_mut();
+        let status = unsafe {
+            pjsip_sys::pjmedia_sdp_parse(
+                endpoint.pool,
+                sdp_cstr.as_ptr() as *mut _,
+                sdp_str.len(),
+                &mut sdp_session,
+            )
+        };
+        crate::check_status(status)
+            .map_err(|e| anyhow::anyhow!("pjmedia_sdp_parse in answer_reinvite: {e}"))?;
+        sdp_session
+    } else {
+        ptr::null_mut() // Use current negotiated SDP
+    };
+
+    let mut tdata: *mut pjsip_sys::pjsip_tx_data = ptr::null_mut();
+    let status = unsafe {
+        pjsip_sys::pjsip_inv_answer(
+            inv,
+            status_code as i32,
+            ptr::null(), // default reason
+            local_sdp,
+            &mut tdata,
+        )
+    };
+    crate::check_status(status)
+        .map_err(|e| anyhow::anyhow!("pjsip_inv_answer (re-INVITE): {e}"))?;
+
+    if !tdata.is_null() {
+        let status = unsafe { pjsip_sys::pjsip_inv_send_msg(inv, tdata) };
+        crate::check_status(status)
+            .map_err(|e| anyhow::anyhow!("pjsip_inv_send_msg (re-INVITE): {e}"))?;
+    }
+
+    debug!(call_id = %call_id, status = %status_code, "answered pending re-INVITE");
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
 // Send BYE
 // ---------------------------------------------------------------------------
 
@@ -620,28 +691,9 @@ pub(crate) unsafe extern "C" fn on_rx_reinvite(
         }
     }
 
-    // Answer the re-INVITE with 200 OK using the current active local SDP.
-    // Passing NULL for local_sdp tells pjsip to use the negotiated SDP.
-    let mut tdata: *mut pjsip_sys::pjsip_tx_data = ptr::null_mut();
-    unsafe {
-        let status = pjsip_sys::pjsip_inv_answer(inv, 200, ptr::null(), ptr::null(), &mut tdata);
-        if status == 0 && !tdata.is_null() {
-            let send_status = pjsip_sys::pjsip_inv_send_msg(inv, tdata);
-            if send_status != 0 {
-                warn!(
-                    call_id = ?call_id,
-                    "on_rx_reinvite: pjsip_inv_send_msg failed: {send_status}"
-                );
-            }
-        } else if status != 0 {
-            warn!(
-                call_id = ?call_id,
-                "on_rx_reinvite: pjsip_inv_answer failed: {status}"
-            );
-        }
-    }
-
-    // Return PJ_SUCCESS — we handled the answer manually above.
+    // Return PJ_SUCCESS — PJSIP keeps the re-INVITE pending.
+    // The bridge loop will answer via PjCommand::AnswerReInvite once
+    // the caller responds.
     0
 }
 

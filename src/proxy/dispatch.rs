@@ -480,12 +480,43 @@ pub async fn dispatch_proxy_call(
                                         break;
                                     }
                                     Some(PjCallEvent::ReInvite { sdp }) => {
-                                        // Gateway sent re-INVITE (hold/resume/codec change) —
-                                        // relay it to the inbound caller via server_dialog.
+                                        // Gateway sent re-INVITE — relay to caller, wait for
+                                        // response, then answer the gateway's pending re-INVITE
+                                        // with the caller's SDP.
                                         info!(session_id = %session_id, "dispatch: relaying re-INVITE to inbound caller");
                                         let ct = rsip::Header::ContentType("application/sdp".to_string().into());
-                                        if let Err(e) = server_dialog.reinvite(Some(vec![ct]), Some(sdp.into_bytes())).await {
-                                            warn!(session_id = %session_id, "dispatch: failed to relay re-INVITE: {e}");
+                                        match server_dialog.reinvite(Some(vec![ct]), Some(sdp.into_bytes())).await {
+                                            Ok(Some(resp)) => {
+                                                let sc = resp.status_code.code();
+                                                let answer_sdp = if resp.body.is_empty() {
+                                                    None
+                                                } else {
+                                                    String::from_utf8(resp.body).ok()
+                                                };
+                                                info!(
+                                                    session_id = %session_id,
+                                                    status = %sc,
+                                                    has_sdp = %answer_sdp.is_some(),
+                                                    "dispatch: caller responded to re-INVITE — forwarding to gateway"
+                                                );
+                                                if let Err(e) = pj_dialog_layer.answer_reinvite(
+                                                    &call_id_for_bye,
+                                                    sc,
+                                                    answer_sdp,
+                                                ) {
+                                                    warn!(session_id = %session_id, "dispatch: failed to answer gateway re-INVITE: {e}");
+                                                }
+                                            }
+                                            Ok(None) => {
+                                                // Dialog not confirmed — answer gateway with current SDP.
+                                                warn!(session_id = %session_id, "dispatch: caller dialog not confirmed for re-INVITE — auto-answering gateway");
+                                                let _ = pj_dialog_layer.answer_reinvite(&call_id_for_bye, 200, None);
+                                            }
+                                            Err(e) => {
+                                                warn!(session_id = %session_id, "dispatch: failed to relay re-INVITE to caller: {e}");
+                                                // Fall back: answer gateway with 200 OK / current SDP.
+                                                let _ = pj_dialog_layer.answer_reinvite(&call_id_for_bye, 200, None);
+                                            }
                                         }
                                     }
                                     None => {
