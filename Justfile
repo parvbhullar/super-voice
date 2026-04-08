@@ -8,6 +8,192 @@ server_pid := "/tmp/active-call-test.pid"
 server_log := "/tmp/active-call-test.log"
 default_port := "18080"
 default_sip_port := "15060"
+ort_version := "1.23.2"
+
+# ──────────────────────────────────────────────
+# Setup / Install
+# ──────────────────────────────────────────────
+
+# Full setup (mirrors install.sh)
+install: install-deps install-rust install-just install-onnx install-pjsip install-redis install-sipbot build gen-config
+    @echo "\n\033[0;32mInstallation complete!\033[0m"
+    @echo "Run the server:"
+    @echo "  ./target/release/active-call --conf my-config.toml"
+
+# Install system packages (apt on Linux, brew on macOS)
+install-deps:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    case "$(uname -s)" in
+        Darwin)
+            if ! command -v brew &>/dev/null; then
+                echo "ERROR: Homebrew not found. Install from https://brew.sh" >&2
+                exit 1
+            fi
+            echo "==> Installing system dependencies (macOS/Homebrew)..."
+            brew install pkg-config cmake openssl speex speexdsp libogg opus srtp libsndfile
+            ;;
+        Linux)
+            echo "==> Installing system dependencies (Linux/apt)..."
+            sudo apt-get update
+            sudo apt-get install -y \
+                build-essential curl git pkg-config cmake \
+                clang libclang-dev \
+                libssl-dev \
+                libspeex-dev libspeexdsp-dev \
+                libogg-dev libopus-dev \
+                libsrtp2-dev \
+                libasound2-dev
+            ;;
+        *)
+            echo "ERROR: Unsupported OS: $(uname -s)" >&2
+            exit 1
+            ;;
+    esac
+
+# Install Rust via rustup (skip if present)
+install-rust:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if command -v rustc &>/dev/null; then
+        echo "[skip] Rust already installed ($(rustc --version))"
+    else
+        echo "==> Installing Rust..."
+        curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --no-modify-path
+        echo "Rust installed. Run: source \$HOME/.cargo/env"
+    fi
+
+# Install just task runner (skip if present)
+install-just:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if command -v just &>/dev/null; then
+        echo "[skip] just already installed ($(just --version))"
+    else
+        echo "==> Installing just..."
+        case "$(uname -s)" in
+            Darwin)
+                brew install just
+                ;;
+            Linux)
+                if curl -fsSL https://just.systems/install.sh | sudo bash -s -- --to /usr/local/bin 2>/dev/null; then
+                    echo "just installed via prebuilt binary"
+                else
+                    echo "[warn] Prebuilt install failed, falling back to cargo install just..."
+                    cargo install just
+                fi
+                ;;
+        esac
+    fi
+
+# Install ONNX Runtime (brew on macOS, GitHub release on Linux)
+install-onnx:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    case "$(uname -s)" in
+        Darwin)
+            if brew list onnxruntime &>/dev/null; then
+                echo "[skip] onnxruntime already installed via Homebrew"
+            else
+                echo "==> Installing ONNX Runtime (Homebrew)..."
+                brew install onnxruntime
+            fi
+            ;;
+        Linux)
+            if [ -f /usr/local/lib/libonnxruntime.so ]; then
+                echo "[skip] libonnxruntime.so already installed"
+            else
+                echo "==> Installing ONNX Runtime {{ort_version}} (GitHub release)..."
+                TMP_DIR=$(mktemp -d)
+                curl -fsSL "https://github.com/microsoft/onnxruntime/releases/download/v{{ort_version}}/onnxruntime-linux-x64-{{ort_version}}.tgz" \
+                    | tar -xz -C "$TMP_DIR"
+                sudo cp "$TMP_DIR"/onnxruntime-linux-x64-*/lib/libonnxruntime.so* /usr/local/lib/
+                sudo ldconfig
+                rm -rf "$TMP_DIR"
+                echo "libonnxruntime.so {{ort_version}}: installed"
+            fi
+            ;;
+    esac
+
+# Install pjproject from source (both platforms)
+install-pjsip:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if pkg-config --exists libpjproject 2>/dev/null; then
+        echo "[skip] pjproject already installed ($(pkg-config --modversion libpjproject))"
+    else
+        echo "==> Installing pjproject..."
+        bash scripts/install-pjproject.sh
+    fi
+    echo "pjproject: $(pkg-config --modversion libpjproject)"
+
+# Install Redis (apt on Linux, brew on macOS)
+install-redis:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    case "$(uname -s)" in
+        Darwin)
+            if command -v redis-server &>/dev/null; then
+                echo "[skip] Redis already installed"
+            else
+                echo "==> Installing Redis (Homebrew)..."
+                brew install redis
+            fi
+            brew services start redis 2>/dev/null || true
+            redis-cli ping | grep -q PONG && echo "Redis: OK" || echo "[warn] Redis ping failed"
+            ;;
+        Linux)
+            if command -v redis-server &>/dev/null; then
+                echo "[skip] Redis already installed"
+            else
+                echo "==> Installing Redis (apt)..."
+                sudo apt-get install -y redis-server
+            fi
+            # Enable AOF persistence
+            if ! grep -q "^appendonly yes" /etc/redis/redis.conf 2>/dev/null; then
+                sudo sed -i 's/^# appendonly no/appendonly yes/' /etc/redis/redis.conf || true
+                sudo sed -i 's/^appendonly no/appendonly yes/' /etc/redis/redis.conf || true
+                echo "[info] Enabled Redis AOF persistence"
+            fi
+            sudo systemctl enable redis-server &>/dev/null || true
+            sudo systemctl restart redis-server
+            redis-cli ping | grep -q PONG && echo "Redis: OK" || echo "[warn] Redis ping failed"
+            ;;
+    esac
+
+# Install sipbot SIP test tool (skip if present)
+install-sipbot:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if command -v sipbot &>/dev/null; then
+        echo "[skip] sipbot already installed"
+    else
+        echo "==> Installing sipbot..."
+        cargo install sipbot
+    fi
+
+# Generate default my-config.toml if missing
+gen-config:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if [ -f my-config.toml ]; then
+        echo "[skip] my-config.toml already exists"
+    else
+        echo "==> Creating default my-config.toml..."
+        cat > my-config.toml << 'EOF'
+    addr = "0.0.0.0"
+    http_addr = "0.0.0.0:8080"
+    udp_port = 5060
+    redis_url = "redis://127.0.0.1:6379"
+    log_level = "info"
+    api_keys = ["change-me"]
+
+    [handler]
+    type = "playbook"
+    default = "hello.md"
+    EOF
+        echo "[warn] Created my-config.toml — change api_keys before production!"
+    fi
 
 # ──────────────────────────────────────────────
 # Build

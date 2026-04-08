@@ -20,3 +20,4 @@ active-call-tester/results
 docs/plans
 dump.rdb
 onnxruntime-linux-*
+my-config.toml
