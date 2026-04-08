@@ -60,6 +60,13 @@ pub enum PjCommand {
         sdp: Option<String>,
     },
 
+    /// Send a SIP INFO within an active dialog.
+    SendInfo {
+        call_id: String,
+        content_type: String,
+        body: String,
+    },
+
     /// Shut down the pjsip endpoint gracefully.
     Shutdown,
 }

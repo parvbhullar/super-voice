@@ -88,6 +88,20 @@ impl PjDialogLayer {
         })
     }
 
+    /// Send a SIP INFO to the gateway within the active dialog.
+    pub fn send_info(
+        &self,
+        call_id: &str,
+        content_type: &str,
+        body: &str,
+    ) -> Result<()> {
+        self.bridge.send_command(PjCommand::SendInfo {
+            call_id: call_id.to_string(),
+            content_type: content_type.to_string(),
+            body: body.to_string(),
+        })
+    }
+
     /// Answer a pending re-INVITE from the gateway with the caller's SDP.
     pub fn answer_reinvite(
         &self,

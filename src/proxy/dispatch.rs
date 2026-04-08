@@ -523,13 +523,63 @@ pub async fn dispatch_proxy_call(
                                         warn!(session_id = %session_id, "dispatch: gateway event channel closed");
                                         break;
                                     }
-                                    _ => {} // Ringing, Info — continue
+                                    Some(PjCallEvent::Info { content_type, body }) => {
+                                        // Relay INFO from gateway to caller.
+                                        info!(session_id = %session_id, ct = %content_type, "dispatch: relaying INFO from gateway to caller");
+                                        let mut headers = vec![];
+                                        if !content_type.is_empty() {
+                                            headers.push(rsip::Header::ContentType(
+                                                rsip::headers::untyped::ContentType::new(content_type),
+                                            ));
+                                        }
+                                        let body_bytes = if body.is_empty() {
+                                            None
+                                        } else {
+                                            Some(body.into_bytes())
+                                        };
+                                        if let Err(e) = server_dialog.info(
+                                            Some(headers),
+                                            body_bytes,
+                                        ).await {
+                                            warn!(session_id = %session_id, "dispatch: failed to relay INFO to caller: {e}");
+                                        }
+                                    }
+                                    _ => {} // Ringing, etc. — continue
                                 }
                             }
                             caller_event = caller_dialog.recv() => {
                                 match caller_event {
                                     Some(DialogState::Confirmed(_, _)) => {
                                         dialog_confirmed = true;
+                                    }
+                                    Some(DialogState::Info(_id, request, tx_handle)) => {
+                                        // Relay INFO from caller to gateway.
+                                        let content_type = request.headers.iter()
+                                            .find_map(|h| {
+                                                if let rsip::Header::ContentType(ct) = h {
+                                                    Some(ct.to_string())
+                                                } else {
+                                                    None
+                                                }
+                                            })
+                                            .unwrap_or_default();
+                                        let body_str = if request.body.is_empty() {
+                                            String::new()
+                                        } else {
+                                            String::from_utf8_lossy(&request.body).into_owned()
+                                        };
+
+                                        info!(session_id = %session_id, ct = %content_type, "dispatch: relaying INFO from caller to gateway");
+                                        if let Err(e) = pj_dialog_layer.send_info(
+                                            &call_id_for_bye,
+                                            &content_type,
+                                            &body_str,
+                                        ) {
+                                            warn!(session_id = %session_id, "dispatch: failed to relay INFO to gateway: {e}");
+                                        }
+
+                                        // Respond 200 OK to the caller's INFO transaction.
+                                        let _ = tx_handle.reply(rsip::StatusCode::OK).await;
                                     }
                                     Some(DialogState::Terminated(_, _)) | None => {
                                         info!(session_id = %session_id, "dispatch: inbound caller terminated");

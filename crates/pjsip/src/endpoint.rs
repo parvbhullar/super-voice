@@ -146,7 +146,7 @@ impl PjEndpoint {
             on_new_session: Some(crate::bridge::on_inv_new_session),
             on_rx_offer: None,
             on_rx_reinvite: Some(crate::bridge::on_rx_reinvite),
-            on_tsx_state_changed: None,
+            on_tsx_state_changed: Some(crate::bridge::on_tsx_state_changed),
             ..unsafe { std::mem::zeroed() }
         };
         let status = unsafe { pjsip_sys::pjsip_inv_usage_init(self.endpt, &inv_cb) };

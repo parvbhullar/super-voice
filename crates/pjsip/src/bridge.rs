@@ -208,6 +208,16 @@ fn handle_command(cmd: PjCommand, endpoint: &PjEndpoint, shutting_down: &mut boo
                 }
             }
         }
+
+        PjCommand::SendInfo {
+            call_id,
+            content_type,
+            body,
+        } => {
+            if let Err(e) = send_info(&call_id, &content_type, &body) {
+                warn!("SendInfo failed for {call_id}: {e}");
+            }
+        }
     }
 }
 
@@ -817,5 +827,236 @@ fn extract_confirmed_sdp(inv: *mut pjsip_sys::pjsip_inv_session) -> Option<Strin
         Some(String::from_utf8_lossy(&buf).into_owned())
     } else {
         None
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Send INFO request within an active dialog
+// ---------------------------------------------------------------------------
+
+fn send_info(call_id: &str, content_type: &str, body: &str) -> Result<()> {
+    let inv = {
+        let registry = CALL_REGISTRY.lock().map_err(|e| anyhow::anyhow!("{e}"))?;
+        registry
+            .get(call_id)
+            .map(|e| e.inv_ptr)
+            .ok_or_else(|| anyhow::anyhow!("call {call_id} not found"))?
+    };
+
+    let inv_ref = unsafe { &*inv };
+    let dlg = inv_ref.dlg;
+    if dlg.is_null() {
+        return Err(anyhow::anyhow!("dialog is null for {call_id}"));
+    }
+
+    // Create INFO method (OTHER method type with name "INFO")
+    let method_name = CString::new("INFO")?;
+    let mut method: pjsip_sys::pjsip_method = unsafe { std::mem::zeroed() };
+    method.id = pjsip_sys::pjsip_method_e_PJSIP_OTHER_METHOD;
+    method.name = unsafe { pjsip_sys::pj_str(method_name.as_ptr() as *mut _) };
+
+    // Create the request within the dialog
+    let mut tdata: *mut pjsip_sys::pjsip_tx_data = ptr::null_mut();
+    let status = unsafe {
+        pjsip_sys::pjsip_dlg_create_request(dlg, &method, -1, &mut tdata)
+    };
+    crate::check_status(status)
+        .map_err(|e| anyhow::anyhow!("pjsip_dlg_create_request (INFO): {e}"))?;
+
+    // Set body if provided.
+    // Keep CStrings alive until after pjsip_msg_body_create copies the data.
+    if !body.is_empty() && !tdata.is_null() {
+        let body_cstr = CString::new(body)?;
+        let body_len = body.len();
+
+        // Parse content type into type/subtype
+        let ct_parts: Vec<&str> = content_type.splitn(2, '/').collect();
+        let (type_part, subtype_part) = if ct_parts.len() == 2 {
+            (ct_parts[0], ct_parts[1])
+        } else {
+            ("application", "octet-stream")
+        };
+
+        let type_cstr = CString::new(type_part).unwrap_or_default();
+        let subtype_cstr = CString::new(subtype_part).unwrap_or_default();
+
+        unsafe {
+            let pool = (*tdata).pool;
+            let type_pj = pjsip_sys::pj_str(type_cstr.as_ptr() as *mut _);
+            let subtype_pj = pjsip_sys::pj_str(subtype_cstr.as_ptr() as *mut _);
+
+            let text_pj = pjsip_sys::pj_str_t {
+                ptr: body_cstr.as_ptr() as *mut _,
+                slen: body_len as i64,
+            };
+
+            // pjsip_msg_body_create clones the text into the pool.
+            let msg_body = pjsip_sys::pjsip_msg_body_create(
+                pool,
+                &type_pj,
+                &subtype_pj,
+                &text_pj,
+            );
+            if !msg_body.is_null() {
+                (*(*tdata).msg).body = msg_body;
+            }
+        }
+    }
+
+    // Send the INFO request
+    let status = unsafe {
+        pjsip_sys::pjsip_dlg_send_request(dlg, tdata, -1, ptr::null_mut())
+    };
+    crate::check_status(status)
+        .map_err(|e| anyhow::anyhow!("pjsip_dlg_send_request (INFO): {e}"))?;
+
+    debug!(call_id = %call_id, "INFO sent to gateway");
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// on_tsx_state_changed callback — detects incoming INFO requests
+// ---------------------------------------------------------------------------
+
+/// Called when a transaction within an INVITE session changes state.
+///
+/// We use this to detect incoming INFO requests (for DTMF relay).
+/// When an incoming INFO arrives (tsx state = Trying, role = UAS, method = INFO),
+/// extract Content-Type and body, then fire PjCallEvent::Info.
+pub(crate) extern "C" fn on_tsx_state_changed(
+    inv: *mut pjsip_sys::pjsip_inv_session,
+    tsx: *mut pjsip_sys::pjsip_transaction,
+    event: *mut pjsip_sys::pjsip_event,
+) {
+    if inv.is_null() || tsx.is_null() || event.is_null() {
+        return;
+    }
+
+    unsafe {
+        let tsx_ref = &*tsx;
+
+        // Only interested in UAS (incoming) transactions in the Trying state.
+        // PJSIP_ROLE_UAS = 1, PJSIP_TSX_STATE_TRYING = 2
+        if tsx_ref.role != pjsip_sys::pjsip_role_e_PJSIP_ROLE_UAS
+            || tsx_ref.state != pjsip_sys::pjsip_tsx_state_e_PJSIP_TSX_STATE_TRYING
+        {
+            return;
+        }
+
+        // Check method is INFO
+        let method_name = &tsx_ref.method.name;
+        if method_name.ptr.is_null() || method_name.slen <= 0 {
+            return;
+        }
+        let method_slice = std::slice::from_raw_parts(
+            method_name.ptr as *const u8,
+            method_name.slen as usize,
+        );
+        if method_slice != b"INFO" {
+            return;
+        }
+
+        // Extract Content-Type and body from the incoming request.
+        // event.body.tsx_state.src.rdata has the incoming message.
+        let rdata = (*event).body.tsx_state.src.rdata;
+        if rdata.is_null() {
+            return;
+        }
+        let msg = (*rdata).msg_info.msg;
+        if msg.is_null() {
+            return;
+        }
+        let msg_ref = &*msg;
+
+        // Extract Content-Type header from msg body
+        let content_type = {
+            let body_ptr = msg_ref.body;
+            if body_ptr.is_null() {
+                String::new()
+            } else {
+                let ct = &(*body_ptr).content_type;
+                let type_str = if !ct.type_.ptr.is_null() && ct.type_.slen > 0 {
+                    let s = std::slice::from_raw_parts(
+                        ct.type_.ptr as *const u8,
+                        ct.type_.slen as usize,
+                    );
+                    String::from_utf8_lossy(s).into_owned()
+                } else {
+                    String::new()
+                };
+                let subtype_str = if !ct.subtype.ptr.is_null() && ct.subtype.slen > 0 {
+                    let s = std::slice::from_raw_parts(
+                        ct.subtype.ptr as *const u8,
+                        ct.subtype.slen as usize,
+                    );
+                    String::from_utf8_lossy(s).into_owned()
+                } else {
+                    String::new()
+                };
+                if type_str.is_empty() {
+                    String::new()
+                } else {
+                    format!("{}/{}", type_str, subtype_str)
+                }
+            }
+        };
+
+        // Extract body text
+        let body = {
+            let body_ptr = msg_ref.body;
+            if body_ptr.is_null() {
+                String::new()
+            } else {
+                let body_ref = &*body_ptr;
+                if body_ref.data.is_null() || body_ref.len == 0 {
+                    String::new()
+                } else {
+                    let data = std::slice::from_raw_parts(
+                        body_ref.data as *const u8,
+                        body_ref.len as usize,
+                    );
+                    String::from_utf8_lossy(data).into_owned()
+                }
+            }
+        };
+
+        // Fire the Info event
+        let call_id = extract_call_id(inv);
+        if let Some(ref id) = call_id {
+            let event_tx = {
+                if let Ok(registry) = CALL_REGISTRY.lock() {
+                    registry.get(id).map(|e| e.event_tx.clone())
+                } else {
+                    None
+                }
+            };
+            if let Some(tx) = event_tx {
+                let _ = tx.send(PjCallEvent::Info {
+                    content_type,
+                    body,
+                });
+            }
+        }
+
+        // Auto-respond 200 OK to the INFO request.
+        let inv_ref = &*inv;
+        let dlg = inv_ref.dlg;
+        if !dlg.is_null() {
+            let mut tdata: *mut pjsip_sys::pjsip_tx_data = ptr::null_mut();
+            let status = pjsip_sys::pjsip_dlg_create_response(
+                dlg,
+                rdata,
+                200,
+                ptr::null(),
+                &mut tdata,
+            );
+            if status == 0 && !tdata.is_null() {
+                // Use the tsx from the event body for sending the response
+                let tsx_ptr = (*event).body.tsx_state.tsx;
+                if !tsx_ptr.is_null() {
+                    pjsip_sys::pjsip_dlg_send_response(dlg, tsx_ptr, tdata);
+                }
+            }
+        }
     }
 }
