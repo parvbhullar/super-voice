@@ -164,6 +164,22 @@ curl -X POST /api/v1/trunks \
   }'
 ```
 
+**Media Config (codec filtering):**
+
+```bash
+# Set trunk media config (caller SDP will be filtered to these codecs)
+curl -X PUT /api/v1/trunks/us-carrier/media \
+  -H "Authorization: Bearer $API_KEY" \
+  -d '{
+    "codecs": ["pcmu", "pcma"],
+    "dtmf_mode": "rfc2833",
+    "srtp": null,
+    "media_mode": null
+  }'
+```
+
+When `media.codecs` is set, inbound SDP offers are filtered to include only these codecs. Calls with no codec overlap receive 488 Not Acceptable Here.
+
 **Distribution:** `weight_based`, `round_robin`, `hash_callid`, `hash_src_ip`, `hash_destination`
 
 ---
@@ -187,13 +203,17 @@ Assign phone numbers to trunks with routing modes.
 {"mode": "ai_agent", "playbook": "support.md"}
 
 # SIP Proxy — B2BUA bridge to outbound trunk
+# Trunk codec list filters caller SDP; 488 on mismatch
 {"mode": "sip_proxy"}
 
-# WebRTC Bridge — SIP to browser WebRTC
-{"mode": "webrtc_bridge", "webrtc_config": {"ice_servers": ["stun:stun.l.google.com:19302"]}}
+# WebRTC Bridge (v1) — for WebRTC-capable SIP UAs (ICE/DTLS in SDP)
+# Caller must support ICE+DTLS; regular SIP phones will fail
+{"mode": "webrtc_bridge", "webrtc_config": {"ice_servers": ["stun:stun.l.google.com:19302"], "ice_lite": false}}
 
-# WebSocket Bridge — SIP to outbound WebSocket
-{"mode": "ws_bridge", "ws_config": {"url": "wss://ai-backend.example.com/ws"}}
+# WebSocket Bridge — SIP to outbound WebSocket server
+# SDP handshake performed on SIP leg; 200 OK sent to caller
+# 10s connect timeout; immediate teardown on WS disconnect
+{"mode": "ws_bridge", "ws_config": {"url": "wss://ai-backend.example.com/ws", "codec": "pcmu"}}
 ```
 
 ---

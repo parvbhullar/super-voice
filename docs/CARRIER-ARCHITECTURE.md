@@ -38,6 +38,7 @@ Super Voice Carrier Edition is a single Rust binary that combines an AI voice ag
 │  │  ├─ webrtc_bridge → ProxyCall + WebRTC leg          │ │
 │  │  └─ ws_bridge   → ProxyCall + WebSocket leg         │ │
 │  │                                                      │ │
+│  │  SDP Codec Filter: trunk codecs → 488 Not Acceptable Here  │ │
 │  │  Routing Engine: LPM │ Exact │ Regex │ HTTP Query   │ │
 │  │  Translation: Caller/Dest number rewriting           │ │
 │  │  Manipulation: Conditional SIP header modification   │ │
@@ -221,8 +222,8 @@ Every inbound call is routed based on the DID's `routing.mode`:
 INVITE arrives → DID lookup → mode?
   ├─ "ai_agent"      → ActiveCall + PlaybookRunner (existing AI pipeline)
   ├─ "sip_proxy"     → ProxyCall + RoutingEngine → trunk selection → B2BUA
-  ├─ "webrtc_bridge"  → ProxyCall + WebRTC target (ICE/DTLS, G.711↔Opus)
-  └─ "ws_bridge"      → ProxyCall + outbound WebSocket client
+  ├─ "webrtc_bridge"  → WebRTC track (v1: WebRTC-capable SIP UA only)
+  └─ "ws_bridge"      → SIP RTP leg + outbound WebSocket (SDP handshake + 200 OK)
 ```
 
 ### 3. Redis-Centric State
@@ -246,7 +247,15 @@ Caller ──SIP──► [ProxyCall] ──SIP──► Callee
             transcode when they differ)
 ```
 
-Features: codec optimization, early media (183 fallback), failover loop, REFER transfer, hold/resume detection.
+Features:
+- **SDP codec filtering**: Caller SDP filtered against trunk's allowed codecs; 488 rejection on mismatch
+- **Early media**: 183 Session Progress with SDP relayed to caller
+- **Failover loop**: Sequential gateway attempts with nofailover SIP code support
+- **Bidirectional re-INVITE**: Hold/resume relayed in both directions (caller↔gateway)
+- **SIP INFO relay**: DTMF and other INFO messages forwarded bidirectionally
+- **NAT traversal**: External IP published address for SIP transports (UDP/TCP/TLS)
+- **REFER transfer**: Attended and blind transfer support
+- **Codec pass-through**: SDP forwarded to gateway (PJSIP handles negotiation)
 
 ### 5. Carrier Security
 
@@ -268,7 +277,8 @@ SIP message arrives
 |------|---------------------------|---------------|
 | SIP-to-SIP relay (no transcode) | 8,000-10,000 | <5ms |
 | SIP-to-SIP with transcode | 3,000-5,000 | ~10ms |
-| SIP-to-WebRTC bridge | 2,000-3,000 | ~15ms |
+| SIP-to-WebRTC bridge (v1, WebRTC UA) | 2,000-3,000 | ~15ms |
+| SIP-to-WebSocket bridge | 3,000-5,000 | ~10ms |
 | SIP-to-AI agent | 800-1,200 (160/core) | 50-100ms (pipeline) |
 | Binary startup time | — | 12-15ms |
 
