@@ -52,14 +52,16 @@ fn make_event_channel() -> broadcast::Sender<SessionEvent> {
     tx
 }
 
-/// Dispatch an inbound INVITE to a WebRTC bridge.
+/// Dispatch an inbound INVITE to a WebRTC bridge (v1 — single-leg mode).
 ///
-/// Creates two legs:
-/// - A WebRTC leg (target) that speaks Opus/ICE/DTLS.
-/// - An RTP leg (SIP caller side) that speaks G.711.
+/// **Current scope (v1):** The caller must be a WebRTC-capable SIP UA
+/// (e.g. JsSIP, SIP.js) whose SDP includes ICE candidates and DTLS
+/// fingerprints.  The WebRTC track negotiates directly with the caller;
+/// no second leg is involved.
 ///
-/// The caller's SDP is answered by the WebRTC leg; audio frames are relayed
-/// bidirectionally until either leg ends or the cancellation token fires.
+/// **Future (v2):** True SIP-phone ↔ WebRTC-browser bridge with dual legs,
+/// a signaling API for the browser, and G.711↔Opus transcoding.
+/// See `docs/plans/2026-04-09-webrtc-bridge-future.md` for the design.
 pub async fn dispatch_webrtc_bridge(
     app_state: AppState,
     session_id: String,
@@ -116,38 +118,26 @@ pub async fn dispatch_webrtc_bridge(
         return Err(anyhow!("failed to send 200 OK to caller: {e}"));
     }
 
-    // SIP/RTP caller leg: G.711 codecs for the SIP side.
-    let sip_rtc_config = RtcTrackConfig {
-        mode: TransportMode::Rtp,
-        codecs: vec![CodecType::PCMU, CodecType::PCMA],
-        preferred_codec: Some(CodecType::PCMU),
-        ..Default::default()
-    };
-    let sip_track_id = format!("{}-sip", session_id);
-    let mut sip_track = RtcTrack::new(
-        cancel_token.child_token(),
-        sip_track_id,
-        TrackConfig::default(),
-        sip_rtc_config,
-    );
+    // v1: single-leg mode — the WebRTC track IS the caller's leg.
+    // No second SIP/RTP track is needed (the caller speaks WebRTC directly).
+    // In v2 (true SIP↔WebRTC bridge), a second leg + transcoding will be added.
 
-    // Create packet channels for both tracks.
     let (webrtc_pkt_tx, mut webrtc_pkt_rx): (TrackPacketSender, TrackPacketReceiver) =
-        mpsc::unbounded_channel();
-    let (sip_pkt_tx, mut sip_pkt_rx): (TrackPacketSender, TrackPacketReceiver) =
         mpsc::unbounded_channel();
 
     webrtc_track
         .start(make_event_channel(), webrtc_pkt_tx)
         .await?;
-    sip_track.start(make_event_channel(), sip_pkt_tx).await?;
 
     info!(
         session_id = %session_id,
-        "webrtc_bridge: both legs started, entering bridge loop"
+        "webrtc_bridge: WebRTC leg started, entering receive loop"
     );
 
-    // Bridge loop: relay AudioFrames between the two legs.
+    // Receive loop: consume audio frames from the WebRTC track.
+    // In v1 mode the WebRTC track handles bidirectional media with the
+    // caller directly via the PeerConnection.  We consume frames here
+    // to drive the processor chain (VAD, ASR) and keep the track alive.
     loop {
         tokio::select! {
             _ = cancel_token.cancelled() => {
@@ -156,30 +146,12 @@ pub async fn dispatch_webrtc_bridge(
             }
             frame = webrtc_pkt_rx.recv() => {
                 match frame {
-                    Some(f) => {
-                        if let Err(e) = sip_track.send_packet(&f).await {
-                            warn!(session_id = %session_id,
-                                "webrtc_bridge: sip send_packet: {}", e);
-                            break;
-                        }
+                    Some(_f) => {
+                        // v1: frames consumed to keep track alive.
+                        // v2 will relay to a second leg here.
                     }
                     None => {
                         info!(session_id = %session_id, "webrtc_bridge: webrtc leg ended");
-                        break;
-                    }
-                }
-            }
-            frame = sip_pkt_rx.recv() => {
-                match frame {
-                    Some(f) => {
-                        if let Err(e) = webrtc_track.send_packet(&f).await {
-                            warn!(session_id = %session_id,
-                                "webrtc_bridge: webrtc send_packet: {}", e);
-                            break;
-                        }
-                    }
-                    None => {
-                        info!(session_id = %session_id, "webrtc_bridge: sip leg ended");
                         break;
                     }
                 }
@@ -188,7 +160,6 @@ pub async fn dispatch_webrtc_bridge(
     }
 
     webrtc_track.stop().await.ok();
-    sip_track.stop().await.ok();
     cancel_token.cancel();
     info!(session_id = %session_id, "webrtc_bridge: bridge ended, cleaning up");
     Ok(())
