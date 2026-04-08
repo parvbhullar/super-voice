@@ -10,6 +10,7 @@
 use crate::app::AppState;
 use crate::call::sip::DialogStateReceiverGuard;
 use crate::event::SessionEvent;
+use rsipstack::dialog::server_dialog::ServerInviteDialog;
 use crate::media::AudioFrame;
 use crate::media::track::websocket::{WebsocketBytesSender, WebsocketTrack};
 use crate::media::track::{Track, TrackConfig, TrackPacketReceiver, TrackPacketSender};
@@ -63,6 +64,7 @@ pub async fn dispatch_webrtc_bridge(
     app_state: AppState,
     session_id: String,
     _caller_dialog: DialogStateReceiverGuard,
+    server_dialog: ServerInviteDialog,
     caller_sdp: String,
     _caller_uri: String,
     _callee_uri: String,
@@ -103,9 +105,16 @@ pub async fn dispatch_webrtc_bridge(
     );
 
     // Perform SDP handshake: use caller SDP as the offer for the WebRTC leg.
-    let _sdp_answer = webrtc_track
+    let sdp_answer = webrtc_track
         .handshake(caller_sdp, Some(std::time::Duration::from_secs(10)))
         .await?;
+
+    // Send 200 OK with SDP answer to the inbound SIP caller.
+    let ct = rsip::Header::ContentType("application/sdp".to_string().into());
+    if let Err(e) = server_dialog.accept(Some(vec![ct]), Some(sdp_answer.as_bytes().to_vec())) {
+        warn!(session_id = %session_id, "webrtc_bridge: failed to accept call: {e}");
+        return Err(anyhow!("failed to send 200 OK to caller: {e}"));
+    }
 
     // SIP/RTP caller leg: G.711 codecs for the SIP side.
     let sip_rtc_config = RtcTrackConfig {
@@ -181,6 +190,7 @@ pub async fn dispatch_webrtc_bridge(
     webrtc_track.stop().await.ok();
     sip_track.stop().await.ok();
     cancel_token.cancel();
+    info!(session_id = %session_id, "webrtc_bridge: bridge ended, cleaning up");
     Ok(())
 }
 
@@ -196,7 +206,8 @@ pub async fn dispatch_ws_bridge(
     app_state: AppState,
     session_id: String,
     _caller_dialog: DialogStateReceiverGuard,
-    _caller_sdp: String,
+    server_dialog: ServerInviteDialog,
+    caller_sdp: String,
     _caller_uri: String,
     _callee_uri: String,
     did: &DidConfig,
@@ -215,7 +226,14 @@ pub async fn dispatch_ws_bridge(
     let codec = ws_config.codec.clone();
 
     // Connect to the remote WebSocket endpoint.
-    let (ws_stream, _) = tokio_tungstenite::connect_async(ws_config.url.as_str()).await?;
+    let ws_connect_timeout = std::time::Duration::from_secs(10);
+    let (ws_stream, _) = tokio::time::timeout(
+        ws_connect_timeout,
+        tokio_tungstenite::connect_async(ws_config.url.as_str()),
+    )
+    .await
+    .map_err(|_| anyhow!("ws_bridge: WebSocket connect timed out after {}s", ws_connect_timeout.as_secs()))?
+    .map_err(|e| anyhow!("ws_bridge: WebSocket connect failed: {e}"))?;
     let (mut ws_sink, mut ws_source) = ws_stream.split();
 
     // Channel bridging WS incoming bytes -> WebsocketTrack.
@@ -240,6 +258,8 @@ pub async fn dispatch_ws_bridge(
 
     // Spawn task: read binary WS messages -> ws_audio_tx.
     let ws_reader_cancel = cancel_token.child_token();
+    let ws_disconnect_token = cancel_token.child_token();
+    let ws_disconnect_clone = ws_disconnect_token.clone();
     let ws_audio_tx_clone = ws_audio_tx.clone();
     let session_id_clone = session_id.clone();
     tokio::spawn(async move {
@@ -264,6 +284,7 @@ pub async fn dispatch_ws_bridge(
                 }
             }
         }
+        ws_disconnect_clone.cancel();
     });
 
     // SIP/RTP caller leg.
@@ -281,6 +302,19 @@ pub async fn dispatch_ws_bridge(
         TrackConfig::default(),
         sip_rtc_config,
     );
+
+    // SDP handshake: parse caller's offer, generate answer for the SIP RTP leg.
+    let sdp_answer = sip_track
+        .handshake(caller_sdp, Some(std::time::Duration::from_secs(10)))
+        .await?;
+
+    // Send 200 OK with SDP answer to the inbound SIP caller.
+    let ct = rsip::Header::ContentType("application/sdp".to_string().into());
+    if let Err(e) = server_dialog.accept(Some(vec![ct]), Some(sdp_answer.as_bytes().to_vec())) {
+        warn!(session_id = %session_id, "ws_bridge: failed to accept call: {e}");
+        return Err(anyhow!("failed to send 200 OK to caller: {e}"));
+    }
+
     sip_track.start(make_event_channel(), sip_pkt_tx).await?;
 
     info!(
@@ -293,6 +327,10 @@ pub async fn dispatch_ws_bridge(
         tokio::select! {
             _ = cancel_token.cancelled() => {
                 info!(session_id = %session_id, "ws_bridge: cancelled");
+                break;
+            }
+            _ = ws_disconnect_token.cancelled() => {
+                info!(session_id = %session_id, "ws_bridge: WebSocket disconnected, tearing down");
                 break;
             }
             // WS track -> SIP caller
@@ -336,6 +374,7 @@ pub async fn dispatch_ws_bridge(
     sip_track.stop().await.ok();
     ws_track.stop().await.ok();
     cancel_token.cancel();
+    info!(session_id = %session_id, "ws_bridge: bridge ended, cleaning up");
     Ok(())
 }
 
