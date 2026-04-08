@@ -1,10 +1,11 @@
+#![cfg(feature = "offline")]
+
 use active_call::offline::sensevoice::{FeaturePipeline, FrontendConfig, language_id_from_code};
 use active_call::offline::{
     OfflineModels,
     config::OfflineConfig,
     downloader::{ModelDownloader, ModelType},
 };
-// use std::env;
 use std::path::PathBuf;
 use tracing_subscriber;
 
