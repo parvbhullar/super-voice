@@ -209,6 +209,12 @@ fn handle_command(cmd: PjCommand, endpoint: &PjEndpoint, shutting_down: &mut boo
             }
         }
 
+        PjCommand::SendReInvite { call_id, sdp } => {
+            if let Err(e) = send_reinvite(&call_id, &sdp, endpoint) {
+                warn!("SendReInvite failed for {call_id}: {e}");
+            }
+        }
+
         PjCommand::SendInfo {
             call_id,
             content_type,
@@ -828,6 +834,58 @@ fn extract_confirmed_sdp(inv: *mut pjsip_sys::pjsip_inv_session) -> Option<Strin
     } else {
         None
     }
+}
+
+// ---------------------------------------------------------------------------
+// Send re-INVITE within an active dialog
+// ---------------------------------------------------------------------------
+
+fn send_reinvite(call_id: &str, sdp_str: &str, endpoint: &PjEndpoint) -> Result<()> {
+    // Lookup inv_ptr — drop lock before pjsip calls
+    let inv = {
+        let registry = CALL_REGISTRY.lock().map_err(|e| anyhow::anyhow!("{e}"))?;
+        registry
+            .get(call_id)
+            .map(|e| e.inv_ptr)
+            .ok_or_else(|| anyhow::anyhow!("call {call_id} not found"))?
+    };
+
+    // Parse SDP offer
+    let sdp_cstr = CString::new(sdp_str)?;
+    let mut sdp_session: *mut pjsip_sys::pjmedia_sdp_session = ptr::null_mut();
+    let status = unsafe {
+        pjsip_sys::pjmedia_sdp_parse(
+            endpoint.pool,
+            sdp_cstr.as_ptr() as *mut _,
+            sdp_str.len(),
+            &mut sdp_session,
+        )
+    };
+    crate::check_status(status)
+        .map_err(|e| anyhow::anyhow!("pjmedia_sdp_parse in send_reinvite: {e}"))?;
+
+    // Create re-INVITE request
+    let mut tdata: *mut pjsip_sys::pjsip_tx_data = ptr::null_mut();
+    let status = unsafe {
+        pjsip_sys::pjsip_inv_reinvite(
+            inv,
+            ptr::null(),  // no new contact
+            sdp_session,  // new SDP offer
+            &mut tdata,
+        )
+    };
+    crate::check_status(status)
+        .map_err(|e| anyhow::anyhow!("pjsip_inv_reinvite: {e}"))?;
+
+    // Send it
+    if !tdata.is_null() {
+        let status = unsafe { pjsip_sys::pjsip_inv_send_msg(inv, tdata) };
+        crate::check_status(status)
+            .map_err(|e| anyhow::anyhow!("pjsip_inv_send_msg (re-INVITE): {e}"))?;
+    }
+
+    debug!(call_id = %call_id, "re-INVITE sent to gateway");
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------

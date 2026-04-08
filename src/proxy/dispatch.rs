@@ -581,6 +581,27 @@ pub async fn dispatch_proxy_call(
                                         // Respond 200 OK to the caller's INFO transaction.
                                         let _ = tx_handle.reply(rsip::StatusCode::OK).await;
                                     }
+                                    Some(DialogState::Updated(_id, request, tx_handle)) => {
+                                        // Caller sent re-INVITE (hold/resume/codec change) —
+                                        // relay to gateway, respond 200 OK to caller immediately.
+                                        let caller_sdp = if request.body.is_empty() {
+                                            String::new()
+                                        } else {
+                                            String::from_utf8_lossy(&request.body).into_owned()
+                                        };
+
+                                        if !caller_sdp.is_empty() {
+                                            info!(session_id = %session_id, "dispatch: relaying caller re-INVITE to gateway");
+                                            if let Err(e) = pj_dialog_layer.send_reinvite(&call_id_for_bye, &caller_sdp) {
+                                                warn!(session_id = %session_id, "dispatch: failed to send re-INVITE to gateway: {e}");
+                                            }
+                                        } else {
+                                            warn!(session_id = %session_id, "dispatch: caller re-INVITE has no SDP body — ignoring");
+                                        }
+
+                                        // Respond 200 OK to the caller immediately.
+                                        let _ = tx_handle.reply(rsip::StatusCode::OK).await;
+                                    }
                                     Some(DialogState::Terminated(_, _)) | None => {
                                         info!(session_id = %session_id, "dispatch: inbound caller terminated");
                                         let _ = pj_dialog_layer.send_bye(&call_id_for_bye);

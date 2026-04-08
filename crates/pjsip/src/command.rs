@@ -60,6 +60,13 @@ pub enum PjCommand {
         sdp: Option<String>,
     },
 
+    /// Send a re-INVITE within an active dialog (caller hold/resume/codec change).
+    SendReInvite {
+        call_id: String,
+        /// New SDP offer to send to the gateway.
+        sdp: String,
+    },
+
     /// Send a SIP INFO within an active dialog.
     SendInfo {
         call_id: String,

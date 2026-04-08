@@ -102,6 +102,14 @@ impl PjDialogLayer {
         })
     }
 
+    /// Send a re-INVITE to the gateway (caller hold/resume/codec change).
+    pub fn send_reinvite(&self, call_id: &str, sdp: &str) -> Result<()> {
+        self.bridge.send_command(PjCommand::SendReInvite {
+            call_id: call_id.to_string(),
+            sdp: sdp.to_string(),
+        })
+    }
+
     /// Answer a pending re-INVITE from the gateway with the caller's SDP.
     pub fn answer_reinvite(
         &self,
