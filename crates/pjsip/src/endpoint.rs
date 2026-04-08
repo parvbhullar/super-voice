@@ -37,6 +37,10 @@ pub struct PjEndpointConfig {
     pub min_se: u32,
     /// Enable 100rel / PRACK (RFC 3262). Default: true.
     pub enable_100rel: bool,
+    /// External/public IP address for NAT traversal. When set, this
+    /// address is advertised in SIP Contact/Via headers instead of
+    /// the bind address.
+    pub external_ip: Option<String>,
 }
 
 impl Default for PjEndpointConfig {
@@ -51,6 +55,7 @@ impl Default for PjEndpointConfig {
             session_expires: 1800,
             min_se: 90,
             enable_100rel: true,
+            external_ip: None,
         }
     }
 }
@@ -194,6 +199,25 @@ impl PjEndpoint {
         }
     }
 
+    /// Build a `pjsip_host_port` for the published address.
+    ///
+    /// Returns `None` when no external IP is configured (use
+    /// auto-detection). The returned `CString` must be kept alive
+    /// while the `pjsip_host_port` is in use.
+    fn build_published_addr(
+        &self,
+    ) -> Option<(CString, pjsip_sys::pjsip_host_port)> {
+        let ip = self.config.external_ip.as_deref()?;
+        let ip_cstr = CString::new(ip).ok()?;
+        let addr = pjsip_sys::pjsip_host_port {
+            host: unsafe {
+                pjsip_sys::pj_str(ip_cstr.as_ptr() as *mut _)
+            },
+            port: self.config.port as std::os::raw::c_int,
+        };
+        Some((ip_cstr, addr))
+    }
+
     fn start_udp_transport(&mut self) -> Result<()> {
         let mut addr: pjsip_sys::pj_sockaddr_in = unsafe { std::mem::zeroed() };
         // sin_family is pj_uint8_t (u8) — PJ_AF_INET = 2 (AF_INET)
@@ -202,13 +226,19 @@ impl PjEndpoint {
         // 0.0.0.0 = INADDR_ANY
         addr.sin_addr.s_addr = 0;
 
+        let published = self.build_published_addr();
+        let a_name_ptr = published
+            .as_ref()
+            .map(|(_, hp)| hp as *const _)
+            .unwrap_or(ptr::null());
+
         let mut tp: *mut pjsip_sys::pjsip_transport = ptr::null_mut();
         let status = unsafe {
             pjsip_sys::pjsip_udp_transport_start(
                 self.endpt,
                 &addr,
-                ptr::null(),  // published address (auto)
-                1,            // async count
+                a_name_ptr,
+                1,
                 &mut tp,
             )
         };
@@ -222,16 +252,23 @@ impl PjEndpoint {
         addr.sin_port = self.config.port.to_be();
         addr.sin_addr.s_addr = 0;
 
+        let published = self.build_published_addr();
+        let a_name_ptr = published
+            .as_ref()
+            .map(|(_, hp)| hp as *const _)
+            .unwrap_or(ptr::null());
+
         let mut factory: *mut pjsip_sys::pjsip_tpfactory = ptr::null_mut();
         let status = unsafe {
-            pjsip_sys::pjsip_tcp_transport_start(
+            pjsip_sys::pjsip_tcp_transport_start2(
                 self.endpt,
                 &addr,
-                1,  // async count
+                a_name_ptr,
+                1,
                 &mut factory,
             )
         };
-        check_status(status).map_err(|e| anyhow!("pjsip_tcp_transport_start failed: {e}"))?;
+        check_status(status).map_err(|e| anyhow!("pjsip_tcp_transport_start2 failed: {e}"))?;
         Ok(())
     }
 
@@ -263,13 +300,19 @@ impl PjEndpoint {
         addr.sin_port = self.config.port.to_be();
         addr.sin_addr.s_addr = 0;
 
+        let published = self.build_published_addr();
+        let a_name_ptr = published
+            .as_ref()
+            .map(|(_, hp)| hp as *const _)
+            .unwrap_or(ptr::null());
+
         let mut factory: *mut pjsip_sys::pjsip_tpfactory = ptr::null_mut();
         let status = unsafe {
             pjsip_sys::pjsip_tls_transport_start(
                 self.endpt,
                 &tls_setting,
                 &addr,
-                ptr::null(),
+                a_name_ptr,
                 1,
                 &mut factory,
             )

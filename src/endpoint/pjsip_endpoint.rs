@@ -69,6 +69,11 @@ impl PjsipEndpoint {
             session_expires: 1800,
             min_se: 90,
             enable_100rel: true,
+            external_ip: self
+                .config
+                .nat
+                .as_ref()
+                .and_then(|n| n.external_ip.clone()),
         }
     }
 }
