@@ -11,6 +11,7 @@ use crate::capacity::guard::CapacityCheckResult;
 use rsipstack::dialog::server_dialog::ServerInviteDialog;
 use crate::cdr::{CarrierCdr, CdrLeg, CdrStatus, CdrTiming};
 use crate::manipulation::engine::{ManipulationContext, ManipulationEngine};
+use crate::proxy::parallel_dial::{ParallelDialer, ParallelDialResult};
 use crate::proxy::session::ProxyCallSession;
 use crate::proxy::types::{DspConfig, ProxyCallContext, ProxyCallEvent, ProxyCallPhase};
 use crate::redis_state::types::DidConfig;
@@ -27,6 +28,8 @@ use uuid::Uuid;
 use crate::proxy::pj_dialog_layer::PjDialogLayer;
 #[cfg(feature = "carrier")]
 use crate::proxy::pj_failover::{PjFailoverLoop, PjFailoverResult};
+#[cfg(feature = "carrier")]
+use crate::proxy::session_timer::SessionTimerState;
 #[cfg(feature = "carrier")]
 use pjsip::PjCallEvent;
 #[cfg(feature = "carrier")]
@@ -333,19 +336,6 @@ pub async fn dispatch_proxy_call(
 
     let cancel_token = app_state.token.child_token();
 
-    // Under the minimal feature (no carrier), use ProxyCallSession (rsipstack).
-    // Under the carrier feature, the pjsip path is used below after URI translation.
-    #[cfg(not(feature = "carrier"))]
-    let (mut session, event_rx) = ProxyCallSession::new(
-        context.clone(),
-        cancel_token.clone(),
-        caller_dialog,
-        server_dialog,
-        app_state.dialog_layer.clone(),
-        config_store.clone(),
-        app_state.stream_engine.clone(),
-    );
-
     // ------------------------------------------------------------------ //
     // 8. Run session                                                       //
     // ------------------------------------------------------------------ //
@@ -451,8 +441,26 @@ pub async fn dispatch_proxy_call(
                     // - INVITE tx ends without ACK (WaitAck timeout) → invite_done fires → break
                     let call_id_for_bye = call_id.clone();
                     let mut dialog_confirmed = false;
+
+                    // Session timer: detect hung calls where no re-INVITE
+                    // refresh arrives within the session interval.
+                    let mut session_timer = SessionTimerState::default();
+                    // Enable timer with default 30-minute interval.
+                    // In a full implementation, this would be negotiated from
+                    // Session-Expires headers in the INVITE/200 OK exchange.
+                    session_timer.enabled = true;
+                    session_timer.active = true;
+
                     loop {
                         tokio::select! {
+                            // Session timer: check every 30 seconds if session expired.
+                            _ = tokio::time::sleep(std::time::Duration::from_secs(30)), if session_timer.enabled => {
+                                if session_timer.is_expired() {
+                                    warn!(session_id = %session_id, "dispatch: session timer expired — terminating call");
+                                    let _ = pj_dialog_layer.send_bye(&call_id_for_bye);
+                                    break;
+                                }
+                            }
                             _ = cancel_token.cancelled() => {
                                 let _ = pj_dialog_layer.send_bye(&call_id_for_bye);
                                 break;
@@ -483,6 +491,7 @@ pub async fn dispatch_proxy_call(
                                         // Gateway sent re-INVITE — relay to caller, wait for
                                         // response, then answer the gateway's pending re-INVITE
                                         // with the caller's SDP.
+                                        session_timer.update_refresh();
                                         info!(session_id = %session_id, "dispatch: relaying re-INVITE to inbound caller");
                                         let ct = rsip::Header::ContentType("application/sdp".to_string().into());
                                         match server_dialog.reinvite(Some(vec![ct]), Some(sdp.into_bytes())).await {
@@ -584,6 +593,7 @@ pub async fn dispatch_proxy_call(
                                     Some(DialogState::Updated(_id, request, tx_handle)) => {
                                         // Caller sent re-INVITE (hold/resume/codec change) —
                                         // relay to gateway, respond 200 OK to caller immediately.
+                                        session_timer.update_refresh();
                                         let caller_sdp = if request.body.is_empty() {
                                             String::new()
                                         } else {
@@ -683,40 +693,161 @@ pub async fn dispatch_proxy_call(
 
     #[cfg(not(feature = "carrier"))]
     {
-        let timing_handle = spawn_event_collector(event_rx, app_state.proxy_calls.clone(), session_id.clone());
+        if trunk.distribution == "parallel" {
+            // Parallel dialing: try all gateways concurrently, first answer wins.
+            let mut caller_dialog = caller_dialog;
+            let dialer = ParallelDialer::new(
+                app_state.dialog_layer.clone(),
+                cancel_token.clone(),
+                config_store.clone(),
+            );
 
-        let session_result = session
-            .run(&trunk, &caller_sdp, &final_caller_uri, &final_callee_uri)
-            .await;
+            info!(
+                session_id = %session_id,
+                "dispatch: starting parallel dial"
+            );
 
-        if let Err(ref e) = session_result {
-            warn!(session_id = %session_id, "dispatch: session ended with error: {e}");
-        }
+            let result = dialer
+                .try_parallel(&trunk, &caller_sdp, &final_caller_uri, &final_callee_uri, &server_dialog)
+                .await;
 
-        // Decrement the concurrent call counter now that the session has ended.
-        if let Some(ref guard) = app_state.capacity_guard {
-            guard.release_call(&trunk.name, &session_id).await;
-        }
+            let final_status = match result {
+                Ok(ParallelDialResult::Connected { gateway_name, mut dialog_guard, sdp }) => {
+                    info!(
+                        session_id = %session_id,
+                        gateway = %gateway_name,
+                        "dispatch: parallel dial connected"
+                    );
 
-        let (ring_time, answer_time, cdr_status) =
-            timing_handle.await.unwrap_or((None, None, CdrStatus::Failed));
+                    // Relay 200 OK + SDP to the inbound caller.
+                    if let Some(ref answer_sdp) = sdp {
+                        let ct = rsip::Header::ContentType("application/sdp".to_string().into());
+                        if let Err(e) = server_dialog.accept(Some(vec![ct]), Some(answer_sdp.as_bytes().to_vec())) {
+                            warn!(session_id = %session_id, "dispatch: failed to accept inbound call: {e}");
+                        }
+                    } else if let Err(e) = server_dialog.accept(None, None) {
+                        warn!(session_id = %session_id, "dispatch: failed to accept inbound call (no sdp): {e}");
+                    }
 
-        let final_status = if session_result.is_err() {
-            CdrStatus::Failed
+                    // Mark answered in proxy_calls.
+                    {
+                        let mut map = app_state.proxy_calls.lock().unwrap();
+                        if let Some(rec) = map.get_mut(&session_id) {
+                            rec.answer_time = Some(Utc::now());
+                            rec.status = "answered".to_string();
+                        }
+                    }
+
+                    // Bridge loop: monitor both legs until one terminates.
+                    // TODO: relay re-INVITEs and INFO between legs for full bridge.
+                    loop {
+                        tokio::select! {
+                            _ = cancel_token.cancelled() => {
+                                info!(session_id = %session_id, "dispatch: parallel bridge cancelled");
+                                break;
+                            }
+                            gw_event = dialog_guard.recv() => {
+                                match gw_event {
+                                    Some(rsipstack::dialog::dialog::DialogState::Terminated(_, _)) | None => {
+                                        info!(session_id = %session_id, "dispatch: parallel bridge — gateway terminated");
+                                        break;
+                                    }
+                                    _ => {} // Continue monitoring
+                                }
+                            }
+                            caller_event = caller_dialog.recv() => {
+                                match caller_event {
+                                    Some(rsipstack::dialog::dialog::DialogState::Terminated(_, _)) | None => {
+                                        info!(session_id = %session_id, "dispatch: parallel bridge — caller terminated");
+                                        break;
+                                    }
+                                    _ => {} // Continue monitoring
+                                }
+                            }
+                        }
+                    }
+                    CdrStatus::Completed
+                }
+                Ok(ParallelDialResult::AllFailed { last_code, last_reason }) => {
+                    warn!(
+                        session_id = %session_id,
+                        code = %last_code,
+                        reason = %last_reason,
+                        "dispatch: parallel dial — all gateways failed"
+                    );
+                    CdrStatus::Failed
+                }
+                Ok(ParallelDialResult::Cancelled) => {
+                    info!(session_id = %session_id, "dispatch: parallel dial cancelled by caller");
+                    CdrStatus::Cancelled
+                }
+                Err(e) => {
+                    warn!(session_id = %session_id, "dispatch: parallel dial error: {e}");
+                    CdrStatus::Failed
+                }
+            };
+
+            // Decrement capacity.
+            if let Some(ref guard) = app_state.capacity_guard {
+                guard.release_call(&trunk.name, &session_id).await;
+            }
+
+            app_state.proxy_calls.lock().unwrap().remove(&session_id);
+
+            generate_and_enqueue_cdr(
+                &app_state, &session_id, &did, &trunk, &final_caller_uri, &final_callee_uri,
+                final_status, context.start_time, None, None,
+            ).await;
+
+            info!(session_id = %session_id, "dispatch: session complete");
+            Ok(())
         } else {
-            cdr_status
-        };
+            // Sequential failover (existing behavior).
+            let (mut session, event_rx) = ProxyCallSession::new(
+                context.clone(),
+                cancel_token.clone(),
+                caller_dialog,
+                server_dialog,
+                app_state.dialog_layer.clone(),
+                config_store.clone(),
+                app_state.stream_engine.clone(),
+            );
 
-        // Remove from proxy_calls on session end.
-        app_state.proxy_calls.lock().unwrap().remove(&session_id);
+            let timing_handle = spawn_event_collector(event_rx, app_state.proxy_calls.clone(), session_id.clone());
 
-        generate_and_enqueue_cdr(
-            &app_state, &session_id, &did, &trunk, &final_caller_uri, &final_callee_uri,
-            final_status, session.context().start_time, ring_time, answer_time,
-        ).await;
+            let session_result = session
+                .run(&trunk, &caller_sdp, &final_caller_uri, &final_callee_uri)
+                .await;
 
-        info!(session_id = %session_id, "dispatch: session complete");
-        Ok(())
+            if let Err(ref e) = session_result {
+                warn!(session_id = %session_id, "dispatch: session ended with error: {e}");
+            }
+
+            // Decrement the concurrent call counter now that the session has ended.
+            if let Some(ref guard) = app_state.capacity_guard {
+                guard.release_call(&trunk.name, &session_id).await;
+            }
+
+            let (ring_time, answer_time, cdr_status) =
+                timing_handle.await.unwrap_or((None, None, CdrStatus::Failed));
+
+            let final_status = if session_result.is_err() {
+                CdrStatus::Failed
+            } else {
+                cdr_status
+            };
+
+            // Remove from proxy_calls on session end.
+            app_state.proxy_calls.lock().unwrap().remove(&session_id);
+
+            generate_and_enqueue_cdr(
+                &app_state, &session_id, &did, &trunk, &final_caller_uri, &final_callee_uri,
+                final_status, session.context().start_time, ring_time, answer_time,
+            ).await;
+
+            info!(session_id = %session_id, "dispatch: session complete");
+            Ok(())
+        }
     }
 }
 
