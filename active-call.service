@@ -1,0 +1,24 @@
+[Unit]
+Description=Active Call — AI Voice Agent / SIP SBC
+After=network.target redis.service
+Wants=redis.service
+
+[Service]
+Type=simple
+WorkingDirectory=/home/ubuntu/apps/super-voice
+ExecStartPre=/bin/mkdir -p /home/ubuntu/apps/super-voice/logs
+ExecStart=/home/ubuntu/apps/super-voice/target/release/active-call --conf my-config.toml
+Restart=on-failure
+RestartSec=5s
+
+# Logging
+StandardOutput=append:/home/ubuntu/apps/super-voice/logs/active-call.log
+StandardError=append:/home/ubuntu/apps/super-voice/logs/active-call-error.log
+SyslogIdentifier=active-call
+
+# Environment
+Environment=RUST_LOG=info
+Environment=RUST_BACKTRACE=1
+
+[Install]
+WantedBy=multi-user.target

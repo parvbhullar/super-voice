@@ -21,3 +21,6 @@ docs/plans
 dump.rdb
 onnxruntime-linux-*
 my-config.toml
+logs/active-call.log
+logs/active-call-error.log
+.gitignore

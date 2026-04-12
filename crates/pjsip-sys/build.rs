@@ -125,6 +125,7 @@ fn main() {
         .allowlist_type("pjsip_host_port")
         // pjsip transport (UDP/TCP/TLS)
         .allowlist_function("pjsip_udp_transport_start.*")
+        .allowlist_function("pjsip_udp_transport_attach.*")
         .allowlist_function("pjsip_tcp_transport_start.*")
         .allowlist_function("pjsip_tls_transport_start.*")
         .allowlist_type("pjsip_transport.*")

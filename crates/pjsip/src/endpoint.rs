@@ -14,6 +14,7 @@ use crate::error::check_status;
 use crate::pool::CachingPool;
 use anyhow::{Result, anyhow};
 use std::ffi::CString;
+use std::mem::ManuallyDrop;
 use std::ptr;
 
 /// Configuration for creating a PjEndpoint.
@@ -65,7 +66,10 @@ impl Default for PjEndpointConfig {
 /// MUST only be used from the pjsip OS thread.
 pub struct PjEndpoint {
     pub(crate) endpt: *mut pjsip_sys::pjsip_endpoint,
-    pub(crate) _caching_pool: CachingPool,
+    /// ManuallyDrop so we can destroy the pool BEFORE calling pj_shutdown().
+    /// pj_caching_pool_destroy logs internally, which calls pj_thread_this().
+    /// If pj_shutdown() runs first (destroying the TLS key), that call asserts.
+    pub(crate) _caching_pool: ManuallyDrop<CachingPool>,
     pub(crate) pool: *mut pjsip_sys::pj_pool_t,
     config: PjEndpointConfig,
 }
@@ -121,7 +125,7 @@ impl PjEndpoint {
 
         let mut ep = Self {
             endpt,
-            _caching_pool: caching_pool,
+            _caching_pool: ManuallyDrop::new(caching_pool),
             pool,
             config,
         };
@@ -219,30 +223,118 @@ impl PjEndpoint {
     }
 
     fn start_udp_transport(&mut self) -> Result<()> {
-        let mut addr: pjsip_sys::pj_sockaddr_in = unsafe { std::mem::zeroed() };
-        // sin_family is pj_uint8_t (u8) — PJ_AF_INET = 2 (AF_INET)
-        addr.sin_family = libc::AF_INET as u16;
-        addr.sin_port = self.config.port.to_be();
-        // 0.0.0.0 = INADDR_ANY
-        addr.sin_addr.s_addr = 0;
+        // Create the UDP socket manually so we can set SO_REUSEPORT before
+        // binding. This lets pjsip share port 5060 with the rsipstack endpoint
+        // that is already bound to the same port with SO_REUSEPORT.
+        let sock = unsafe { libc::socket(libc::AF_INET, libc::SOCK_DGRAM, 0) };
+        if sock < 0 {
+            return Err(anyhow!("socket() failed: {}", std::io::Error::last_os_error()));
+        }
 
+        // SO_REUSEADDR — allow rebind after restart
+        let one: libc::c_int = 1;
+        let rc = unsafe {
+            libc::setsockopt(
+                sock,
+                libc::SOL_SOCKET,
+                libc::SO_REUSEADDR,
+                &one as *const _ as *const libc::c_void,
+                std::mem::size_of::<libc::c_int>() as libc::socklen_t,
+            )
+        };
+        if rc != 0 {
+            unsafe { libc::close(sock) };
+            return Err(anyhow!("SO_REUSEADDR failed: {}", std::io::Error::last_os_error()));
+        }
+
+        // SO_REUSEPORT — allow multiple sockets on the same port (Linux 3.9+)
+        #[cfg(target_os = "linux")]
+        {
+            let rc = unsafe {
+                libc::setsockopt(
+                    sock,
+                    libc::SOL_SOCKET,
+                    libc::SO_REUSEPORT,
+                    &one as *const _ as *const libc::c_void,
+                    std::mem::size_of::<libc::c_int>() as libc::socklen_t,
+                )
+            };
+            if rc != 0 {
+                unsafe { libc::close(sock) };
+                return Err(anyhow!("SO_REUSEPORT failed: {}", std::io::Error::last_os_error()));
+            }
+        }
+
+        // Bind to 0.0.0.0:<port>
+        let mut bind_addr: libc::sockaddr_in = unsafe { std::mem::zeroed() };
+        bind_addr.sin_family = libc::AF_INET as libc::sa_family_t;
+        bind_addr.sin_port = self.config.port.to_be();
+        bind_addr.sin_addr.s_addr = 0; // INADDR_ANY
+        let rc = unsafe {
+            libc::bind(
+                sock,
+                &bind_addr as *const _ as *const libc::sockaddr,
+                std::mem::size_of::<libc::sockaddr_in>() as libc::socklen_t,
+            )
+        };
+        if rc != 0 {
+            unsafe { libc::close(sock) };
+            return Err(anyhow!(
+                "bind to 0.0.0.0:{} failed: {}",
+                self.config.port,
+                std::io::Error::last_os_error()
+            ));
+        }
+
+        // Build the published address for Contact/Via headers.
+        // Prefer the explicitly-configured external_ip; fall back to the address
+        // reported by getsockname() (works when bind_addr is a real IP, not
+        // 0.0.0.0). pjsip_udp_transport_attach requires a non-null a_name.
         let published = self.build_published_addr();
-        let a_name_ptr = published
-            .as_ref()
-            .map(|(_, hp)| hp as *const _)
-            .unwrap_or(ptr::null());
+        let (a_name_cstr, a_name_hp, _a_name_holder);
+        let a_name_ptr: *const pjsip_sys::pjsip_host_port = if let Some(ref p) = published {
+            &p.1  // user-configured external IP
+        } else {
+            // Derive from the bound socket address
+            let mut bound: libc::sockaddr_in = unsafe { std::mem::zeroed() };
+            let mut bound_len = std::mem::size_of::<libc::sockaddr_in>() as libc::socklen_t;
+            let rc = unsafe {
+                libc::getsockname(
+                    sock,
+                    &mut bound as *mut _ as *mut libc::sockaddr,
+                    &mut bound_len,
+                )
+            };
+            if rc != 0 {
+                unsafe { libc::close(sock) };
+                return Err(anyhow!("getsockname failed: {}", std::io::Error::last_os_error()));
+            }
+            let ip_bytes = unsafe { bound.sin_addr.s_addr }.to_ne_bytes();
+            let ip_str = format!("{}.{}.{}.{}", ip_bytes[0], ip_bytes[1], ip_bytes[2], ip_bytes[3]);
+            a_name_cstr = std::ffi::CString::new(ip_str.as_str()).unwrap();
+            a_name_hp = pjsip_sys::pjsip_host_port {
+                host: unsafe { pjsip_sys::pj_str(a_name_cstr.as_ptr() as *mut _) },
+                port: self.config.port as std::os::raw::c_int,
+            };
+            _a_name_holder = a_name_cstr; // keep alive for the duration of the call
+            &a_name_hp
+        };
 
+        // Hand the already-bound socket to pjsip.
         let mut tp: *mut pjsip_sys::pjsip_transport = ptr::null_mut();
         let status = unsafe {
-            pjsip_sys::pjsip_udp_transport_start(
+            pjsip_sys::pjsip_udp_transport_attach(
                 self.endpt,
-                &addr,
+                sock as pjsip_sys::pj_sock_t,
                 a_name_ptr,
                 1,
                 &mut tp,
             )
         };
-        check_status(status).map_err(|e| anyhow!("pjsip_udp_transport_start failed: {e}"))?;
+        if status != 0 {
+            unsafe { libc::close(sock) };
+            check_status(status).map_err(|e| anyhow!("pjsip_udp_transport_attach failed: {e}"))?;
+        }
         Ok(())
     }
 
@@ -362,22 +454,26 @@ impl PjEndpoint {
             unsafe { pjsip_sys::pjsip_endpt_release_pool(self.endpt, self.pool) };
             self.pool = ptr::null_mut();
         }
-        // Null out endpt to prevent Drop from calling destroy.
         self.endpt = ptr::null_mut();
-        // pj_shutdown() cleans up pjlib global state including thread registry.
+        // Destroy the caching pool BEFORE pj_shutdown(): pj_caching_pool_destroy
+        // logs internally which calls pj_thread_this(). If pj_shutdown() destroys
+        // the TLS key first, that call would assert.
+        unsafe { ManuallyDrop::drop(&mut self._caching_pool) };
+        // Now safe to shut down pjlib — all allocations have been returned.
         unsafe { pjsip_sys::pj_shutdown() };
-        // Prevent Drop from running (fields already nulled).
+        // Prevent Drop from running (resources already released).
         std::mem::forget(self);
     }
 }
 
 impl Drop for PjEndpoint {
     fn drop(&mut self) {
-        // This runs on error paths. Skip endpt_destroy to avoid blocking.
+        // Error-path cleanup. Skip pjsip_endpt_destroy to avoid blocking.
         if !self.pool.is_null() && !self.endpt.is_null() {
             unsafe { pjsip_sys::pjsip_endpt_release_pool(self.endpt, self.pool) };
         }
-        // Do NOT call pjsip_endpt_destroy — it may block indefinitely on macOS.
+        // Destroy caching pool BEFORE pj_shutdown — see comment on _caching_pool.
+        unsafe { ManuallyDrop::drop(&mut self._caching_pool) };
         unsafe { pjsip_sys::pj_shutdown() };
     }
 }

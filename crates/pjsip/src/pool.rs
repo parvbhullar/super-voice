@@ -5,8 +5,13 @@ use std::ffi::CString;
 use std::ptr;
 
 /// Global caching pool factory — must be initialized once at startup.
+///
+/// IMPORTANT: `pj_caching_pool_init` writes self-referential pointers inside
+/// the struct (e.g. the `factory.pool_list` sentinel links to itself). The
+/// struct must therefore **never move** after initialization. We heap-allocate
+/// via `Box` to guarantee a stable address.
 pub struct CachingPool {
-    inner: pjsip_sys::pj_caching_pool,
+    inner: Box<pjsip_sys::pj_caching_pool>,
 }
 
 impl CachingPool {
@@ -14,9 +19,10 @@ impl CachingPool {
     ///
     /// Call this once at application startup, after `pj_init()`.
     pub fn new() -> Self {
-        let mut cp: pjsip_sys::pj_caching_pool = unsafe { std::mem::zeroed() };
+        // Allocate on the heap first so the address is stable before init.
+        let mut cp = Box::new(unsafe { std::mem::zeroed::<pjsip_sys::pj_caching_pool>() });
         unsafe {
-            pjsip_sys::pj_caching_pool_init(&mut cp, ptr::null(), 0);
+            pjsip_sys::pj_caching_pool_init(cp.as_mut(), ptr::null(), 0);
         }
         Self { inner: cp }
     }
@@ -44,7 +50,7 @@ impl CachingPool {
 
 impl Drop for CachingPool {
     fn drop(&mut self) {
-        unsafe { pjsip_sys::pj_caching_pool_destroy(&mut self.inner) };
+        unsafe { pjsip_sys::pj_caching_pool_destroy(self.inner.as_mut()) };
     }
 }
 

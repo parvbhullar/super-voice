@@ -66,29 +66,11 @@ impl Drop for PjBridge {
 // ---------------------------------------------------------------------------
 
 fn pjsip_thread_main(config: PjEndpointConfig, mut cmd_rx: UnboundedReceiver<PjCommand>) {
-    // RESEARCH GAP FIX 3: Register this OS thread with pjlib BEFORE calling
-    // pj_init or PjEndpoint::create. pjsip requires every thread that calls
-    // its APIs to be registered. Box::leak gives a 'static lifetime descriptor.
-    //
-    // pj_thread_register takes a *mut c_long as the thread descriptor.
-    // The descriptor must remain valid for the thread's lifetime.
-    // PJ_THREAD_DESC_SIZE is 64 on most platforms — we allocate 64 longs.
-    let thread_desc: Box<[std::os::raw::c_long; 64]> =
-        Box::new([0 as std::os::raw::c_long; 64]);
-    let thread_desc_ptr = Box::leak(thread_desc) as *mut _ as *mut std::os::raw::c_long;
-    let thread_name = CString::new("pjsip").unwrap();
-    let mut thread_handle: *mut pjsip_sys::pj_thread_t = ptr::null_mut();
-    let reg_status = unsafe {
-        pjsip_sys::pj_thread_register(
-            thread_name.as_ptr(),
-            thread_desc_ptr,
-            &mut thread_handle,
-        )
-    };
-    if reg_status != 0 {
-        // Non-fatal: pjlib may already know this thread (e.g. main thread).
-        debug!("pj_thread_register returned {reg_status} (may be already registered)");
-    }
+    // pj_init() is called inside PjEndpoint::create(). It initializes pjlib and
+    // automatically registers the calling (pjsip) thread — no pj_thread_register()
+    // needed here. Calling pj_thread_register() *before* pj_init() is wrong: pjlib
+    // global state (thread-count atomics, TLS key, etc.) is not set up yet and the
+    // call will SIGSEGV.
 
     // 1. Create endpoint (initializes pjlib, modules, transport)
     eprintln!("[pjsip thread] creating endpoint");
