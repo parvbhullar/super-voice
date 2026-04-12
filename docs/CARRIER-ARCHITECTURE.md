@@ -250,8 +250,10 @@ Caller ──SIP──► [ProxyCall] ──SIP──► Callee
 Features:
 - **SDP codec filtering**: Caller SDP filtered against trunk's allowed codecs; 488 rejection on mismatch
 - **Early media**: 183 Session Progress with SDP relayed to caller
-- **Failover loop**: Sequential gateway attempts with nofailover SIP code support
-- **Bidirectional re-INVITE**: Hold/resume relayed in both directions (caller↔gateway)
+- **Sequential failover**: Gateway attempts with nofailover SIP code support
+- **Parallel dialing**: Concurrent gateway attempts (`distribution = "parallel"`); first answer wins
+- **RFC 4028 session timers**: Detect hung sessions; terminate on expiry
+- **Bidirectional re-INVITE**: Hold/resume relayed both directions (caller↔gateway)
 - **SIP INFO relay**: DTMF and other INFO messages forwarded bidirectionally
 - **NAT traversal**: External IP published address for SIP transports (UDP/TCP/TLS)
 - **REFER transfer**: Attended and blind transfer support

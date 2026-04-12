@@ -15,6 +15,12 @@ pub mod bridge;
 // SDP codec filtering for trunk-level codec restrictions
 pub mod sdp_filter;
 
+// RFC 4028 session timer state machine
+pub mod session_timer;
+
+// Parallel dialer — concurrent gateway attempts (first-answer-wins)
+pub mod parallel_dial;
+
 // Phase 12 Plan 03
 #[cfg(feature = "carrier")]
 pub mod pj_dialog_layer;

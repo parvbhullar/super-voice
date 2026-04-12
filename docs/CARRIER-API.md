@@ -180,7 +180,29 @@ curl -X PUT /api/v1/trunks/us-carrier/media \
 
 When `media.codecs` is set, inbound SDP offers are filtered to include only these codecs. Calls with no codec overlap receive 488 Not Acceptable Here.
 
-**Distribution:** `weight_based`, `round_robin`, `hash_callid`, `hash_src_ip`, `hash_destination`
+**Distribution modes:**
+- `weight_based` — weighted round-robin across gateways (default)
+- `round_robin` — sequential rotation
+- `hash_callid` / `hash_src_ip` / `hash_destination` — consistent hashing
+- `parallel` — dial all gateways concurrently; first answer wins, losers are cancelled
+
+**Parallel dialing example:**
+```bash
+curl -X POST /api/v1/trunks \
+  -H "Authorization: Bearer $API_KEY" \
+  -d '{
+    "name": "us-failover",
+    "direction": "both",
+    "distribution": "parallel",
+    "gateways": [
+      {"name": "primary-us"},
+      {"name": "backup-us"},
+      {"name": "tertiary-us"}
+    ]
+  }'
+```
+
+**Session timers (RFC 4028):** Enabled by default on carrier-path calls with a 30-minute expiry. Gateway or caller re-INVITEs refresh the timer; expired sessions are torn down with BYE. No configuration required.
 
 ---
 
