@@ -13,7 +13,7 @@ pub struct Attendee {
 
 impl From<&String> for Attendee {
     fn from(source: &String) -> Self {
-        let uri = rsip::Uri::try_from(source.as_str()).unwrap_or_default();
+        let uri = rsipstack::rsip::Uri::try_from(source.as_str()).unwrap_or_default();
         Self {
             username: uri.user().unwrap_or_default().to_string(),
             realm: uri.host().to_string(),
@@ -126,6 +126,13 @@ pub enum SessionEvent {
         timestamp: u64,
         on_hold: bool,
     },
+    TransferRequest {
+        track_id: String,
+        timestamp: u64,
+        refer_to: String,
+        referred_by: Option<String>,
+        refer: Option<bool>,
+    },
     TrackStart {
         track_id: String,
         timestamp: u64,
@@ -202,6 +209,11 @@ pub enum SessionEvent {
     Ping {
         timestamp: u64,
         payload: Option<String>,
+    },
+    Custom {
+        timestamp: u64,
+        sender: Option<String>,
+        data: serde_json::Value,
     },
 }
 

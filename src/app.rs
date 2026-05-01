@@ -15,7 +15,8 @@ use crate::{
             default_create_invite_handler,
         },
         public_address::{
-            LearnedPublicAddresses, LearningMessageInspector, build_public_contact_uri,
+            LearningMessageInspector, SharedPublicAddress, build_contact, build_public_contact_uri,
+            find_local_addr_for_uri,
         },
         registration::{RegistrationHandle, UserCredential},
     },
@@ -23,20 +24,24 @@ use crate::{
 
 use crate::media::{cache::set_cache_dir, engine::StreamEngine};
 use anyhow::Result;
+use arc_swap::ArcSwap;
 use chrono::{DateTime, Local};
+use futures::FutureExt;
 use humantime::parse_duration;
-use rsip::headers::ToTypedHeader;
-use rsip::prelude::HeadersExt;
+use rsipstack::rsip;
+use rsipstack::rsip::prelude::HeadersExt;
+use rsipstack::sip::ToTypedHeader;
 use rsipstack::transaction::{
     Endpoint, TransactionReceiver,
     endpoint::{TargetLocator, TransportEventInspector},
 };
 use rsipstack::{dialog::dialog_layer::DialogLayer, transaction::endpoint::MessageInspector};
-use std::collections::HashSet;
+use std::future::pending;
 use std::str::FromStr;
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
 use std::{collections::HashMap, net::SocketAddr};
+use std::{collections::HashSet, time::Instant};
 use std::{
     path::Path,
     sync::atomic::{AtomicBool, AtomicU64, Ordering},
@@ -52,14 +57,14 @@ pub struct AppStateInner {
     pub stream_engine: Arc<StreamEngine>,
     pub callrecord_sender: Option<CallRecordSender>,
     pub endpoint: Endpoint,
-    pub registration_handles: Mutex<HashMap<String, RegistrationHandle>>,
+    pub registration_handles: Mutex<HashMap<String, CancellationToken>>,
     pub alive_users: Arc<RwLock<HashSet<String>>>,
     pub dialog_layer: Arc<DialogLayer>,
     pub create_invitation_handler: Option<FnCreateInvitationHandler>,
     pub invitation: Invitation,
     pub routing_state: Arc<crate::call::RoutingState>,
-    pub pending_playbooks: Arc<Mutex<HashMap<String, (String, std::time::Instant)>>>,
-    pub learned_public_addresses: LearnedPublicAddresses,
+    pub pending_playbooks: Arc<Mutex<HashMap<String, (String, Instant)>>>,
+    pub learned_public_address: SharedPublicAddress,
 
     pub active_calls: Arc<std::sync::Mutex<HashMap<String, ActiveCallRef>>>,
     pub total_calls: AtomicU64,
@@ -262,7 +267,7 @@ impl AppStateInner {
                     .and_then(|via_raw| via_raw.typed().ok())
                     .and_then(|via| {
                         // Prefer `received` param (NAT-corrected) over sent-by host
-                        if let Ok(Some(ip)) = via.received() {
+                        if let Some(Ok(ip)) = via.received() {
                             return Some(ip.to_string());
                         }
                         match &via.uri.host_with_port.host {
@@ -371,7 +376,7 @@ impl AppStateInner {
                     None => {
                         info!("dialog not found: {}", tx.original);
                         match tx
-                            .reply(rsip::StatusCode::CallTransactionDoesNotExist)
+                            .reply(rsipstack::rsip::StatusCode::CallTransactionDoesNotExist)
                             .await
                         {
                             Ok(_) => (),
@@ -386,14 +391,14 @@ impl AppStateInner {
             // out dialog, new server dialog
             let (state_sender, state_receiver) = dialog_layer.new_dialog_state_channel();
             match tx.original.method {
-                rsip::Method::Invite | rsip::Method::Ack => {
+                rsipstack::rsip::Method::Invite | rsipstack::rsip::Method::Ack => {
                     // Reject new INVITEs during graceful shutdown
                     if self.shutting_down.load(Ordering::Relaxed) {
                         info!(?key, "rejecting INVITE during graceful shutdown");
                         match tx
                             .reply_with(
-                                rsip::StatusCode::ServiceUnavailable,
-                                vec![rsip::Header::Other(
+                                rsipstack::rsip::StatusCode::ServiceUnavailable,
+                                vec![rsipstack::rsip::Header::Other(
                                     "Reason".into(),
                                     "SIP;cause=503;text=\"Server shutting down\"".into(),
                                 )],
@@ -424,8 +429,8 @@ impl AppStateInner {
                             info!(?key, "no invite handler configured, rejecting INVITE");
                             match tx
                                 .reply_with(
-                                    rsip::StatusCode::ServiceUnavailable,
-                                    vec![rsip::Header::Other(
+                                    rsipstack::rsip::StatusCode::ServiceUnavailable,
+                                    vec![rsipstack::rsip::Header::Other(
                                         "Reason".into(),
                                         "SIP;cause=503;text=\"No invite handler configured\""
                                             .into(),
@@ -451,7 +456,7 @@ impl AppStateInner {
                         tx.original.uri.auth.as_ref().map(|auth| auth.user.as_str());
                     let contact = local_addr.as_ref().map(|addr| {
                         build_public_contact_uri(
-                            &self.learned_public_addresses,
+                            &self.learned_public_address,
                             self.auto_learn_public_address_enabled(),
                             addr,
                             contact_username,
@@ -470,7 +475,7 @@ impl AppStateInner {
                             // 481 Dialog/Transaction Does Not Exist
                             info!("failed to obtain dialog: {:?}", e);
                             match tx
-                                .reply(rsip::StatusCode::CallTransactionDoesNotExist)
+                                .reply(rsipstack::rsip::StatusCode::CallTransactionDoesNotExist)
                                 .await
                             {
                                 Ok(_) => (),
@@ -612,7 +617,7 @@ impl AppStateInner {
                                     info!(id = dialog_id_str, "error handling invite: {:?}", e);
                                     let reason = format!("Failed to process invite: {}", e);
                                     if let Err(reject_err) = dialog_for_reject.reject(
-                                        Some(rsip::StatusCode::ServiceUnavailable),
+                                        Some(rsipstack::rsip::StatusCode::ServiceUnavailable),
                                         Some(reason),
                                     ) {
                                         info!(
@@ -634,13 +639,23 @@ impl AppStateInner {
                         }
                     });
                 }
-                rsip::Method::Options => {
+                rsipstack::rsip::Method::Options => {
                     info!(?key, "ignoring out-of-dialog OPTIONS request");
+                    continue;
+                }
+                rsipstack::rsip::Method::Refer => {
+                    info!(?key, "ignoring out-of-dialog REFER");
+                    match tx.reply(rsipstack::rsip::StatusCode::BadRequest).await {
+                        Ok(_) => (),
+                        Err(e) => {
+                            info!("error replying to out-of-dialog REFER: {:?}", e);
+                        }
+                    }
                     continue;
                 }
                 _ => {
                     info!(?key, "received request: {:?}", tx.original.method);
-                    match tx.reply(rsip::StatusCode::OK).await {
+                    match tx.reply(rsipstack::rsip::StatusCode::OK).await {
                         Ok(_) => (),
                         Err(e) => {
                             info!("error replying to request: {:?}", e);
@@ -659,12 +674,12 @@ impl AppStateInner {
         info!("stopping, marking as shutting down");
         self.token.cancel();
     }
-    
+
     pub async fn graceful_stop(&self) -> Result<()> {
         if self.shutting_down.swap(true, Ordering::Relaxed) {
             return Ok(());
         }
-        
+
         info!("graceful stopping, marking as shutting down");
         let timeout = self
             .config
@@ -704,7 +719,7 @@ impl AppStateInner {
             callee_uri.to_string()
         };
 
-        let parsed_callee = match rsip::Uri::try_from(callee_uri.as_str()) {
+        let parsed_callee = match rsipstack::rsip::Uri::try_from(callee_uri.as_str()) {
             Ok(uri) => uri,
             Err(e) => {
                 warn!("failed to parse callee URI: {} {:?}", callee, e);
@@ -713,8 +728,8 @@ impl AppStateInner {
         };
 
         let callee_host = match &parsed_callee.host_with_port.host {
-            rsip::Host::Domain(domain) => domain.to_string(),
-            rsip::Host::IpAddr(ip) => return self.find_credentials_by_ip(ip),
+            rsipstack::rsip::Host::Domain(domain) => domain.to_string(),
+            rsipstack::rsip::Host::IpAddr(ip) => return self.find_credentials_by_ip(ip),
         };
 
         // Look through registered users to find one matching this domain
@@ -725,7 +740,7 @@ impl AppStateInner {
                     server = format!("sip:{}", server);
                 }
 
-                let parsed_server = match rsip::Uri::try_from(server.as_str()) {
+                let parsed_server = match rsipstack::rsip::Uri::try_from(server.as_str()) {
                     Ok(uri) => uri,
                     Err(e) => {
                         warn!("failed to parse server URI: {} {:?}", option.server, e);
@@ -734,10 +749,10 @@ impl AppStateInner {
                 };
 
                 let server_host = match &parsed_server.host_with_port.host {
-                    rsip::Host::Domain(domain) => domain.to_string(),
-                    rsip::Host::IpAddr(ip) => {
+                    rsipstack::rsip::Host::Domain(domain) => domain.to_string(),
+                    rsipstack::rsip::Host::IpAddr(ip) => {
                         // Compare IP addresses
-                        if let rsip::Host::IpAddr(callee_ip) = &parsed_callee.host_with_port.host {
+                        if let rsipstack::rsip::Host::IpAddr(callee_ip) = &parsed_callee.host_with_port.host {
                             if ip == callee_ip {
                                 if let Some(cred) = &option.credential {
                                     info!(
@@ -783,8 +798,8 @@ impl AppStateInner {
                     server = format!("sip:{}", server);
                 }
 
-                if let Ok(parsed_server) = rsip::Uri::try_from(server.as_str()) {
-                    if let rsip::Host::IpAddr(server_ip) = &parsed_server.host_with_port.host {
+                if let Ok(parsed_server) = rsipstack::rsip::Uri::try_from(server.as_str()) {
+                    if let rsipstack::rsip::Host::IpAddr(server_ip) = &parsed_server.host_with_port.host {
                         if server_ip == callee_ip {
                             if let Some(cred) = &option.credential {
                                 info!(
@@ -806,10 +821,9 @@ impl AppStateInner {
     pub async fn stop_registration(&self, wait_for_clear: Option<Duration>) -> Result<()> {
         {
             let mut handles = self.registration_handles.lock().await;
-            for (_, handle) in handles.iter_mut() {
-                handle.stop();
+            for (_, cancel_token) in handles.drain() {
+                cancel_token.cancel();
             }
-            handles.clear();
         }
 
         if let Some(duration) = wait_for_clear {
@@ -846,7 +860,7 @@ impl AppStateInner {
         if !server.starts_with("sip:") && !server.starts_with("sips:") {
             server = format!("sip:{}", server);
         }
-        let sip_server = match rsip::Uri::try_from(server) {
+        let sip_server = match rsipstack::rsip::Uri::try_from(server) {
             Ok(uri) => uri,
             Err(e) => {
                 warn!("failed to parse server: {} {:?}", e, option.server);
@@ -859,57 +873,114 @@ impl AppStateInner {
             self.endpoint.inner.clone(),
             credential,
         );
-        let handle = RegistrationHandle {
-            inner: Arc::new(crate::useragent::registration::RegistrationHandleInner {
-                registration: Mutex::new(registration),
-                option,
-                cancel_token,
-                start_time: Mutex::new(std::time::Instant::now()),
-                last_update: Mutex::new(std::time::Instant::now()),
-                last_response: Mutex::new(None),
-            }),
+        let mut handle = RegistrationHandle {
+            registration,
+            option,
+            cancel_token: cancel_token.clone(),
+            start_time: Instant::now(),
+            last_update: Instant::now(),
+            last_response: None,
         };
         self.registration_handles
             .lock()
             .await
-            .insert(user.clone(), handle.clone());
+            .insert(user.clone(), cancel_token);
         tracing::debug!(user = user.as_str(), "starting registration task");
         let alive_users = self.alive_users.clone();
 
         crate::spawn(async move {
-            *handle.inner.start_time.lock().await = std::time::Instant::now();
+            handle.start_time = Instant::now();
+            let cancel_token = handle.cancel_token.clone();
+            let addrs = handle.registration.endpoint.get_addrs();
+            let local_bind_addr = if let Some(addr) = find_local_addr_for_uri(&addrs, &sip_server) {
+                addr
+            } else {
+                warn!(
+                    user = user.as_str(),
+                    server = %sip_server,
+                    "failed to get local bind address for registration transport"
+                );
+                alive_users.write().unwrap().remove(&user);
+                return;
+            };
+            let user = handle.option.aor();
+            alive_users.write().unwrap().remove(&user);
+            let mut contact_address = local_bind_addr.addr.clone();
+            let mut contact = build_contact(
+                &local_bind_addr,
+                Some(contact_address.clone()),
+                Some(handle.option.username.as_str()),
+                None,
+            );
+            let mut should_register = true;
+            let mut timer = pending().boxed();
 
-            select! {
-                _ = handle.inner.cancel_token.cancelled() => {
-                }
-                _ = async {
-                    loop {
-                        let user = handle.inner.option.aor();
-                        alive_users.write().unwrap().remove(&user);
-                        let refresh_time = match handle.do_register(&sip_server, None).await {
-                            Ok(expires) => {
+            loop {
+                select! {
+                    _ = cancel_token.cancelled() => {
+                        break;
+                    }
+                    _ = timer.as_mut(), if !should_register => {
+                        should_register = true;
+                        timer = Box::pin(pending());
+                    }
+                    result = handle.do_register(&sip_server, None, &contact), if should_register => {
+                        match result {
+                            Ok((expires, new_addr)) => {
+                                if handle
+                                    .should_retry_registration_now(
+                                        &local_bind_addr,
+                                        &contact_address,
+                                        new_addr.as_ref(),
+                                    )
+                                {
+                                    if let Some(next_contact_address) = new_addr {
+                                        info!(
+                                            user = user.as_str(),
+                                            current_contact = %contact_address,
+                                            next_contact = %next_contact_address,
+                                            "public address changed, retrying registration immediately",
+                                        );
+                                        contact_address = next_contact_address;
+                                        contact = build_contact(
+                                            &local_bind_addr,
+                                            Some(contact_address.clone()),
+                                            Some(handle.option.username.as_str()),
+                                            None,
+                                        );
+                                        continue;
+                                    }
+                                }
                                 info!(
-                                    user = handle.inner.option.aor(),
+                                    user = user.as_str(),
                                     expires = expires,
+                                    contact = %contact_address,
                                     alive_users = alive_users.read().unwrap().len(),
                                     "registration refreshed",
                                 );
-                                alive_users.write().unwrap().insert(user);
-                                expires * 3 / 4 // 75% of expiration time
+                                alive_users.write().unwrap().insert(user.clone());
+                                should_register = false;
+                                timer = Box::pin(tokio::time::sleep(Duration::from_secs(
+                                    (expires * 3 / 4) as u64,
+                                )));
                             }
                             Err(e) => {
                                 warn!(
-                                    user = handle.inner.option.aor(),
+                                    user = user.as_str(),
                                     alive_users = alive_users.read().unwrap().len(),
-                                    "registration failed: {:?}", e);
-                                60
+                                    "registration failed: {:?}", e
+                                );
+                                should_register = false;
+                                timer = Box::pin(tokio::time::sleep(Duration::from_secs(60)));
                             }
-                        };
-                        tokio::time::sleep(Duration::from_secs(refresh_time as u64)).await;
+                        }
                     }
-                } => {}
+                }
             }
-            handle.do_register(&sip_server, Some(0)).await.ok();
+            handle
+                .do_register(&sip_server, Some(0), &contact)
+                .await
+                .ok();
             alive_users.write().unwrap().remove(&user);
         });
         Ok(())
@@ -995,8 +1066,6 @@ impl AppStateBuilder {
             .cancel_token
             .unwrap_or_else(|| CancellationToken::new());
         let _ = set_cache_dir(&config.media_cache_path);
-        let learned_public_addresses = LearnedPublicAddresses::default();
-
         let local_ip = if !config.addr.is_empty() {
             std::net::IpAddr::from_str(config.addr.as_str())?
         } else {
@@ -1044,11 +1113,13 @@ impl AppStateBuilder {
         // Use the actual bound address (important when port=0 lets OS assign a port)
         let actual_addr = tokio_socket.local_addr()?;
         let bind_addr = rsipstack::transport::SipConnection::resolve_bind_address(actual_addr);
+        let mut learned_public_address: SharedPublicAddress =
+            Arc::new(ArcSwap::from_pointee(bind_addr.into()));
 
         let udp_inner = rsipstack::transport::udp::UdpInner {
             conn: tokio_socket,
             addr: rsipstack::transport::SipAddr {
-                r#type: Some(rsip::transport::Transport::Udp),
+                r#type: Some(rsipstack::rsip::transport::Transport::Udp),
                 addr: bind_addr.into(),
             },
         };
@@ -1081,7 +1152,7 @@ impl AppStateBuilder {
         if let Some(tls_port) = config.tls_port {
             let tls_addr: std::net::SocketAddr = format!("{}:{}", local_ip, tls_port).parse()?;
             let tls_sip_addr = rsipstack::transport::SipAddr {
-                r#type: Some(rsip::transport::Transport::Tls),
+                r#type: Some(rsipstack::rsip::transport::Transport::Tls),
                 addr: tls_addr.into(),
             };
             let mut tls_cfg = rsipstack::transport::tls::TlsConfig::default();
@@ -1128,12 +1199,10 @@ impl AppStateBuilder {
             .with_transport_layer(transport_layer)
             .with_option(endpoint_option);
 
-        if config.auto_learn_public_address.unwrap_or(false) {
-            endpoint_builder =
-                endpoint_builder.with_inspector(Box::new(LearningMessageInspector::new(
-                    learned_public_addresses.clone(),
-                    self.message_inspector,
-                )));
+        if config.auto_learn_public_address.unwrap_or_default() {
+            let inspector = LearningMessageInspector::new(bind_addr.into(), self.message_inspector);
+            learned_public_address = inspector.shared_public_address();
+            endpoint_builder = endpoint_builder.with_inspector(Box::new(inspector));
         } else if let Some(inspector) = self.message_inspector {
             endpoint_builder = endpoint_builder.with_inspector(inspector);
         }
@@ -1256,7 +1325,7 @@ impl AppStateBuilder {
             invitation: Invitation::new(dialog_layer),
             routing_state: Arc::new(crate::call::RoutingState::new()),
             pending_playbooks: Arc::new(Mutex::new(HashMap::new())),
-            learned_public_addresses,
+            learned_public_address,
             active_calls: Arc::new(std::sync::Mutex::new(HashMap::new())),
             total_calls: AtomicU64::new(0),
             total_failed_calls: AtomicU64::new(0),

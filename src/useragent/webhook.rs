@@ -3,7 +3,7 @@ use anyhow::Result;
 use async_trait::async_trait;
 use chrono::Utc;
 use reqwest::Client;
-use rsip::prelude::{HasHeaders, HeadersExt};
+use rsipstack::rsip::prelude::{HasHeaders, HeadersExt};
 use rsipstack::dialog::server_dialog::ServerInviteDialog;
 use serde_json::json;
 use std::{sync::Arc, time::Instant};

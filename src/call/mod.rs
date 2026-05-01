@@ -64,6 +64,7 @@ pub enum Command {
         play_id: Option<String>,
         auto_hangup: Option<bool>,
         wait_input_timeout: Option<u32>,
+        offset_ms: Option<u32>,
     },
     Interrupt {
         graceful: Option<bool>,
@@ -91,6 +92,10 @@ pub enum Command {
     History {
         speaker: String,
         text: String,
+    },
+    Custom {
+        sender: Option<String>,
+        data: serde_json::Value,
     },
 }
 

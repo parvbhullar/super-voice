@@ -27,7 +27,7 @@ impl RewriteTargetLocator {
 
 #[async_trait]
 impl TargetLocator for RewriteTargetLocator {
-    async fn locate(&self, uri: &rsip::Uri) -> Result<SipAddr> {
+    async fn locate(&self, uri: &rsipstack::rsip::Uri) -> Result<SipAddr> {
         let mut target_uri_str = uri.to_string();
         let mut matched = false;
 
@@ -43,7 +43,7 @@ impl TargetLocator for RewriteTargetLocator {
         }
 
         if matched {
-            let target_uri = rsip::Uri::try_from(target_uri_str.as_str())
+            let target_uri = rsipstack::rsip::Uri::try_from(target_uri_str.as_str())
                 .map_err(|e| rsipstack::Error::Error(format!("Invalid rewritten URI: {}", e)))?;
 
             SipAddr::try_from(&target_uri)
@@ -56,7 +56,7 @@ impl TargetLocator for RewriteTargetLocator {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rsip::Uri;
+    use rsipstack::rsip::Uri;
 
     #[tokio::test]
     async fn test_rewrite_ip() {

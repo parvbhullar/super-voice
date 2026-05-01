@@ -31,7 +31,9 @@ use crate::{
     callrecord::{CallRecord, CallRecordEvent, CallRecordEventType, CallRecordHangupReason},
     useragent::{
         invitation::PendingDialog,
-        public_address::{build_public_contact_uri, contact_needs_public_resolution},
+        public_address::{
+            build_public_contact_uri, contact_needs_public_resolution, find_local_addr_for_uri,
+        },
     },
 };
 use anyhow::Result;
@@ -405,7 +407,7 @@ impl ActiveCall {
 
         let process_command_loop = async move {
             while let Ok(command) = cmd_receiver.recv().await {
-                match self.dispatch(command).await {
+                match Box::pin(self.dispatch(command)).await {
                     Ok(_) => (),
                     Err(e) => {
                         warn!(session_id = self.session_id, "{}", e);
@@ -730,8 +732,9 @@ impl ActiveCall {
                 play_id,
                 auto_hangup,
                 wait_input_timeout,
+                offset_ms,
             } => {
-                self.do_play(url, play_id, auto_hangup, wait_input_timeout)
+                self.do_play(url, play_id, auto_hangup, wait_input_timeout, offset_ms)
                     .await
             }
             Command::Hangup {
@@ -759,6 +762,7 @@ impl ActiveCall {
                 fade_out_ms: _,
             } => self.do_interrupt(passage.unwrap_or_default()).await,
             Command::History { speaker, text } => self.do_history(speaker, text).await,
+            Command::Custom { sender, data } => self.do_custom(sender, data),
         }
     }
 
@@ -921,7 +925,7 @@ impl ActiveCall {
                 "ready to answer with track"
             );
 
-            let headers = vec![rsip::Header::ContentType(
+            let headers = vec![rsipstack::rsip::Header::ContentType(
                 "application/sdp".to_string().into(),
             )];
 
@@ -945,7 +949,7 @@ impl ActiveCall {
 
     async fn do_reject(
         &self,
-        code: Option<rsip::StatusCode>,
+        code: Option<rsipstack::rsip::StatusCode>,
         reason: Option<String>,
     ) -> Result<()> {
         match self
@@ -961,7 +965,22 @@ impl ActiveCall {
                 );
                 self.invitation.hangup(id, code, reason).await
             }
-            None => Ok(()),
+            None => {
+                let ready = self.call_state.write().await.ready_to_answer.take();
+                if let Some((_, _, dialog)) = ready {
+                    info!(
+                        session_id = self.session_id,
+                        ?reason,
+                        ?code,
+                        "rejecting call from ready_to_answer"
+                    );
+                    let dialog_id = dialog.id();
+                    dialog.reject(code, reason).ok();
+                    self.invitation.dialog_layer.remove_dialog(&dialog_id);
+                    self.cancel_token.cancel();
+                }
+                Ok(())
+            }
         }
     }
 
@@ -983,7 +1002,7 @@ impl ActiveCall {
         let state = self.call_state.read().await;
         if let Some((answer, _, dialog)) = state.ready_to_answer.as_ref() {
             let (headers, body) = if early_media.unwrap_or_default() || ringtone.is_some() {
-                let headers = vec![rsip::Header::ContentType(
+                let headers = vec![rsipstack::rsip::Header::ContentType(
                     "application/sdp".to_string().into(),
                 )];
                 (Some(headers), Some(answer.as_bytes().to_vec()))
@@ -998,7 +1017,7 @@ impl ActiveCall {
             );
             if let Some(ringtone_url) = ringtone {
                 drop(state);
-                self.do_play(ringtone_url, None, None, None).await.ok();
+                self.do_play(ringtone_url, None, None, None, None).await.ok();
             } else {
                 info!(session_id = self.session_id, "no ringtone to play");
             }
@@ -1042,7 +1061,7 @@ impl ActiveCall {
             speaker,
             play_id: play_id.clone(),
             streaming,
-            end_of_stream,
+            end_of_stream: if !streaming { true } else { end_of_stream },
             option: tts_option,
             base64,
             cache_key,
@@ -1076,10 +1095,8 @@ impl ActiveCall {
                 (ssrc, false)
             };
 
-            state.auto_hangup = match auto_hangup {
-                Some(true) => Some((target_ssrc, CallRecordHangupReason::BySystem)),
-                _ => state.auto_hangup.clone(),
-            };
+            // Defer auto_hangup setting until after potential interrupt.
+            // auto_hangup will be set below after do_interrupt() to avoid being cleared.
             state.wait_input_timeout = wait_input_timeout;
 
             state.current_play_id = play_id.clone();
@@ -1088,6 +1105,26 @@ impl ActiveCall {
 
         if should_interrupt {
             let _ = self.do_interrupt(false).await;
+        }
+
+        // Set auto_hangup AFTER potential interrupt to avoid it being cleared by do_interrupt().
+        // Only preserve auto_hangup when reusing the same handle (same play_id).
+        // When starting a new track or interrupting, clear stale auto_hangup.
+        {
+            let mut state = self.call_state.write().await;
+            state.auto_hangup = match auto_hangup {
+                Some(true) => Some((picked_ssrc, CallRecordHangupReason::BySystem)),
+                _ => {
+                    // Only preserve auto_hangup when reusing the same handle (same play_id).
+                    // When starting a new track (different play_id or no existing handle),
+                    // clear stale auto_hangup to prevent orphaned hangup.
+                    if state.tts_handle.is_some() && !should_interrupt {
+                        state.auto_hangup.clone()
+                    } else {
+                        None
+                    }
+                }
+            };
         }
 
         let existing_handle = self.call_state.read().await.tts_handle.clone();
@@ -1124,6 +1161,7 @@ impl ActiveCall {
         play_id: Option<String>,
         auto_hangup: Option<bool>,
         wait_input_timeout: Option<u32>,
+        offset_ms: Option<u32>,
     ) -> Result<()> {
         let ssrc = rand::random::<u32>();
         info!(
@@ -1133,11 +1171,15 @@ impl ActiveCall {
 
         let play_id = play_id.or(Some(url.clone()));
 
-        let file_track = FileTrack::new(self.server_side_track_id.clone())
+        let mut file_track = FileTrack::new(self.server_side_track_id.clone())
             .with_play_id(play_id.clone())
             .with_ssrc(ssrc)
             .with_path(url)
             .with_cancel_token(self.cancel_token.child_token());
+
+        if let Some(offset) = offset_ms {
+            file_track = file_track.with_offset_ms(offset);
+        }
 
         {
             let mut state = self.call_state.write().await;
@@ -1166,11 +1208,23 @@ impl ActiveCall {
             .map_err(Into::into)
     }
 
+    fn do_custom(&self, sender: Option<String>, data: serde_json::Value) -> Result<()> {
+        self.event_sender
+            .send(SessionEvent::Custom {
+                timestamp: crate::media::get_timestamp(),
+                sender,
+                data,
+            })
+            .map(|_| ())
+            .map_err(Into::into)
+    }
+
     async fn do_interrupt(&self, graceful: bool) -> Result<()> {
         {
             let mut state = self.call_state.write().await;
             state.tts_handle = None;
             state.moh = None;
+            state.auto_hangup = None;
         }
         self.media_stream
             .remove_track(&self.server_side_track_id, graceful)
@@ -1284,12 +1338,18 @@ impl ActiveCall {
         let session_id = self.session_id.clone();
         let track_id = self.server_side_track_id.clone();
 
-        let recorder = {
+        let (recorder, parent_caller) = {
             let cs = self.call_state.read().await;
-            cs.option
-                .as_ref()
-                .map(|o| o.recorder.clone())
-                .unwrap_or_default()
+            let option = cs.option.as_ref();
+            (
+                option.map(|o| o.recorder.clone()).unwrap_or_default(),
+                option.and_then(|o| o.caller.clone()),
+            )
+        };
+        let caller = if caller.trim().is_empty() {
+            parent_caller.unwrap_or_default()
+        } else {
+            caller
         };
 
         let call_option = CallOption {
@@ -1311,13 +1371,13 @@ impl ActiveCall {
             let cs = self.call_state.read().await;
             if let Some(opt) = cs.option.as_ref() {
                 if let Some(callee) = opt.callee.as_ref() {
-                    headers.push(rsip::Header::Other(
+                    headers.push(rsipstack::rsip::Header::Other(
                         "X-Referred-To".to_string(),
                         callee.clone(),
                     ));
                 }
                 if let Some(caller) = opt.caller.as_ref() {
-                    headers.push(rsip::Header::Other(
+                    headers.push(rsipstack::rsip::Header::Other(
                         "X-Referred-From".to_string(),
                         caller.clone(),
                     ));
@@ -1325,7 +1385,7 @@ impl ActiveCall {
             }
         }
 
-        headers.push(rsip::Header::Other(
+        headers.push(rsipstack::rsip::Header::Other(
             "X-Referred-Id".to_string(),
             self.session_id.clone(),
         ));
@@ -1458,6 +1518,14 @@ impl ActiveCall {
     }
 
     pub async fn cleanup(&self) -> Result<()> {
+        if matches!(self.call_type, ActiveCallType::Sip | ActiveCallType::B2bua) {
+            self.do_reject(
+                Some(rsipstack::rsip::StatusCode::Decline),
+                Some("handler disconnected".to_string()),
+            )
+            .await
+            .ok();
+        }
         self.call_state.write().await.tts_handle = None;
         self.media_stream.cleanup().await.ok();
         Ok(())
@@ -1620,8 +1688,8 @@ impl ActiveCall {
             .map(|headers_map| {
                 headers_map
                     .iter()
-                    .map(|(k, v)| rsip::Header::Other(k.clone(), v.clone()))
-                    .collect::<Vec<rsip::Header>>()
+                    .map(|(k, v)| rsipstack::rsip::Header::Other(k.clone(), v.clone()))
+                    .collect::<Vec<rsipstack::rsip::Header>>()
             });
         self.call_state.write().await.option = Some(option.clone());
         info!(
@@ -2041,7 +2109,8 @@ impl ActiveCall {
         let needs_contact = contact_needs_public_resolution(&invite_option.contact);
 
         if needs_contact {
-            if let Some(addr) = self.invitation.dialog_layer.endpoint.get_addrs().first() {
+            let addrs = self.invitation.dialog_layer.endpoint.get_addrs();
+            if let Some(addr) = find_local_addr_for_uri(&addrs, &invite_option.callee) {
                 let contact_username = invite_option
                     .contact
                     .auth
@@ -2055,12 +2124,17 @@ impl ActiveCall {
                             .map(|auth| auth.user.as_str())
                     });
                 invite_option.contact = build_public_contact_uri(
-                    &self.app_state.learned_public_addresses,
+                    &self.app_state.learned_public_address,
                     self.app_state.auto_learn_public_address_enabled(),
-                    addr,
+                    &addr,
                     contact_username,
                     Some(&invite_option.contact),
                 );
+            } else {
+                return Err(rsipstack::Error::Error(format!(
+                    "missing local SIP address for callee transport: {}",
+                    invite_option.callee
+                )));
             }
         }
 
@@ -2130,8 +2204,8 @@ impl ActiveCall {
             .map(|headers_map| {
                 headers_map
                     .iter()
-                    .map(|(k, v)| rsip::Header::Other(k.clone(), v.clone()))
-                    .collect::<Vec<rsip::Header>>()
+                    .map(|(k, v)| rsipstack::rsip::Header::Other(k.clone(), v.clone()))
+                    .collect::<Vec<rsipstack::rsip::Header>>()
             });
 
         let mut client_dialog_handler = DialogStateReceiverGuard::new(
@@ -2209,7 +2283,7 @@ impl ActiveCall {
                         return Err(rsipstack::Error::DialogError(
                             "No answer received".to_string(),
                             dialog_id,
-                            rsip::StatusCode::NotAcceptableHere,
+                            rsipstack::rsip::StatusCode::NotAcceptableHere,
                         ));
                     }
                 }
@@ -2301,7 +2375,7 @@ impl ActiveCall {
         call_state_ref: ActiveCallStateRef,
         track_id: &String,
         pending_dialog: PendingDialog,
-        hangup_headers: Option<Vec<rsip::Header>>,
+        hangup_headers: Option<Vec<rsipstack::rsip::Header>>,
     ) -> Result<()> {
         let state_receiver = pending_dialog.state_receiver;
         //let pending_token_clone = pending_dialog.token;

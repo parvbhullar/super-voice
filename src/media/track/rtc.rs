@@ -431,9 +431,9 @@ impl RtcTrack {
         let packet_sender = packet_sender.lock().await;
         if let Some(sender) = packet_sender.as_ref() {
             let payload_type = frame.payload_type.unwrap_or(default_payload_type);
-            let src_codec = match CodecType::try_from(payload_type) {
-                Ok(c) => c,
-                Err(_) => {
+            let src_codec = match processor_chain.codec.get_codec_for_pt(payload_type) {
+                Some(c) => c,
+                None => {
                     debug!(track_id=%track_id, "Unknown payload type {}, skipping frame", payload_type);
                     return;
                 }
@@ -491,12 +491,7 @@ impl RtcTrack {
                     }
                     for fmt in &media.formats {
                         if let Ok(pt) = fmt.parse::<u8>() {
-                            let codec = self
-                                .encoder
-                                .payload_type_map
-                                .get(&pt)
-                                .cloned()
-                                .or_else(|| CodecType::try_from(pt).ok());
+                            let codec = self.encoder.get_codec_for_pt(pt);
                             if let Some(c) = codec {
                                 if c == *preferred_codec {
                                     negotiated = Some((pt, c));
@@ -515,13 +510,7 @@ impl RtcTrack {
             if negotiated.is_none() {
                 for fmt in &media.formats {
                     if let Ok(pt) = fmt.parse::<u8>() {
-                        let codec = self
-                            .encoder
-                            .payload_type_map
-                            .get(&pt)
-                            .cloned()
-                            .or_else(|| CodecType::try_from(pt).ok());
-
+                        let codec = self.encoder.get_codec_for_pt(pt);
                         if let Some(codec) = codec {
                             if codec != CodecType::TelephoneEvent {
                                 negotiated = Some((pt, codec));
@@ -749,10 +738,7 @@ impl Track for RtcTrack {
                     let (_, encoded) = self.encoder.encode(payload_type, packet.clone());
                     let target_codec = self
                         .encoder
-                        .payload_type_map
-                        .get(&payload_type)
-                        .cloned()
-                        .or_else(|| CodecType::try_from(payload_type).ok())
+                        .get_codec_for_pt(payload_type)
                         .ok_or_else(|| anyhow::anyhow!("Invalid codec type: {}", payload_type))?;
                     if !encoded.is_empty() {
                         let clock_rate = target_codec.clock_rate();
@@ -804,10 +790,7 @@ impl Track for RtcTrack {
                 } => {
                     let target_codec = self
                         .encoder
-                        .payload_type_map
-                        .get(payload_type)
-                        .cloned()
-                        .or_else(|| CodecType::try_from(*payload_type).ok())
+                        .get_codec_for_pt(*payload_type)
                         .ok_or_else(|| anyhow::anyhow!("Invalid codec type: {}", payload_type))?;
                     let clock_rate = target_codec.clock_rate();
 

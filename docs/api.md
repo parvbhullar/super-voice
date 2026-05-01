@@ -1436,7 +1436,39 @@ If the session is not found:
 curl http://localhost:8080/kill/s.session123
 ```
 
-### 6. Get ICE Servers
+### 6. Send Command
+
+**Endpoint:** `POST /command/{id}`
+
+**Description:** Sends a command to a specific active call by its session ID. Accepts the same command objects as the WebSocket command interface.
+
+**Parameters:**
+- `id` (path parameter, string): The session ID of the target call.
+
+**Request Body:** A command object (see [WebSocket Commands](#websocket-commands) for the full list).
+
+```json
+{ "command": "tts", "text": "Hello, how can I help you?" }
+```
+
+**Response:**
+```json
+{ "status": "sent", "id": "s.session123" }
+```
+
+If the session is not found:
+```json
+{ "status": "not_found", "id": "s.session123" }
+```
+
+**Usage:**
+```bash
+curl -X POST http://localhost:8080/command/s.session123 \
+  -H "Content-Type: application/json" \
+  -d '{"command": "hangup", "reason": "normal", "initiator": "server"}'
+```
+
+### 7. Get ICE Servers
 
 **Endpoint:** `GET /iceservers`
 
@@ -1465,7 +1497,50 @@ curl http://localhost:8080/kill/s.session123
 curl http://localhost:8080/iceservers
 ```
 
-### 7. Playbook API
+### 8. Stream Events
+
+**Endpoint:** `GET /events/{id}`
+
+**Description:** Opens a Server-Sent Events (SSE) stream for a specific active call, delivering real-time session events and commands as they occur.
+
+**Path Parameters:**
+
+| Parameter | Type   | Description          |
+|-----------|--------|----------------------|
+| `id`      | string | Active call/track ID |
+
+**Response:** `text/event-stream;charset=utf-8`
+
+The stream emits two SSE event types:
+
+| SSE Event   | Data                                                    |
+|-------------|---------------------------------------------------------|
+| `event`     | JSON-serialized `SessionEvent` (same as WebSocket events) |
+| `command`   | JSON-serialized command sent to the session              |
+
+The stream closes when the call ends (channel closed). Lagged messages are silently skipped.
+
+**Errors:**
+
+| Status | Description                        |
+|--------|------------------------------------|
+| 404    | No active call found for given `id` |
+
+**Usage:**
+```bash
+curl -N http://localhost:8080/events/{id}
+```
+
+**Example output:**
+```
+event: event
+data: {"event":"answer","trackId":"track-abc","timestamp":1700000000}
+
+event: command
+data: {"command":"tts","text":"Hello, how can I help you?"}
+```
+
+### 9. Playbook API
 
 #### List Playbooks
 
