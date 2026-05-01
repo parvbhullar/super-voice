@@ -5,6 +5,7 @@
 //! header parsing utilities needed to track session timer negotiation and
 //! refresh cycles.
 
+use rsipstack::rsip;
 use std::str::FromStr;
 use std::time::{Duration, Instant};
 

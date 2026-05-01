@@ -159,7 +159,7 @@ impl CallOption {
             });
             invite_option.headers = sip.headers.as_ref().map(|h| {
                 h.iter()
-                    .map(|(k, v)| rsip::Header::Other(k.clone(), v.clone()))
+                    .map(|(k, v)| rsipstack::rsip::Header::Other(k.clone(), v.clone()))
                     .collect::<Vec<_>>()
             });
             sip.contact.as_ref().map(|c| match c.clone().try_into() {

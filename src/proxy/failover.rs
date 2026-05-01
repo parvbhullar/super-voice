@@ -8,6 +8,7 @@ use crate::call::sip::DialogStateReceiverGuard;
 use crate::redis_state::config_store::ConfigStore;
 use crate::redis_state::types::TrunkConfig;
 use anyhow::Result;
+use rsipstack::rsip;
 use rsipstack::dialog::dialog::DialogState;
 use rsipstack::dialog::dialog::TerminatedReason;
 use rsipstack::dialog::dialog_layer::DialogLayer;

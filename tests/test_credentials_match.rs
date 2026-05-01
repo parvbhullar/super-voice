@@ -1,6 +1,6 @@
 #[cfg(test)]
 mod tests {
-    use rsip::Uri;
+    use rsipstack::rsip::Uri;
 
     #[test]
     fn test_uri_parsing() {
@@ -25,8 +25,8 @@ mod tests {
                 Uri::try_from(uri_str.as_str()).expect(&format!("Failed to parse: {}", input));
 
             let host = match &parsed.host_with_port.host {
-                rsip::Host::Domain(domain) => domain.to_string(),
-                rsip::Host::IpAddr(ip) => ip.to_string(),
+                rsipstack::rsip::Host::Domain(domain) => domain.to_string(),
+                rsipstack::rsip::Host::IpAddr(ip) => ip.to_string(),
             };
 
             assert_eq!(host, expected_host, "Failed for input: {}", input);
@@ -38,7 +38,7 @@ mod tests {
     fn test_ip_address_parsing() {
         let uri = Uri::try_from("sip:1001@192.168.1.1:5060").unwrap();
         match &uri.host_with_port.host {
-            rsip::Host::IpAddr(ip) => {
+            rsipstack::rsip::Host::IpAddr(ip) => {
                 assert_eq!(ip.to_string(), "192.168.1.1");
                 println!("✓ IP address parsed correctly: {}", ip);
             }
@@ -50,7 +50,7 @@ mod tests {
     fn test_domain_parsing() {
         let uri = Uri::try_from("sip:user@example.com:5060").unwrap();
         match &uri.host_with_port.host {
-            rsip::Host::Domain(domain) => {
+            rsipstack::rsip::Host::Domain(domain) => {
                 assert_eq!(domain.to_string(), "example.com");
                 println!("✓ Domain parsed correctly: {}", domain);
             }

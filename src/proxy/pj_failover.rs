@@ -12,6 +12,7 @@ use crate::redis_state::config_store::ConfigStore;
 use crate::redis_state::types::{TrunkConfig, TrunkCredential};
 use anyhow::Result;
 use pjsip::{PjCallEvent, PjCallEventReceiver, PjCredential};
+use rsipstack::rsip;
 use rsipstack::dialog::server_dialog::ServerInviteDialog;
 use std::sync::Arc;
 use tokio_util::sync::CancellationToken;

@@ -12,7 +12,6 @@ use rsipstack::dialog::dialog::{
 };
 use rsipstack::dialog::dialog_layer::DialogLayer;
 use rsipstack::dialog::invitation::InviteOption;
-use rsipstack::rsip_ext::RsipResponseExt;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio_util::sync::CancellationToken;
@@ -22,14 +21,14 @@ pub struct DialogStateReceiverGuard {
     pub(super) dialog_layer: Arc<DialogLayer>,
     pub(super) receiver: DialogStateReceiver,
     pub(super) dialog_id: Option<DialogId>,
-    pub(super) hangup_headers: Option<Vec<rsip::Header>>,
+    pub(super) hangup_headers: Option<Vec<rsipstack::rsip::Header>>,
 }
 
 impl DialogStateReceiverGuard {
     pub fn new(
         dialog_layer: Arc<DialogLayer>,
         receiver: DialogStateReceiver,
-        hangup_headers: Option<Vec<rsip::Header>>,
+        hangup_headers: Option<Vec<rsipstack::rsip::Header>>,
     ) -> Self {
         Self {
             dialog_layer,
@@ -285,7 +284,7 @@ impl DialogStateReceiverGuard {
                             })?;
                         }
                     }
-                    tx_handle.reply(rsip::StatusCode::OK).await.ok();
+                    tx_handle.reply(rsipstack::rsip::StatusCode::OK).await.ok();
                 }
                 DialogState::Updated(dialog_id, _req, tx_handle) => {
                     info!(session_id = states.session_id, %dialog_id, "dialog update received");
@@ -293,8 +292,8 @@ impl DialogStateReceiverGuard {
                     if let Some(sdp_body) = _req.body().get(..) {
                         let sdp_str = String::from_utf8_lossy(sdp_body);
                         if !sdp_str.is_empty()
-                            && (_req.method == rsip::Method::Invite
-                                || _req.method == rsip::Method::Update)
+                            && (_req.method == rsipstack::rsip::Method::Invite
+                                || _req.method == rsipstack::rsip::Method::Update)
                         {
                             info!(session_id=states.session_id, %dialog_id, method=%_req.method, "handling re-invite/update offer");
 
@@ -383,8 +382,8 @@ impl DialogStateReceiverGuard {
                     if let Some(sdp) = answer_sdp {
                         tx_handle
                             .respond(
-                                rsip::StatusCode::OK,
-                                Some(vec![rsip::Header::ContentType(
+                                rsipstack::rsip::StatusCode::OK,
+                                Some(vec![rsipstack::rsip::Header::ContentType(
                                     "application/sdp".to_string().into(),
                                 )]),
                                 Some(sdp.into()),
@@ -392,12 +391,36 @@ impl DialogStateReceiverGuard {
                             .await
                             .ok();
                     } else {
-                        tx_handle.reply(rsip::StatusCode::OK).await.ok();
+                        tx_handle.reply(rsipstack::rsip::StatusCode::OK).await.ok();
                     }
                 }
                 DialogState::Options(dialog_id, _req, tx_handle) => {
                     info!(session_id = states.session_id, %dialog_id, "dialog options received");
-                    tx_handle.reply(rsip::StatusCode::OK).await.ok();
+                    tx_handle.reply(rsipstack::rsip::StatusCode::OK).await.ok();
+                }
+                DialogState::Refer(dialog_id, req, tx_handle) => {
+                    let refer_to = req.headers.iter().find_map(|h| {
+                        if let rsipstack::rsip::Header::ReferTo(h) = h {
+                            return Some(h.value().to_string());
+                        }
+                        None
+                    }).unwrap_or_default();
+                    let referred_by = req.headers.iter().find_map(|h| {
+                        if let rsipstack::rsip::Header::ReferredBy(h) = h {
+                            return Some(h.value().to_string());
+                        }
+                        None
+                    });
+                    info!(session_id = states.session_id, %dialog_id, %refer_to, "received REFER");
+                    tx_handle.reply(rsipstack::rsip::StatusCode::Other(202, "Accepted".into())).await.ok();
+                    let is_refer = states.call_state.read().await.is_refer;
+                    states.event_sender.send(crate::event::SessionEvent::TransferRequest {
+                        track_id: states.track_id.clone(),
+                        timestamp: crate::media::get_timestamp(),
+                        refer_to,
+                        referred_by,
+                        refer: Some(is_refer),
+                    }).ok();
                 }
                 DialogState::Terminated(dialog_id, reason) => {
                     info!(
@@ -440,7 +463,7 @@ impl DialogStateReceiverGuard {
                     {
                         let mut headers = Vec::new();
                         for (k, v) in headers_map {
-                            headers.push(rsip::Header::Other(k.into(), v.into()));
+                            headers.push(rsipstack::rsip::Header::Other(k.into(), v.into()));
                         }
                         if !headers.is_empty() {
                             if let Some(existing) = &mut self.hangup_headers {
@@ -505,7 +528,7 @@ impl Invitation {
     pub async fn hangup(
         &self,
         dialog_id: DialogId,
-        code: Option<rsip::StatusCode>,
+        code: Option<rsipstack::rsip::StatusCode>,
         reason: Option<String>,
     ) -> Result<()> {
         if let Some(call) = self.get_pending_call(&dialog_id) {
@@ -549,7 +572,7 @@ impl Invitation {
 
         let offer = match resp {
             Some(resp) => match resp.status_code.kind() {
-                rsip::StatusCodeKind::Successful => {
+                rsipstack::rsip::StatusCodeKind::Successful => {
                     let offer = resp.body.clone();
                     Some(offer)
                 }
@@ -569,7 +592,7 @@ impl Invitation {
                 return Err(rsipstack::Error::DialogError(
                     "no response received".to_string(),
                     dialog.id(),
-                    rsip::StatusCode::NotAcceptableHere,
+                    rsipstack::rsip::StatusCode::NotAcceptableHere,
                 ));
             }
         };
@@ -596,8 +619,8 @@ mod tests {
         a=rtpmap:0 PCMU/8000\r\n\
         a=sendrecv\r\n";
 
-    fn make_response_with_body(body: Vec<u8>) -> rsip::Response {
-        let mut resp = rsip::Response::default();
+    fn make_response_with_body(body: Vec<u8>) -> rsipstack::rsip::Response {
+        let mut resp = rsipstack::rsip::Response::default();
         resp.body = body;
         resp
     }
