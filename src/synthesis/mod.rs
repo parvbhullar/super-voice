@@ -8,6 +8,7 @@ use tokio::sync::mpsc;
 
 mod aliyun;
 mod deepgram;
+pub mod fallback;
 mod tencent_cloud;
 mod tencent_cloud_basic;
 
@@ -16,6 +17,7 @@ mod supertonic;
 
 pub use aliyun::AliyunTtsClient;
 pub use deepgram::DeepegramTtsClient;
+pub use fallback::{FallbackSynthesisClient, TtsClientFactory, TtsProviderEntry};
 pub use tencent_cloud::TencentCloudTtsClient;
 pub use tencent_cloud_basic::TencentCloudTtsBasicClient;
 
@@ -89,6 +91,12 @@ mod tests;
 pub struct SynthesisOption {
     pub samplerate: Option<i32>,
     pub provider: Option<SynthesisType>,
+    /// Ordered fallback chain. If set, providers are tried in order on failure
+    /// of an earlier provider. When `providers` is set, the legacy `provider`
+    /// field is ignored. When unset, falls back to single-provider behavior
+    /// using `provider`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub providers: Option<Vec<SynthesisType>>,
     pub speed: Option<f32>,
     pub app_id: Option<String>,
     pub secret_id: Option<String>,
@@ -109,11 +117,27 @@ pub struct SynthesisOption {
 }
 
 impl SynthesisOption {
+    /// Resolve the effective ordered provider chain. If `providers` is set
+    /// (non-empty), it wins. Otherwise falls back to `[provider]` if set, or
+    /// an empty vec if neither is configured.
+    pub fn effective_providers(&self) -> Vec<SynthesisType> {
+        if let Some(list) = &self.providers {
+            if !list.is_empty() {
+                return list.clone();
+            }
+        }
+        match &self.provider {
+            Some(p) => vec![p.clone()],
+            None => Vec::new(),
+        }
+    }
+
     pub fn merge_with(&self, option: Option<SynthesisOption>) -> Self {
         if let Some(other) = option {
             Self {
                 samplerate: other.samplerate.or(self.samplerate),
                 provider: other.provider.or(self.provider.clone()),
+                providers: other.providers.or(self.providers.clone()),
                 speed: other.speed.or(self.speed),
                 app_id: other.app_id.or(self.app_id.clone()),
                 secret_id: other.secret_id.or(self.secret_id.clone()),
@@ -206,6 +230,7 @@ impl Default for SynthesisOption {
         Self {
             samplerate: Some(16000),
             provider: None,
+            providers: None,
             speed: Some(1.0),
             app_id: None,
             secret_id: None,

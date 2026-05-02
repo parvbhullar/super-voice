@@ -11,6 +11,7 @@ use tokio_util::sync::CancellationToken;
 use tracing::debug;
 
 mod aliyun;
+pub mod fallback;
 mod tencent_cloud;
 
 #[cfg(feature = "offline")]
@@ -18,6 +19,7 @@ mod sensevoice;
 
 pub use aliyun::AliyunAsrClient;
 pub use aliyun::AliyunAsrClientBuilder;
+pub use fallback::{AsrProviderEntry, FallbackTranscriptionClient};
 pub use tencent_cloud::TencentCloudAsrClient;
 pub use tencent_cloud::TencentCloudAsrClientBuilder;
 
@@ -70,6 +72,12 @@ pub enum TranscriptionType {
 #[serde(default)]
 pub struct TranscriptionOption {
     pub provider: Option<TranscriptionType>,
+    /// Ordered fallback chain. If set, providers are tried in order on failure
+    /// of an earlier provider. When `providers` is set, the legacy `provider`
+    /// field is ignored. When unset, falls back to single-provider behavior
+    /// using `provider`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub providers: Option<Vec<TranscriptionType>>,
     pub language: Option<String>,
     pub app_id: Option<String>,
     pub secret_id: Option<String>,
@@ -111,6 +119,21 @@ impl<'de> Deserialize<'de> for TranscriptionType {
 }
 
 impl TranscriptionOption {
+    /// Resolve the effective ordered provider chain. If `providers` is set
+    /// (non-empty), it wins. Otherwise falls back to `[provider]` if set, or
+    /// an empty vec if neither is configured.
+    pub fn effective_providers(&self) -> Vec<TranscriptionType> {
+        if let Some(list) = &self.providers {
+            if !list.is_empty() {
+                return list.clone();
+            }
+        }
+        match &self.provider {
+            Some(p) => vec![p.clone()],
+            None => Vec::new(),
+        }
+    }
+
     pub fn check_default(&mut self) {
         match self.provider {
             Some(TranscriptionType::TencentCloud) => {

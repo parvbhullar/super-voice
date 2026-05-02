@@ -57,6 +57,7 @@ use super::InterruptionStrategy;
 use super::LlmConfig;
 use super::dialogue::DialogueHandler;
 
+pub mod fallback_provider;
 pub mod provider;
 pub mod rag;
 pub mod types;
@@ -73,6 +74,7 @@ enum CommandKind {
     Collect,
 }
 
+pub use fallback_provider::{FallbackLlmProvider, LlmEntry};
 pub use provider::*;
 pub use rag::*;
 pub use types::*;

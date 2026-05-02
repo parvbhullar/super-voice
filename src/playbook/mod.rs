@@ -151,13 +151,36 @@ pub struct DtmfCollectorConfig {
     pub interruptible: Option<bool>,
 }
 
+/// One entry in an ordered LLM provider fallback chain. Each entry can
+/// independently specify endpoint, credentials, and model — supporting
+/// heterogeneous chains like cloud → cloud → offline.
 #[derive(Debug, Deserialize, Serialize, Clone, Default)]
 #[serde(rename_all = "camelCase")]
-pub struct LlmConfig {
+pub struct LlmProviderEntry {
     pub provider: String,
     pub model: Option<String>,
     pub base_url: Option<String>,
     pub api_key: Option<String>,
+    /// Per-provider request timeout in milliseconds. Defaults to 10_000 for
+    /// cloud providers, 30_000 for offline providers.
+    pub timeout_ms: Option<u64>,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct LlmConfig {
+    #[serde(default)]
+    pub provider: String,
+    pub model: Option<String>,
+    pub base_url: Option<String>,
+    pub api_key: Option<String>,
+    /// Ordered fallback chain. If set (non-empty), providers are tried in
+    /// order on failure of an earlier provider. When set, the top-level
+    /// `provider` / `model` / `base_url` / `api_key` fields are ignored.
+    /// When unset, falls back to single-provider behavior using the
+    /// top-level fields.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub providers: Option<Vec<LlmProviderEntry>>,
     pub prompt: Option<String>,
     pub greeting: Option<String>,
     pub language: Option<String>,
@@ -167,6 +190,30 @@ pub struct LlmConfig {
     /// Custom tool instructions. If not set, default tool instructions based on language will be used.
     /// Set this to override the built-in tool usage instructions completely.
     pub tool_instructions: Option<String>,
+}
+
+impl LlmConfig {
+    /// Resolve the effective ordered provider chain. If `providers` is set
+    /// (non-empty), it wins. Otherwise wraps the top-level single-provider
+    /// fields into a one-element chain. Returns empty vec only if neither
+    /// `providers` nor a top-level `provider` is configured.
+    pub fn effective_providers(&self) -> Vec<LlmProviderEntry> {
+        if let Some(list) = &self.providers {
+            if !list.is_empty() {
+                return list.clone();
+            }
+        }
+        if self.provider.is_empty() {
+            return Vec::new();
+        }
+        vec![LlmProviderEntry {
+            provider: self.provider.clone(),
+            model: self.model.clone(),
+            base_url: self.base_url.clone(),
+            api_key: self.api_key.clone(),
+            timeout_ms: None,
+        }]
+    }
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -420,7 +467,50 @@ impl Playbook {
             scenes.insert(id.clone(), parse_scene(id, prompt_section.to_string()));
         }
 
+        if let Some(asr) = &config.asr {
+            if let Some(list) = &asr.providers {
+                if list.is_empty() {
+                    return Err(anyhow!(
+                        "playbook asr.providers is set but empty; remove it or list at least one provider"
+                    ));
+                }
+            }
+        }
+        if let Some(tts) = &config.tts {
+            if let Some(list) = &tts.providers {
+                if list.is_empty() {
+                    return Err(anyhow!(
+                        "playbook tts.providers is set but empty; remove it or list at least one provider"
+                    ));
+                }
+            }
+        }
+
         if let Some(llm) = config.llm.as_mut() {
+            // Reject explicitly empty providers list. An absent `providers`
+            // field is fine (we fall back to the legacy single-provider
+            // fields), but `providers: []` is a configuration mistake.
+            if let Some(list) = &llm.providers {
+                if list.is_empty() {
+                    return Err(anyhow!(
+                        "playbook llm.providers is set but empty; remove it or list at least one provider"
+                    ));
+                }
+                for (idx, entry) in list.iter().enumerate() {
+                    if entry.provider.trim().is_empty() {
+                        return Err(anyhow!(
+                            "playbook llm.providers[{}].provider must be a non-empty string",
+                            idx
+                        ));
+                    }
+                }
+            } else if llm.provider.trim().is_empty() {
+                // Neither a chain nor a single provider configured.
+                return Err(anyhow!(
+                    "playbook llm config requires either `provider` or `providers`"
+                ));
+            }
+
             // Fallback to direct env var if not set
             if llm.api_key.is_none() {
                 if let Ok(key) = std::env::var("OPENAI_API_KEY") {
@@ -1233,5 +1323,191 @@ Hello {{ name }}!
         assert_eq!(BUILTIN_CALLER, "caller");
         assert_eq!(BUILTIN_CALLEE, "callee");
         assert_eq!(BUILTIN_START_TIME, "start_time");
+    }
+
+    #[test]
+    fn test_llm_effective_providers_legacy_single() {
+        let cfg = LlmConfig {
+            provider: "openai".to_string(),
+            model: Some("gpt-4o".to_string()),
+            base_url: Some("https://api.openai.com/v1".to_string()),
+            api_key: Some("sk-x".to_string()),
+            ..LlmConfig::default()
+        };
+        let chain = cfg.effective_providers();
+        assert_eq!(chain.len(), 1);
+        assert_eq!(chain[0].provider, "openai");
+        assert_eq!(chain[0].model.as_deref(), Some("gpt-4o"));
+    }
+
+    #[test]
+    fn test_llm_effective_providers_chain_wins() {
+        let cfg = LlmConfig {
+            provider: "openai".to_string(),
+            providers: Some(vec![
+                LlmProviderEntry {
+                    provider: "anthropic".to_string(),
+                    ..LlmProviderEntry::default()
+                },
+                LlmProviderEntry {
+                    provider: "candle".to_string(),
+                    ..LlmProviderEntry::default()
+                },
+            ]),
+            ..LlmConfig::default()
+        };
+        let chain = cfg.effective_providers();
+        assert_eq!(chain.len(), 2);
+        assert_eq!(chain[0].provider, "anthropic");
+        assert_eq!(chain[1].provider, "candle");
+    }
+
+    #[test]
+    fn test_llm_effective_providers_empty_when_unset() {
+        let cfg = LlmConfig::default();
+        assert!(cfg.effective_providers().is_empty());
+    }
+
+    #[test]
+    fn test_parse_rejects_empty_llm_providers() {
+        let yaml = r#"---
+llm:
+  providers: []
+---
+
+# Default
+
+Hi.
+"#;
+        let err = Playbook::parse(yaml).unwrap_err();
+        let msg = format!("{err}");
+        assert!(
+            msg.contains("llm.providers") && msg.contains("empty"),
+            "unexpected error: {msg}"
+        );
+    }
+
+    #[test]
+    fn test_parse_rejects_missing_provider_when_no_chain() {
+        let yaml = r#"---
+llm:
+  model: gpt-4o
+---
+
+# Default
+
+Hi.
+"#;
+        let err = Playbook::parse(yaml).unwrap_err();
+        let msg = format!("{err}");
+        assert!(
+            msg.contains("provider") || msg.contains("providers"),
+            "unexpected error: {msg}"
+        );
+    }
+
+    #[test]
+    fn test_parse_accepts_chain_without_top_level_provider() {
+        let yaml = r#"---
+llm:
+  providers:
+    - provider: openai
+      model: gpt-4o
+      apiKey: sk-test
+---
+
+# Default
+
+Hi.
+"#;
+        let pb = Playbook::parse(yaml).expect("should parse");
+        let llm = pb.config.llm.expect("llm config");
+        assert_eq!(llm.providers.as_ref().unwrap().len(), 1);
+        assert_eq!(llm.effective_providers()[0].provider, "openai");
+    }
+
+    #[test]
+    fn test_parse_rejects_empty_asr_providers() {
+        let yaml = r#"---
+asr:
+  providers: []
+llm:
+  provider: openai
+---
+
+# Default
+
+Hi.
+"#;
+        let err = Playbook::parse(yaml).unwrap_err();
+        let msg = format!("{err}");
+        assert!(
+            msg.contains("asr.providers") && msg.contains("empty"),
+            "unexpected error: {msg}"
+        );
+    }
+
+    #[test]
+    fn test_synthesis_effective_providers() {
+        use crate::synthesis::{SynthesisOption, SynthesisType};
+
+        // Legacy single-provider path.
+        let opt = SynthesisOption {
+            provider: Some(SynthesisType::Aliyun),
+            ..SynthesisOption::default()
+        };
+        let chain = opt.effective_providers();
+        assert_eq!(chain.len(), 1);
+        assert!(matches!(chain[0], SynthesisType::Aliyun));
+
+        // Chain wins over legacy field.
+        let opt = SynthesisOption {
+            provider: Some(SynthesisType::Aliyun),
+            providers: Some(vec![SynthesisType::Deepgram, SynthesisType::TencentCloud]),
+            ..SynthesisOption::default()
+        };
+        let chain = opt.effective_providers();
+        assert_eq!(chain.len(), 2);
+        assert!(matches!(chain[0], SynthesisType::Deepgram));
+        assert!(matches!(chain[1], SynthesisType::TencentCloud));
+
+        // Empty chain falls back to legacy field (defensive: validation
+        // should reject empty `providers` at parse time, but the helper
+        // must not panic if it ever gets through).
+        let opt = SynthesisOption {
+            provider: Some(SynthesisType::Aliyun),
+            providers: Some(vec![]),
+            ..SynthesisOption::default()
+        };
+        let chain = opt.effective_providers();
+        assert_eq!(chain.len(), 1);
+        assert!(matches!(chain[0], SynthesisType::Aliyun));
+
+        // Nothing configured → empty.
+        let opt = SynthesisOption::default();
+        assert!(opt.effective_providers().is_empty());
+    }
+
+    #[test]
+    fn test_transcription_effective_providers() {
+        use crate::transcription::{TranscriptionOption, TranscriptionType};
+
+        let opt = TranscriptionOption {
+            provider: Some(TranscriptionType::Aliyun),
+            ..TranscriptionOption::default()
+        };
+        assert_eq!(opt.effective_providers().len(), 1);
+
+        let opt = TranscriptionOption {
+            providers: Some(vec![
+                TranscriptionType::Aliyun,
+                TranscriptionType::TencentCloud,
+            ]),
+            ..TranscriptionOption::default()
+        };
+        let chain = opt.effective_providers();
+        assert_eq!(chain.len(), 2);
+        assert!(matches!(chain[0], TranscriptionType::Aliyun));
+        assert!(matches!(chain[1], TranscriptionType::TencentCloud));
     }
 }

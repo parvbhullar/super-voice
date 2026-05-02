@@ -213,6 +213,117 @@ mod tests {
 
         Ok(())
     }
+
+    fn make_active_call() -> ActiveCall {
+        let mut config = Config::default();
+        config.udp_port = 0;
+        config.media_cache_path = "/tmp/mediacache".to_string();
+        let stream_engine = Arc::new(StreamEngine::default());
+        let app_state = futures::executor::block_on(
+            AppStateBuilder::new()
+                .with_config(config)
+                .with_stream_engine(stream_engine)
+                .build(),
+        )
+        .expect("build app state");
+
+        let mut tts_opt = crate::synthesis::SynthesisOption::default();
+        tts_opt.provider = Some(crate::synthesis::SynthesisType::Aliyun);
+        let mut option = crate::CallOption::default();
+        option.tts = Some(tts_opt);
+
+        let call = ActiveCall::new(
+            ActiveCallType::Sip,
+            CancellationToken::new(),
+            "test-session".to_string(),
+            app_state.invitation.clone(),
+            app_state,
+            TrackConfig::default(),
+            None,
+            false,
+            None,
+            None,
+            None,
+        );
+        futures::executor::block_on(async {
+            call.call_state.write().await.option = Some(option);
+        });
+        call
+    }
+
+    #[tokio::test]
+    async fn test_empty_tts_chunk_is_skipped() -> Result<()> {
+        let call = make_active_call();
+
+        // Seed an existing handle so we can detect that do_tts didn't disturb it
+        // (no interrupt, no new handle, no auto_hangup mutation).
+        let (tx, _rx) = mpsc::unbounded_channel();
+        let initial_ssrc = 42;
+        {
+            let mut state = call.call_state.write().await;
+            state.tts_handle = Some(SynthesisHandle::new(
+                tx,
+                Some("turn_1".to_string()),
+                initial_ssrc,
+            ));
+            state.current_play_id = Some("turn_1".to_string());
+            state.auto_hangup = Some((initial_ssrc, CallRecordHangupReason::BySystem));
+        }
+
+        // Whitespace-only / empty text should be a no-op.
+        for empty in ["", "   ", "\n\t"] {
+            call.do_tts(
+                empty.to_string(),
+                None,
+                Some("turn_1".to_string()),
+                Some(false),
+                false,
+                true,
+                None,
+                None,
+                false,
+                None,
+            )
+            .await?;
+        }
+
+        let state = call.call_state.read().await;
+        assert!(state.tts_handle.is_some(), "handle must be untouched");
+        assert_eq!(state.tts_handle.as_ref().unwrap().ssrc, initial_ssrc);
+        assert_eq!(state.current_play_id.as_deref(), Some("turn_1"));
+        // auto_hangup must NOT have been overwritten to None.
+        assert!(state.auto_hangup.is_some());
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_do_interrupt_clears_current_play_id() -> Result<()> {
+        let call = make_active_call();
+
+        let (tx, _rx) = mpsc::unbounded_channel();
+        {
+            let mut state = call.call_state.write().await;
+            state.tts_handle = Some(SynthesisHandle::new(
+                tx,
+                Some("turn_1".to_string()),
+                100,
+            ));
+            state.current_play_id = Some("turn_1".to_string());
+            state.auto_hangup = Some((100, CallRecordHangupReason::BySystem));
+            state.moh = Some("/tmp/moh.wav".to_string());
+        }
+
+        call.do_interrupt(false).await?;
+
+        let state = call.call_state.read().await;
+        assert!(state.tts_handle.is_none());
+        assert!(state.auto_hangup.is_none());
+        assert!(state.moh.is_none());
+        // Regression guard: current_play_id must also be cleared so a stale
+        // TrackEnd from the interrupted track cannot match a future play_id.
+        assert!(state.current_play_id.is_none());
+        Ok(())
+    }
 }
 
 #[derive(Deserialize)]
@@ -494,6 +605,21 @@ impl ActiveCall {
 
                         let (moh_path, auto_hangup, wait_timeout_val) = {
                             let mut state = self.call_state.write().await;
+                            // Stale TrackEnd guard: if a new tts_handle exists with a different
+                            // ssrc, this event is from a previously-interrupted track. Ignore
+                            // it so it can't clear current_play_id or fire auto_hangup against
+                            // the new track.
+                            if let Some(handle) = &state.tts_handle {
+                                if handle.ssrc != ssrc {
+                                    debug!(
+                                        session_id = self.session_id,
+                                        event_ssrc = ssrc,
+                                        current_ssrc = handle.ssrc,
+                                        "ignoring stale track end (ssrc mismatch)"
+                                    );
+                                    continue;
+                                }
+                            }
                             if play_id != state.current_play_id {
                                 debug!(
                                     session_id = self.session_id,
@@ -1036,6 +1162,14 @@ impl ActiveCall {
         base64: bool,
         cache_key: Option<String>,
     ) -> Result<()> {
+        if text.trim().is_empty() {
+            debug!(
+                session_id = self.session_id,
+                ?play_id,
+                "skipping empty tts chunk"
+            );
+            return Ok(());
+        }
         let tts_option = {
             let call_state = self.call_state.read().await;
             match call_state.option.clone().unwrap_or_default().tts {
@@ -1223,6 +1357,7 @@ impl ActiveCall {
             state.tts_handle = None;
             state.moh = None;
             state.auto_hangup = None;
+            state.current_play_id = None;
         }
         self.media_stream
             .remove_track(&self.server_side_track_id, graceful)
