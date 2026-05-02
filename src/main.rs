@@ -92,7 +92,7 @@ async fn main() -> Result<()> {
     // Initialize offline models if feature is enabled
     #[cfg(feature = "offline")]
     {
-        use active_call::offline::{OfflineConfig, init_offline_models};
+        use active_call::offline::{OfflineConfig, get_offline_models, init_offline_models};
         use std::path::PathBuf;
 
         let offline_config =
@@ -102,6 +102,20 @@ async fn main() -> Result<()> {
         if offline_config.models_dir.exists() {
             init_offline_models(offline_config)?;
             println!("Offline models initialized from: {}", cli.models_dir);
+
+            // Eagerly load all available offline models so the first
+            // failover from a cloud provider doesn't pay the 2–5s ONNX
+            // init cost at the worst possible moment (mid-call, with the
+            // caller hearing dead air).
+            if let Some(models) = get_offline_models() {
+                if let Err(e) = models.eager_init_available().await {
+                    eprintln!(
+                        "Failed to eagerly initialize offline models: {}. \
+                         Falling back to lazy init at first use.",
+                        e
+                    );
+                }
+            }
         } else {
             println!(
                 "Models directory not found: {}. Offline features will not be available. Run with --download-models to download.",

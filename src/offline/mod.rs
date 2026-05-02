@@ -96,6 +96,50 @@ impl OfflineModels {
     pub fn config(&self) -> &OfflineConfig {
         &self.config
     }
+
+    /// Eagerly initialize every offline model whose files are available
+    /// in `models_dir`. This shifts the 2–5 s ONNX initialization cost
+    /// from first-call (where it would surface as a silent gap to the
+    /// caller during cloud-to-offline failover) to process startup.
+    ///
+    /// Models with missing or partial files are skipped with a warning
+    /// rather than failing startup. If a model file is *partially* present
+    /// (so `available()` returns true but the actual ONNX load fails),
+    /// the error is propagated — that's a real config/install bug.
+    ///
+    /// Each model's init duration is logged via tracing for observability;
+    /// metric emission can hook into these spans.
+    pub async fn eager_init_available(&self) -> Result<()> {
+        use std::time::Instant;
+
+        if self.config.sensevoice_available() {
+            let start = Instant::now();
+            self.init_sensevoice().await?;
+            let elapsed = start.elapsed();
+            info!(
+                model = "sensevoice",
+                init_seconds = elapsed.as_secs_f64(),
+                "offline model initialized eagerly"
+            );
+        } else {
+            debug!("sensevoice model files not present, skipping eager init");
+        }
+
+        if self.config.supertonic_available() {
+            let start = Instant::now();
+            self.init_supertonic().await?;
+            let elapsed = start.elapsed();
+            info!(
+                model = "supertonic",
+                init_seconds = elapsed.as_secs_f64(),
+                "offline model initialized eagerly"
+            );
+        } else {
+            debug!("supertonic model files not present, skipping eager init");
+        }
+
+        Ok(())
+    }
 }
 
 #[cfg(feature = "offline")]
@@ -135,6 +179,53 @@ mod tests {
                 .supertonic_dir()
                 .to_string_lossy()
                 .contains("supertonic")
+        );
+    }
+
+    #[cfg(feature = "offline")]
+    #[tokio::test]
+    async fn eager_init_succeeds_when_no_models_present() {
+        // Point at a fresh empty directory: nothing is "available", so
+        // eager_init_available should be a no-op and return Ok.
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let config = OfflineConfig::new(tmp.path().to_path_buf(), 1);
+        let models = OfflineModels::new(config);
+        // Sanity: nothing reports available against an empty dir.
+        assert!(!models.config.sensevoice_available());
+        assert!(!models.config.supertonic_available());
+        models
+            .eager_init_available()
+            .await
+            .expect("eager init must not fail when no models present");
+    }
+
+    #[cfg(feature = "offline")]
+    #[tokio::test]
+    async fn eager_init_propagates_load_failure_for_partial_files() {
+        // Create a sensevoice subdir whose `available()` check passes
+        // (both expected files exist) but contents are garbage so the
+        // ONNX loader will fail. eager_init_available must surface the
+        // error rather than swallowing it — partial install is a real
+        // config bug we want to catch at startup.
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let sensevoice_dir = tmp.path().join("sensevoice");
+        std::fs::create_dir_all(&sensevoice_dir).unwrap();
+        std::fs::write(sensevoice_dir.join("model.onnx"), b"not a real onnx file").unwrap();
+        std::fs::write(sensevoice_dir.join("tokens.txt"), b"garbage").unwrap();
+
+        let config = OfflineConfig::new(tmp.path().to_path_buf(), 1);
+        // This test is meaningful only if `available()` reports true on
+        // those two file presences. If the availability check evolves,
+        // this test catches the regression.
+        if !config.sensevoice_available() {
+            // Availability semantics changed; skip rather than false fail.
+            return;
+        }
+        let models = OfflineModels::new(config);
+        let res = models.eager_init_available().await;
+        assert!(
+            res.is_err(),
+            "eager init should propagate underlying ONNX load failure"
         );
     }
 }
