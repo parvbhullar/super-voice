@@ -137,9 +137,10 @@ impl LlmHandler {
         initial_scene_id: Option<String>,
         sip_config: Option<crate::SipOption>,
     ) -> Self {
+        let provider = Self::build_default_provider(&config);
         Self::with_provider(
             config,
-            Arc::new(DefaultLlmProvider::new()),
+            provider,
             Arc::new(NoopRagRetriever),
             interruption,
             global_follow_up_config,
@@ -149,6 +150,38 @@ impl LlmHandler {
             initial_scene_id,
             sip_config,
         )
+    }
+
+    /// Build the default `LlmProvider` based on the config:
+    /// - If `config.providers` is set with 2+ entries, wrap each in a
+    ///   `DefaultLlmProvider` and combine via `FallbackLlmProvider`. Each
+    ///   entry gets a process-singleton circuit breaker keyed by provider
+    ///   name (so health state survives across calls).
+    /// - Otherwise (single provider, or empty/None chain): just a
+    ///   `DefaultLlmProvider`. The chain is materialized by
+    ///   `effective_providers` at call time when the config is parsed.
+    fn build_default_provider(config: &LlmConfig) -> Arc<dyn LlmProvider> {
+        let chain = config.effective_providers();
+        if chain.len() <= 1 {
+            return Arc::new(DefaultLlmProvider::new());
+        }
+        let entries: Vec<LlmEntry> = chain
+            .into_iter()
+            .map(|entry| {
+                let breaker =
+                    crate::resilience::registry::get_or_create("llm", &entry.provider);
+                LlmEntry {
+                    provider_name: entry.provider.clone(),
+                    provider: Arc::new(DefaultLlmProvider::new()),
+                    breaker,
+                    config: entry,
+                }
+            })
+            .collect();
+        match FallbackLlmProvider::new(entries) {
+            Ok(p) => Arc::new(p),
+            Err(_) => Arc::new(DefaultLlmProvider::new()),
+        }
     }
 
     pub fn with_provider(

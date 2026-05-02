@@ -14,12 +14,13 @@ use crate::{
     event::EventSender,
     media::TrackId,
     synthesis::{
-        AliyunTtsClient, DeepegramTtsClient, SynthesisClient, SynthesisOption, SynthesisType,
-        TencentCloudTtsBasicClient, TencentCloudTtsClient,
+        AliyunTtsClient, DeepegramTtsClient, FallbackSynthesisClient, SynthesisClient,
+        SynthesisOption, SynthesisType, TencentCloudTtsBasicClient, TencentCloudTtsClient,
+        TtsClientFactory, TtsProviderEntry,
     },
     transcription::{
-        AliyunAsrClientBuilder, TencentCloudAsrClientBuilder, TranscriptionClient,
-        TranscriptionOption, TranscriptionType,
+        AliyunAsrClientBuilder, AsrProviderEntry, FallbackTranscriptionClient,
+        TencentCloudAsrClientBuilder, TranscriptionClient, TranscriptionOption, TranscriptionType,
     },
 };
 
@@ -225,18 +226,63 @@ impl StreamEngine {
         option: TranscriptionOption,
         event_sender: EventSender,
     ) -> Result<Box<dyn Processor>> {
-        let asr_client = match option.provider {
-            Some(ref provider) => {
-                let creator = self.asr_creators.get(&provider);
-                if let Some(creator) = creator {
-                    creator(track_id, cancel_token, option, event_sender).await?
-                } else {
-                    return Err(anyhow::anyhow!("ASR type not found: {}", provider));
+        let chain = option.effective_providers();
+        if chain.is_empty() {
+            return Err(anyhow::anyhow!(
+                "ASR not configured: set transcription.provider or transcription.providers"
+            ));
+        }
+
+        // Single-provider path: avoid the wrapper to keep the simple case
+        // free of per-call allocation overhead.
+        if chain.len() == 1 {
+            let provider = &chain[0];
+            let creator = self
+                .asr_creators
+                .get(provider)
+                .ok_or_else(|| anyhow::anyhow!("ASR type not registered: {}", provider))?;
+            let client = creator(track_id, cancel_token, option, event_sender).await?;
+            return Ok(Box::new(AsrProcessor { asr_client: client }));
+        }
+
+        // Multi-provider chain: build each ASR client up front (each one
+        // wires into the same event_sender so transcripts from any active
+        // provider land in the same channel) and wrap in the fallback.
+        let mut entries: Vec<AsrProviderEntry> = Vec::with_capacity(chain.len());
+        for provider in chain {
+            let creator = match self.asr_creators.get(&provider) {
+                Some(c) => c,
+                None => {
+                    return Err(anyhow::anyhow!(
+                        "ASR type not registered: {}",
+                        provider
+                    ));
                 }
-            }
-            None => return Err(anyhow::anyhow!("ASR type not found: {:?}", option.provider)),
-        };
-        Ok(Box::new(AsrProcessor { asr_client }))
+            };
+            let mut per_provider_option = option.clone();
+            per_provider_option.provider = Some(provider.clone());
+            per_provider_option.check_default();
+
+            let client = creator(
+                track_id.clone(),
+                cancel_token.clone(),
+                per_provider_option,
+                event_sender.clone(),
+            )
+            .await?;
+            let breaker = crate::resilience::registry::get_or_create("asr", &provider.to_string());
+            entries.push(AsrProviderEntry {
+                name: provider.to_string(),
+                provider_type: provider.clone(),
+                client: Arc::from(client),
+                breaker,
+            });
+        }
+
+        let fallback = FallbackTranscriptionClient::new(entries)?;
+        Ok(Box::new(AsrProcessor {
+            asr_client: Box::new(fallback),
+        }))
     }
 
     pub async fn create_tts_client(
@@ -244,20 +290,51 @@ impl StreamEngine {
         streaming: bool,
         tts_option: &SynthesisOption,
     ) -> Result<Box<dyn SynthesisClient>> {
-        match tts_option.provider {
-            Some(ref provider) => {
-                let creator = self.tts_creators.get(&provider);
-                if let Some(creator) = creator {
-                    creator(streaming, tts_option)
-                } else {
-                    Err(anyhow::anyhow!("TTS type not found: {}", provider))
-                }
-            }
-            None => Err(anyhow::anyhow!(
-                "TTS type not found: {:?}",
-                tts_option.provider
-            )),
+        let chain = tts_option.effective_providers();
+        if chain.is_empty() {
+            return Err(anyhow::anyhow!(
+                "TTS not configured: set synthesis.provider or synthesis.providers"
+            ));
         }
+
+        // Single-provider path: build the client directly, no wrapper.
+        if chain.len() == 1 {
+            let provider = &chain[0];
+            let creator = self
+                .tts_creators
+                .get(provider)
+                .ok_or_else(|| anyhow::anyhow!("TTS type not registered: {}", provider))?;
+            let mut per_provider_option = tts_option.clone();
+            per_provider_option.provider = Some(provider.clone());
+            per_provider_option.check_default();
+            return creator(streaming, &per_provider_option);
+        }
+
+        // Multi-provider chain: wrap factory closures so each fallback
+        // attempt produces a fresh, unstarted client (no leaked state from
+        // a previously-failed start).
+        let mut entries: Vec<TtsProviderEntry> = Vec::with_capacity(chain.len());
+        for provider in chain {
+            let creator = *self
+                .tts_creators
+                .get(&provider)
+                .ok_or_else(|| anyhow::anyhow!("TTS type not registered: {}", provider))?;
+            let mut per_provider_option = tts_option.clone();
+            per_provider_option.provider = Some(provider.clone());
+            per_provider_option.check_default();
+            let opt_for_factory = per_provider_option;
+            let factory: TtsClientFactory =
+                Arc::new(move || creator(streaming, &opt_for_factory));
+            let breaker = crate::resilience::registry::get_or_create("tts", &provider.to_string());
+            entries.push(TtsProviderEntry {
+                name: provider.to_string(),
+                provider_type: provider.clone(),
+                factory,
+                breaker,
+            });
+        }
+
+        Ok(Box::new(FallbackSynthesisClient::new(entries)?))
     }
 
     pub async fn create_processors(
