@@ -7,8 +7,14 @@ pub mod sensevoice;
 #[cfg(feature = "offline")]
 pub mod supertonic;
 
+#[cfg(feature = "offline")]
+mod scan;
+
 pub use config::OfflineConfig;
 pub use downloader::{ModelDownloader, ModelType};
+
+#[cfg(feature = "offline")]
+pub use scan::collect_referenced_offline_models;
 
 #[cfg(feature = "offline")]
 pub use sensevoice::SensevoiceEncoder;
@@ -21,6 +27,27 @@ use once_cell::sync::OnceCell;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::{debug, info};
+
+/// Identifies an offline model that can be eagerly initialized at startup.
+///
+/// Used by [`OfflineModels::eager_init_referenced`] together with the
+/// referenced-model set computed from playbook provider chains. Adding a
+/// new offline tier (e.g. Candle LLM in section 7) means adding a variant
+/// here and a match arm in `eager_init_referenced`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum OfflineModelKind {
+    Sensevoice,
+    Supertonic,
+}
+
+impl OfflineModelKind {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Sensevoice => "sensevoice",
+            Self::Supertonic => "supertonic",
+        }
+    }
+}
 
 #[cfg(feature = "offline")]
 pub struct OfflineModels {
@@ -97,45 +124,65 @@ impl OfflineModels {
         &self.config
     }
 
-    /// Eagerly initialize every offline model whose files are available
-    /// in `models_dir`. This shifts the 2–5 s ONNX initialization cost
-    /// from first-call (where it would surface as a silent gap to the
-    /// caller during cloud-to-offline failover) to process startup.
+    /// Eagerly initialize each offline model that is *referenced* by a
+    /// playbook provider chain. Referenced means the model name appears
+    /// in `effective_providers()` for some playbook's asr/tts/llm config.
     ///
-    /// Models with missing or partial files are skipped with a warning
-    /// rather than failing startup. If a model file is *partially* present
-    /// (so `available()` returns true but the actual ONNX load fails),
-    /// the error is propagated — that's a real config/install bug.
+    /// Behaviour:
+    /// - If `refs` is empty, this is a no-op (no offline tier in any chain).
+    /// - For each referenced model, fail startup with a clear error if its
+    ///   files are missing — a misconfigured deploy is better caught at
+    ///   boot than mid-call during cloud-to-offline failover.
+    /// - Init each referenced model and emit
+    ///   `offline_model_init_seconds{model}` as a structured-log field
+    ///   (scrapeable via Loki/Vector → Prometheus until section 9 wires
+    ///   a dedicated metric).
     ///
-    /// Each model's init duration is logged via tracing for observability;
-    /// metric emission can hook into these spans.
-    pub async fn eager_init_available(&self) -> Result<()> {
+    /// Why eager: lazy `OnceCell` init costs 2–5 s on first use. During
+    /// failover that latency lands in a live call, surfacing as dead air.
+    /// Eager init shifts the cost to startup where it is invisible.
+    pub async fn eager_init_referenced(
+        &self,
+        refs: &std::collections::HashSet<OfflineModelKind>,
+    ) -> Result<()> {
         use std::time::Instant;
 
-        if self.config.sensevoice_available() {
+        for kind in refs {
             let start = Instant::now();
-            self.init_sensevoice().await?;
+            match kind {
+                OfflineModelKind::Sensevoice => {
+                    if !self.config.sensevoice_available() {
+                        anyhow::bail!(
+                            "Referenced offline model 'sensevoice' is missing files at {}. \
+                             Run with --download-models sensevoice or remove sensevoice \
+                             from playbook ASR provider chains.",
+                            self.config.sensevoice_dir().display()
+                        );
+                    }
+                    self.init_sensevoice().await?;
+                }
+                OfflineModelKind::Supertonic => {
+                    if !self.config.supertonic_available() {
+                        anyhow::bail!(
+                            "Referenced offline model 'supertonic' is missing files at {}. \
+                             Run with --download-models supertonic or remove supertonic \
+                             from playbook TTS provider chains.",
+                            self.config.supertonic_dir().display()
+                        );
+                    }
+                    self.init_supertonic().await?;
+                }
+            }
             let elapsed = start.elapsed();
             info!(
-                model = "sensevoice",
+                model = kind.as_str(),
                 init_seconds = elapsed.as_secs_f64(),
-                "offline model initialized eagerly"
+                "offline_model_init_seconds"
             );
-        } else {
-            debug!("sensevoice model files not present, skipping eager init");
         }
 
-        if self.config.supertonic_available() {
-            let start = Instant::now();
-            self.init_supertonic().await?;
-            let elapsed = start.elapsed();
-            info!(
-                model = "supertonic",
-                init_seconds = elapsed.as_secs_f64(),
-                "offline model initialized eagerly"
-            );
-        } else {
-            debug!("supertonic model files not present, skipping eager init");
+        if refs.is_empty() {
+            debug!("no offline models referenced by playbook provider chains; skipping eager init");
         }
 
         Ok(())
@@ -184,29 +231,51 @@ mod tests {
 
     #[cfg(feature = "offline")]
     #[tokio::test]
-    async fn eager_init_succeeds_when_no_models_present() {
-        // Point at a fresh empty directory: nothing is "available", so
-        // eager_init_available should be a no-op and return Ok.
+    async fn eager_init_referenced_is_noop_when_set_empty() {
+        // No playbook references any offline tier — eager init should
+        // do nothing and return Ok even though models_dir is empty.
         let tmp = tempfile::tempdir().expect("tempdir");
         let config = OfflineConfig::new(tmp.path().to_path_buf(), 1);
         let models = OfflineModels::new(config);
-        // Sanity: nothing reports available against an empty dir.
-        assert!(!models.config.sensevoice_available());
-        assert!(!models.config.supertonic_available());
+        let refs = std::collections::HashSet::new();
         models
-            .eager_init_available()
+            .eager_init_referenced(&refs)
             .await
-            .expect("eager init must not fail when no models present");
+            .expect("empty referenced set must be a no-op");
     }
 
     #[cfg(feature = "offline")]
     #[tokio::test]
-    async fn eager_init_propagates_load_failure_for_partial_files() {
-        // Create a sensevoice subdir whose `available()` check passes
-        // (both expected files exist) but contents are garbage so the
-        // ONNX loader will fail. eager_init_available must surface the
-        // error rather than swallowing it — partial install is a real
-        // config bug we want to catch at startup.
+    async fn eager_init_referenced_fails_when_referenced_model_missing() {
+        // Sensevoice is referenced by config but no files are on disk.
+        // Per spec 6.3: fail startup with a clear error rather than
+        // silently degrading the failover path at runtime.
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let config = OfflineConfig::new(tmp.path().to_path_buf(), 1);
+        let models = OfflineModels::new(config);
+        let mut refs = std::collections::HashSet::new();
+        refs.insert(OfflineModelKind::Sensevoice);
+        let err = models
+            .eager_init_referenced(&refs)
+            .await
+            .expect_err("must error when referenced model files are missing");
+        let msg = format!("{err}");
+        assert!(
+            msg.contains("sensevoice"),
+            "error message should name the missing model: {msg}"
+        );
+        assert!(
+            msg.contains("--download-models"),
+            "error message should suggest the fix: {msg}"
+        );
+    }
+
+    #[cfg(feature = "offline")]
+    #[tokio::test]
+    async fn eager_init_referenced_propagates_load_failure_for_partial_files() {
+        // available() reports true (both expected files exist) but the
+        // contents are garbage so the ONNX loader will fail. The error
+        // must surface — partial install is a real config bug.
         let tmp = tempfile::tempdir().expect("tempdir");
         let sensevoice_dir = tmp.path().join("sensevoice");
         std::fs::create_dir_all(&sensevoice_dir).unwrap();
@@ -214,18 +283,23 @@ mod tests {
         std::fs::write(sensevoice_dir.join("tokens.txt"), b"garbage").unwrap();
 
         let config = OfflineConfig::new(tmp.path().to_path_buf(), 1);
-        // This test is meaningful only if `available()` reports true on
-        // those two file presences. If the availability check evolves,
-        // this test catches the regression.
         if !config.sensevoice_available() {
             // Availability semantics changed; skip rather than false fail.
             return;
         }
         let models = OfflineModels::new(config);
-        let res = models.eager_init_available().await;
+        let mut refs = std::collections::HashSet::new();
+        refs.insert(OfflineModelKind::Sensevoice);
+        let res = models.eager_init_referenced(&refs).await;
         assert!(
             res.is_err(),
             "eager init should propagate underlying ONNX load failure"
         );
+    }
+
+    #[test]
+    fn offline_model_kind_as_str() {
+        assert_eq!(OfflineModelKind::Sensevoice.as_str(), "sensevoice");
+        assert_eq!(OfflineModelKind::Supertonic.as_str(), "supertonic");
     }
 }

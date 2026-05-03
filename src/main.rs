@@ -89,33 +89,21 @@ async fn main() -> Result<()> {
         }
     }
 
-    // Initialize offline models if feature is enabled
+    // Register the OfflineModels singleton if the feature is enabled and
+    // the models_dir exists. Eager init happens later, *after* the config
+    // has been loaded and CLI overrides applied — only then do we know
+    // which offline models are actually referenced by playbook chains.
     #[cfg(feature = "offline")]
     {
-        use active_call::offline::{OfflineConfig, get_offline_models, init_offline_models};
+        use active_call::offline::{OfflineConfig, init_offline_models};
         use std::path::PathBuf;
 
         let offline_config =
             OfflineConfig::new(PathBuf::from(&cli.models_dir), num_cpus::get().min(4));
 
-        // Only initialize if models directory exists
         if offline_config.models_dir.exists() {
             init_offline_models(offline_config)?;
-            println!("Offline models initialized from: {}", cli.models_dir);
-
-            // Eagerly load all available offline models so the first
-            // failover from a cloud provider doesn't pay the 2–5s ONNX
-            // init cost at the worst possible moment (mid-call, with the
-            // caller hearing dead air).
-            if let Some(models) = get_offline_models() {
-                if let Err(e) = models.eager_init_available().await {
-                    eprintln!(
-                        "Failed to eagerly initialize offline models: {}. \
-                         Falling back to lazy init at first use.",
-                        e
-                    );
-                }
-            }
+            println!("Offline models registered from: {}", cli.models_dir);
         } else {
             println!(
                 "Models directory not found: {}. Offline features will not be available. Run with --download-models to download.",
@@ -233,6 +221,24 @@ async fn main() -> Result<()> {
     let _ = guard_holder; // keep the guard alive
 
     info!("Starting active-call service...");
+
+    // Eagerly initialize each offline model that is referenced by a
+    // playbook provider chain. We do this *after* config + CLI overrides
+    // are applied (so handler is final) and *after* tracing is wired (so
+    // the per-model `offline_model_init_seconds` log fields land in the
+    // configured sink). A missing referenced model is a hard startup
+    // failure — better to surface a misconfigured deploy at boot than
+    // mid-call during cloud-to-offline failover.
+    #[cfg(feature = "offline")]
+    {
+        use active_call::offline::{collect_referenced_offline_models, get_offline_models};
+        use std::path::Path;
+        if let Some(models) = get_offline_models() {
+            let refs =
+                collect_referenced_offline_models(&config, Path::new("config/playbook")).await?;
+            models.eager_init_referenced(&refs).await?;
+        }
+    }
 
     let stream_engine = Arc::new(StreamEngine::default());
 
