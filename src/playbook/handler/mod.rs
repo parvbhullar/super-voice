@@ -163,6 +163,11 @@ impl LlmHandler {
     fn build_default_provider(config: &LlmConfig) -> Arc<dyn LlmProvider> {
         let chain = config.effective_providers();
         if chain.len() <= 1 {
+            // Even a single-entry chain may name the offline tier;
+            // honour it instead of always returning the cloud client.
+            if let Some(entry) = chain.first() {
+                return build_provider_for_entry(&entry.provider);
+            }
             return Arc::new(DefaultLlmProvider::new());
         }
         let entries: Vec<LlmEntry> = chain
@@ -172,7 +177,7 @@ impl LlmHandler {
                     crate::resilience::registry::get_or_create("llm", &entry.provider);
                 LlmEntry {
                     provider_name: entry.provider.clone(),
-                    provider: Arc::new(DefaultLlmProvider::new()),
+                    provider: build_provider_for_entry(&entry.provider),
                     breaker,
                     config: entry,
                 }
@@ -183,7 +188,24 @@ impl LlmHandler {
             Err(_) => Arc::new(DefaultLlmProvider::new()),
         }
     }
+}
 
+/// Construct the right `LlmProvider` impl for a chain entry by name.
+/// Cloud providers all share `DefaultLlmProvider` (the per-entry config
+/// supplies base_url / api_key / model). The offline LLM tier routes to
+/// `CandlePhi3Provider` when the binary was built with `offline-llm`.
+fn build_provider_for_entry(provider_name: &str) -> Arc<dyn LlmProvider> {
+    #[cfg(feature = "offline-llm")]
+    {
+        if crate::offline::scan_is_offline_llm_provider(provider_name) {
+            return Arc::new(crate::offline::candle::CandlePhi3Provider::new());
+        }
+    }
+    let _ = provider_name;
+    Arc::new(DefaultLlmProvider::new())
+}
+
+impl LlmHandler {
     pub fn with_provider(
         config: LlmConfig,
         provider: Arc<dyn LlmProvider>,

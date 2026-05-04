@@ -59,6 +59,25 @@ impl OfflineConfig {
         self.supertonic_dir().join("voice_styles")
     }
 
+    pub fn llm_dir(&self) -> PathBuf {
+        self.models_dir.join("llm")
+    }
+
+    /// Path to the Phi-3-mini-4k-instruct GGUF (Q4_K_M) weights.
+    pub fn llm_gguf_path(&self) -> PathBuf {
+        self.llm_dir().join("Phi-3-mini-4k-instruct-q4.gguf")
+    }
+
+    /// Path to the Phi-3 tokenizer.json. Tokenizers are kept separate
+    /// from GGUF because Candle's GGUF reader does not expose them.
+    pub fn llm_tokenizer_path(&self) -> PathBuf {
+        self.llm_dir().join("tokenizer.json")
+    }
+
+    pub fn llm_available(&self) -> bool {
+        self.llm_gguf_path().exists() && self.llm_tokenizer_path().exists()
+    }
+
     pub fn validate(&self) -> Result<()> {
         if !self.models_dir.exists() {
             anyhow::bail!(

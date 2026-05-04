@@ -26,6 +26,16 @@ offline = [
     "dep:hf-hub",
     "dep:ndarray",
 ]
+# In-process Candle GGUF LLM (Phi-3-mini-4k Q4_K_M) for offline LLM
+# fallback. Off by default because it adds ~2.4GB resident memory and
+# heavy compile cost. `offline` is required so OfflineModels and the
+# referenced-model scan can manage the LLM state alongside ASR/TTS.
+offline-llm = [
+    "offline",
+    "dep:candle-core",
+    "dep:candle-transformers",
+    "dep:tokenizers",
+]
 cross = ["opus", "offline", "aws-lc-rs/bindgen"]
 not_vad = []
 
@@ -118,6 +128,15 @@ ort = { version = "=2.0.0-rc.11", default-features = false, features = [
     "load-dynamic",
 ], optional = true }
 knf-rs-sys = { version = "0.3.2", optional = true }
+
+# Offline LLM (Candle / GGUF). Pinned to versions that ship the
+# `quantized_phi3` model in candle-transformers. Default features kept
+# off to avoid pulling CUDA/MKL backends unless explicitly opted in.
+candle-core = { version = "0.8", default-features = false, optional = true }
+candle-transformers = { version = "0.8", default-features = false, optional = true }
+tokenizers = { version = "0.21", default-features = false, features = [
+    "onig",
+], optional = true }
 
 # Audio processing
 symphonia = { version = "0.5", features = ["all"], optional = true }

@@ -98,6 +98,60 @@ async fn startup_succeeds_when_no_offline_references() {
         .expect("empty refs must be a no-op even with empty models_dir");
 }
 
+/// 7.5 + 6.3: a playbook references the offline LLM tier (phi3) but
+/// the GGUF/tokenizer files are absent — startup must fail with a
+/// message that names the model and points at the fix.
+#[tokio::test]
+async fn startup_fails_when_referenced_offline_llm_is_missing() {
+    let pb_dir = tempfile::tempdir().expect("playbook tempdir");
+    write_playbook(
+        pb_dir.path(),
+        "needs_phi.md",
+        "---\nllm:\n  provider: phi3\n---\n# scene\nhi",
+    );
+    let config = config_with_default_playbook("needs_phi.md");
+
+    let models_dir = tempfile::tempdir().expect("models tempdir");
+    let offline_config = OfflineConfig::new(models_dir.path().to_path_buf(), 1);
+    let models = OfflineModels::new(offline_config);
+
+    let refs = collect_referenced_offline_models(&config, pb_dir.path())
+        .await
+        .expect("scan must succeed even if model is missing");
+    assert!(
+        refs.contains(&OfflineModelKind::Llm),
+        "scan must detect the phi3 reference, got {refs:?}"
+    );
+
+    let err = models
+        .eager_init_referenced(&refs)
+        .await
+        .expect_err("eager init must fail when offline LLM files are missing");
+    let msg = format!("{err}");
+
+    // The error wording branches on whether the binary was built with
+    // the `offline-llm` feature: with it, a missing-file message;
+    // without it, a feature-not-enabled message. Both name the tier.
+    #[cfg(feature = "offline-llm")]
+    {
+        assert!(
+            msg.contains("'llm'") || msg.contains("Phi-3"),
+            "error should name the missing model: {msg}"
+        );
+        assert!(
+            msg.contains("--download-models"),
+            "error should suggest the fix: {msg}"
+        );
+    }
+    #[cfg(not(feature = "offline-llm"))]
+    {
+        assert!(
+            msg.contains("offline-llm"),
+            "error should mention the missing feature: {msg}"
+        );
+    }
+}
+
 /// 6.5 (variant): webhook handler skips the playbook scan entirely.
 #[tokio::test]
 async fn webhook_handler_skips_offline_scan() {

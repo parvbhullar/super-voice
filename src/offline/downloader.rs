@@ -13,6 +13,7 @@ pub struct ModelDownloader {
 pub enum ModelType {
     Sensevoice,
     Supertonic,
+    Llm,
     All,
 }
 
@@ -21,6 +22,7 @@ impl ModelType {
         match s.to_lowercase().as_str() {
             "sensevoice" => Some(Self::Sensevoice),
             "supertonic" => Some(Self::Supertonic),
+            "llm" | "phi3" | "phi-3" => Some(Self::Llm),
             "all" => Some(Self::All),
             _ => None,
         }
@@ -39,9 +41,11 @@ impl ModelDownloader {
         match model_type {
             ModelType::Sensevoice => self.download_sensevoice(dest_dir),
             ModelType::Supertonic => self.download_supertonic(dest_dir),
+            ModelType::Llm => self.download_llm(dest_dir),
             ModelType::All => {
                 self.download_sensevoice(dest_dir)?;
                 self.download_supertonic(dest_dir)?;
+                self.download_llm(dest_dir)?;
                 Ok(())
             }
         }
@@ -172,6 +176,25 @@ impl ModelDownloader {
         info!("✓ Supertonic model downloaded successfully");
         Ok(())
     }
+
+    fn download_llm(&self, dest_dir: &Path) -> Result<()> {
+        info!("Downloading offline LLM (Phi-3-mini-4k-instruct GGUF Q4_K_M)...");
+        let llm_dir = dest_dir.join("llm");
+        fs::create_dir_all(&llm_dir).context("failed to create llm directory")?;
+
+        // GGUF weights from the Microsoft-published quantized release.
+        let gguf_repo = "microsoft/Phi-3-mini-4k-instruct-gguf";
+        let gguf_file = "Phi-3-mini-4k-instruct-q4.gguf";
+        self.download_file(gguf_repo, "main", gguf_file, &llm_dir.join(gguf_file))?;
+
+        // Tokenizer is not bundled in GGUF; pull it from the canonical
+        // model repo so candle's tokenizers crate can load it directly.
+        let tok_repo = "microsoft/Phi-3-mini-4k-instruct";
+        self.download_file(tok_repo, "main", "tokenizer.json", &llm_dir.join("tokenizer.json"))?;
+
+        info!("✓ Offline LLM downloaded successfully");
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -188,6 +211,9 @@ mod tests {
             ModelType::from_str("SUPERTONIC"),
             Some(ModelType::Supertonic)
         );
+        assert_eq!(ModelType::from_str("llm"), Some(ModelType::Llm));
+        assert_eq!(ModelType::from_str("phi3"), Some(ModelType::Llm));
+        assert_eq!(ModelType::from_str("Phi-3"), Some(ModelType::Llm));
         assert_eq!(ModelType::from_str("all"), Some(ModelType::All));
         assert_eq!(ModelType::from_str("invalid"), None);
     }

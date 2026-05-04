@@ -23,14 +23,17 @@ use std::path::{Path, PathBuf};
 /// Behaviour:
 /// - Webhook handler → empty set (no playbooks involved).
 /// - Playbook handler → load each referenced .md (default + rules),
-///   inspect `effective_providers()` on `asr` and `tts`, and add the
-///   matching `OfflineModelKind` for any offline provider name found.
+///   inspect `effective_providers()` on `asr`, `tts`, and `llm`, and
+///   add the matching `OfflineModelKind` for any offline provider name
+///   found.
+/// - LLM provider name `phi3` (case-insensitive) maps to
+///   `OfflineModelKind::Llm`. The scan returns the variant even when
+///   the binary was built without `offline-llm`; eager_init_referenced
+///   then surfaces a clear "feature not built in" error rather than
+///   silently dropping the reference.
 /// - A failed playbook load is propagated as an error — the deploy is
 ///   broken regardless and we'd rather fail at startup than silently
 ///   miss an offline reference.
-///
-/// LLM offline support (section 7, Candle) is not yet implemented;
-/// when it lands, scan `llm.effective_providers()` here too.
 pub async fn collect_referenced_offline_models(
     config: &Config,
     playbook_base_dir: &Path,
@@ -74,8 +77,13 @@ pub async fn collect_referenced_offline_models(
                 }
             }
         }
-        // TODO(section 7): scan llm.effective_providers() for offline-llm
-        // once Candle lands and an OfflineModelKind variant is added.
+        if let Some(llm) = &playbook.config.llm {
+            for entry in llm.effective_providers() {
+                if is_offline_llm_provider(&entry.provider) {
+                    refs.insert(OfflineModelKind::Llm);
+                }
+            }
+        }
     }
 
     Ok(refs)
@@ -90,6 +98,16 @@ fn resolve_playbook_path(name: &str, base: &Path) -> PathBuf {
     } else {
         base.join(name)
     }
+}
+
+/// Returns true if the given LLM provider name designates the
+/// in-process Candle-backed offline LLM. Recognised aliases:
+/// `phi3`, `phi-3`, `candle`, `offline-llm` (all case-insensitive).
+pub fn is_offline_llm_provider(name: &str) -> bool {
+    matches!(
+        name.to_ascii_lowercase().as_str(),
+        "phi3" | "phi-3" | "candle" | "offline-llm"
+    )
 }
 
 #[cfg(test)]
@@ -236,6 +254,48 @@ mod tests {
             refs.contains(&OfflineModelKind::Supertonic),
             "rule playbook reference must be picked up alongside default"
         );
+    }
+
+    #[test]
+    fn is_offline_llm_provider_recognises_aliases() {
+        assert!(is_offline_llm_provider("phi3"));
+        assert!(is_offline_llm_provider("PHI-3"));
+        assert!(is_offline_llm_provider("Candle"));
+        assert!(is_offline_llm_provider("offline-llm"));
+        assert!(!is_offline_llm_provider("openai"));
+        assert!(!is_offline_llm_provider("phi"));
+    }
+
+    #[tokio::test]
+    async fn playbook_with_phi3_llm_is_detected() {
+        let tmp = tempfile::tempdir().unwrap();
+        write_playbook(
+            tmp.path(),
+            "phi.md",
+            "---\nllm:\n  provider: phi3\n---\n# scene\nhi",
+        );
+        let c = config_with_playbook_default("phi.md");
+        let refs = collect_referenced_offline_models(&c, tmp.path())
+            .await
+            .unwrap();
+        assert!(refs.contains(&OfflineModelKind::Llm));
+    }
+
+    #[tokio::test]
+    async fn cloud_to_phi3_llm_chain_is_detected() {
+        // Cloud LLM with offline phi3 as the final fallback — the
+        // primary scenario the offline LLM tier exists to support.
+        let tmp = tempfile::tempdir().unwrap();
+        write_playbook(
+            tmp.path(),
+            "llm_chain.md",
+            "---\nllm:\n  providers:\n    - provider: openai\n    - provider: phi3\n---\n# scene\nhi",
+        );
+        let c = config_with_playbook_default("llm_chain.md");
+        let refs = collect_referenced_offline_models(&c, tmp.path())
+            .await
+            .unwrap();
+        assert!(refs.contains(&OfflineModelKind::Llm));
     }
 
     #[tokio::test]

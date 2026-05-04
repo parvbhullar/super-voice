@@ -7,6 +7,9 @@ pub mod sensevoice;
 #[cfg(feature = "offline")]
 pub mod supertonic;
 
+#[cfg(feature = "offline-llm")]
+pub mod candle;
+
 #[cfg(feature = "offline")]
 mod scan;
 
@@ -14,7 +17,7 @@ pub use config::OfflineConfig;
 pub use downloader::{ModelDownloader, ModelType};
 
 #[cfg(feature = "offline")]
-pub use scan::collect_referenced_offline_models;
+pub use scan::{collect_referenced_offline_models, is_offline_llm_provider as scan_is_offline_llm_provider};
 
 #[cfg(feature = "offline")]
 pub use sensevoice::SensevoiceEncoder;
@@ -32,12 +35,18 @@ use tracing::{debug, info};
 ///
 /// Used by [`OfflineModels::eager_init_referenced`] together with the
 /// referenced-model set computed from playbook provider chains. Adding a
-/// new offline tier (e.g. Candle LLM in section 7) means adding a variant
-/// here and a match arm in `eager_init_referenced`.
+/// new offline tier means adding a variant here and a match arm in
+/// `eager_init_referenced`.
+///
+/// `Llm` is recognised even when the `offline-llm` feature is off so a
+/// playbook referencing the offline LLM produces a clear "feature not
+/// built in" error at startup rather than silently degrading to lazy
+/// init that would fail at first call.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum OfflineModelKind {
     Sensevoice,
     Supertonic,
+    Llm,
 }
 
 impl OfflineModelKind {
@@ -45,6 +54,7 @@ impl OfflineModelKind {
         match self {
             Self::Sensevoice => "sensevoice",
             Self::Supertonic => "supertonic",
+            Self::Llm => "llm",
         }
     }
 }
@@ -54,6 +64,8 @@ pub struct OfflineModels {
     config: OfflineConfig,
     sensevoice: Arc<RwLock<Option<SensevoiceEncoder>>>,
     supertonic: Arc<RwLock<Option<SupertonicTts>>>,
+    #[cfg(feature = "offline-llm")]
+    llm: Arc<RwLock<Option<crate::offline::candle::CandlePhi3State>>>,
 }
 
 #[cfg(feature = "offline")]
@@ -63,6 +75,8 @@ impl OfflineModels {
             config,
             sensevoice: Arc::new(RwLock::new(None)),
             supertonic: Arc::new(RwLock::new(None)),
+            #[cfg(feature = "offline-llm")]
+            llm: Arc::new(RwLock::new(None)),
         }
     }
 
@@ -120,6 +134,40 @@ impl OfflineModels {
         Ok(self.supertonic.clone())
     }
 
+    /// Load the Phi-3 GGUF weights and tokenizer into memory.
+    ///
+    /// Idempotent: subsequent calls are a no-op once the model is
+    /// resident. The 2–4 s load cost is paid here so failover into the
+    /// offline tier doesn't stall a live call.
+    #[cfg(feature = "offline-llm")]
+    pub async fn init_llm(&self) -> Result<()> {
+        let mut guard = self.llm.write().await;
+        if guard.is_none() {
+            if !self.config.llm_available() {
+                anyhow::bail!(
+                    "Offline LLM model files not found at {}. Please run with --download-models llm",
+                    self.config.llm_dir().display()
+                );
+            }
+            info!("Initializing offline LLM (Phi-3-mini-4k Q4_K_M)...");
+            let state = crate::offline::candle::CandlePhi3State::load(
+                &self.config.llm_gguf_path(),
+                &self.config.llm_tokenizer_path(),
+            )?;
+            *guard = Some(state);
+            info!("✓ Offline LLM initialized");
+        }
+        Ok(())
+    }
+
+    #[cfg(feature = "offline-llm")]
+    pub async fn get_llm(
+        &self,
+    ) -> Result<Arc<RwLock<Option<crate::offline::candle::CandlePhi3State>>>> {
+        self.init_llm().await?;
+        Ok(self.llm.clone())
+    }
+
     pub fn config(&self) -> &OfflineConfig {
         &self.config
     }
@@ -171,6 +219,29 @@ impl OfflineModels {
                         );
                     }
                     self.init_supertonic().await?;
+                }
+                OfflineModelKind::Llm => {
+                    #[cfg(feature = "offline-llm")]
+                    {
+                        if !self.config.llm_available() {
+                            anyhow::bail!(
+                                "Referenced offline model 'llm' (Phi-3) is missing files at {}. \
+                                 Run with --download-models llm or remove phi3 from playbook \
+                                 LLM provider chains.",
+                                self.config.llm_dir().display()
+                            );
+                        }
+                        self.init_llm().await?;
+                    }
+                    #[cfg(not(feature = "offline-llm"))]
+                    {
+                        anyhow::bail!(
+                            "Playbook references the offline LLM tier (provider 'phi3') but \
+                             this binary was built without the `offline-llm` feature. \
+                             Rebuild with --features offline-llm or remove phi3 from playbook \
+                             LLM provider chains."
+                        );
+                    }
                 }
             }
             let elapsed = start.elapsed();
