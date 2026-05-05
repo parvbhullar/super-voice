@@ -958,15 +958,34 @@ async fn generate_and_enqueue_cdr(
     };
 
     if let Some(ref cdr_queue) = app_state.cdr_queue {
-        if let Err(e) = cdr_queue.enqueue(&cdr).await {
-            warn!(session_id = %session_id, "dispatch: failed to enqueue CDR: {e}");
+        let cdr_uuid = cdr.uuid;
+        let billsec = cdr.billsec();
+        // Route through the local buffer so a transient Redis outage
+        // doesn't drop the record. Buffer is always present when the
+        // queue is; the `else` branch is the no-Redis-configured case.
+        let outcome = if let Some(ref buffer) = app_state.cdr_buffer {
+            crate::cdr::enqueue_resilient(cdr_queue, buffer, cdr).await
         } else {
-            info!(
+            cdr_queue.enqueue(&cdr).await.map(|_| true)
+        };
+        match outcome {
+            Ok(true) => info!(
                 session_id = %session_id,
-                cdr_uuid = %cdr.uuid,
-                billsec = cdr.billsec(),
+                cdr_uuid = %cdr_uuid,
+                billsec,
                 "dispatch: CDR enqueued"
-            );
+            ),
+            Ok(false) => info!(
+                session_id = %session_id,
+                cdr_uuid = %cdr_uuid,
+                billsec,
+                "dispatch: CDR buffered (Redis unavailable)"
+            ),
+            Err(e) => warn!(
+                session_id = %session_id,
+                cdr_uuid = %cdr_uuid,
+                "dispatch: CDR enqueue failed: {e}"
+            ),
         }
     }
 }

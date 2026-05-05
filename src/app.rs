@@ -91,6 +91,10 @@ pub struct AppStateInner {
     pub cdr_queue: Option<Arc<crate::cdr::CdrQueue>>,
     /// CDR store for indexed query support (Some if Redis configured).
     pub cdr_store: Option<Arc<crate::cdr::CdrStore>>,
+    /// In-process CDR buffer for surviving Redis outages. Always present
+    /// when `cdr_queue` is — the call path routes through it so that a
+    /// transient Redis failure doesn't drop billing records.
+    pub cdr_buffer: Option<Arc<crate::cdr::LocalCdrBuffer>>,
     /// pjsip bridge handle (Some when carrier feature is enabled and a pjsip
     /// endpoint has been started). Used by `dispatch_proxy_call` to construct
     /// `PjDialogLayer` for outbound SIP INVITEs.
@@ -828,6 +832,27 @@ impl AppStateInner {
             .map(|_| Duration::from_secs(10));
 
         self.stop_registration(timeout).await?;
+
+        // Spill any in-memory CDR buffer to disk before we cancel the
+        // child tokens — otherwise records buffered during a Redis
+        // outage would be lost on shutdown. 10s deadline matches the
+        // existing graceful_shutdown timeout; if disk I/O itself is
+        // misbehaving we'd rather exit and let the supervisor restart
+        // than hang indefinitely.
+        if let Some(ref buffer) = self.cdr_buffer {
+            let depth = buffer.depth().await;
+            if depth > 0 {
+                info!(cdr_buffer_depth = depth, "spilling CDR buffer to disk on shutdown");
+                let report = buffer.spill_remaining(Duration::from_secs(10)).await;
+                info!(
+                    spilled = report.spilled,
+                    failed = report.failed,
+                    remaining = report.remaining,
+                    "cdr_buffer spill on shutdown complete"
+                );
+            }
+        }
+
         self.token.cancel();
         Ok(())
     }
@@ -1484,13 +1509,20 @@ impl AppStateBuilder {
             runtime_state,
             capacity_guard,
             security_module,
-            cdr_queue,
+            cdr_queue: cdr_queue.clone(),
             cdr_store,
+            // Buffer is paired with the queue: present iff Redis is
+            // configured. Without a queue there's nothing to flush to.
+            cdr_buffer: cdr_queue.as_ref().map(|_| {
+                Arc::new(crate::cdr::LocalCdrBuffer::new(
+                    "./config/cdr_fallback".to_string(),
+                ))
+            }),
             #[cfg(feature = "carrier")]
             pj_bridge,
         });
 
-        // Spawn CDR processor background task when Redis is configured.
+        // Spawn CDR processor + buffer flush task when Redis is configured.
         if let (Some(cdr_q), Some(cs)) = (
             app_state.cdr_queue.as_ref(),
             app_state.config_store.as_ref(),
@@ -1502,6 +1534,14 @@ impl AppStateBuilder {
                 app_state.token.child_token(),
             );
             processor.spawn();
+
+            if let Some(buf) = app_state.cdr_buffer.as_ref() {
+                buf.as_ref().clone().spawn_flush_task(
+                    cdr_q.clone(),
+                    app_state.token.child_token(),
+                    crate::cdr::local_buffer::DEFAULT_FLUSH_INTERVAL,
+                );
+            }
         }
 
         Ok(app_state)
