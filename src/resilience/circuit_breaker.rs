@@ -29,12 +29,24 @@
 
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
+use tracing::info;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CircuitState {
     Closed,
     Open,
     HalfOpen,
+}
+
+impl CircuitState {
+    /// Stable lower-case name for `provider_circuit_state{state=...}`.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Closed => "closed",
+            Self::Open => "open",
+            Self::HalfOpen => "half_open",
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -84,10 +96,18 @@ struct State {
 pub struct CircuitBreaker {
     config: CircuitBreakerConfig,
     state: Mutex<State>,
+    /// Optional human-readable identifier (e.g. "llm:openai") used as
+    /// the `provider` tag on `provider_circuit_state` events. The
+    /// registry sets this when constructing per-tier+provider breakers.
+    name: String,
 }
 
 impl CircuitBreaker {
     pub fn new(config: CircuitBreakerConfig) -> Self {
+        Self::with_name(config, String::new())
+    }
+
+    pub fn with_name(config: CircuitBreakerConfig, name: impl Into<String>) -> Self {
         let initial_cooldown = config.cooldown;
         Self {
             config,
@@ -97,7 +117,20 @@ impl CircuitBreaker {
                 cooldown_until: None,
                 current_cooldown: initial_cooldown,
             }),
+            name: name.into(),
         }
+    }
+
+    /// Emit a `provider_circuit_state` gauge event. Called from inside
+    /// the `Mutex` critical sections at every state transition so the
+    /// stream of events is complete and ordered.
+    fn emit_state(&self, state: CircuitState) {
+        info!(
+            metric = "provider_circuit_state",
+            provider = %self.name,
+            state = state.as_str(),
+            "circuit breaker state"
+        );
     }
 
     pub fn config(&self) -> &CircuitBreakerConfig {
@@ -120,30 +153,38 @@ impl CircuitBreaker {
 
     /// Test seam: deterministic "current time" for unit tests.
     pub fn try_acquire_at(&self, now: Instant) -> Option<Permit> {
-        let mut state = self.state.lock().unwrap();
-        match state.state {
-            CircuitState::Closed => Some(Permit { is_trial: false }),
-            CircuitState::Open => {
-                if let Some(deadline) = state.cooldown_until {
-                    if now >= deadline {
-                        state.state = CircuitState::HalfOpen;
-                        Some(Permit { is_trial: true })
+        let transition: Option<CircuitState>;
+        let permit;
+        {
+            let mut state = self.state.lock().unwrap();
+            (permit, transition) = match state.state {
+                CircuitState::Closed => (Some(Permit { is_trial: false }), None),
+                CircuitState::Open => {
+                    if let Some(deadline) = state.cooldown_until {
+                        if now >= deadline {
+                            state.state = CircuitState::HalfOpen;
+                            (Some(Permit { is_trial: true }), Some(CircuitState::HalfOpen))
+                        } else {
+                            (None, None)
+                        }
                     } else {
-                        None
+                        // Defensive: Open with no deadline shouldn't
+                        // happen, but if it does, allow a trial.
+                        state.state = CircuitState::HalfOpen;
+                        (Some(Permit { is_trial: true }), Some(CircuitState::HalfOpen))
                     }
-                } else {
-                    // Defensive: Open with no deadline shouldn't happen,
-                    // but if it does, allow a trial to recover.
-                    state.state = CircuitState::HalfOpen;
-                    Some(Permit { is_trial: true })
                 }
-            }
-            CircuitState::HalfOpen => {
-                // Another caller already holds a trial permit. Skip this
-                // provider rather than racing two trials.
-                None
-            }
+                CircuitState::HalfOpen => {
+                    // Another caller already holds a trial permit. Skip
+                    // this provider rather than racing two trials.
+                    (None, None)
+                }
+            };
         }
+        if let Some(s) = transition {
+            self.emit_state(s);
+        }
+        permit
     }
 
     pub fn record_success(&self, permit: Permit) {
@@ -151,11 +192,18 @@ impl CircuitBreaker {
     }
 
     pub fn record_success_at(&self, _permit: Permit, _now: Instant) {
-        let mut state = self.state.lock().unwrap();
-        state.state = CircuitState::Closed;
-        state.recent_failures.clear();
-        state.cooldown_until = None;
-        state.current_cooldown = self.config.cooldown;
+        let was_closed;
+        {
+            let mut state = self.state.lock().unwrap();
+            was_closed = matches!(state.state, CircuitState::Closed);
+            state.state = CircuitState::Closed;
+            state.recent_failures.clear();
+            state.cooldown_until = None;
+            state.current_cooldown = self.config.cooldown;
+        }
+        if !was_closed {
+            self.emit_state(CircuitState::Closed);
+        }
     }
 
     pub fn record_failure(&self, permit: Permit) {
@@ -163,27 +211,39 @@ impl CircuitBreaker {
     }
 
     pub fn record_failure_at(&self, permit: Permit, now: Instant) {
-        let mut state = self.state.lock().unwrap();
+        let new_state: Option<CircuitState>;
+        {
+            let mut state = self.state.lock().unwrap();
 
-        if permit.is_trial {
-            // Half-open trial failed: re-open with doubled cooldown.
-            let next = (state.current_cooldown * 2).min(self.config.max_cooldown);
-            state.current_cooldown = next;
-            state.state = CircuitState::Open;
-            state.cooldown_until = Some(now + next);
-            return;
+            if permit.is_trial {
+                // Half-open trial failed: re-open with doubled cooldown.
+                let next = (state.current_cooldown * 2).min(self.config.max_cooldown);
+                state.current_cooldown = next;
+                let was_open = matches!(state.state, CircuitState::Open);
+                state.state = CircuitState::Open;
+                state.cooldown_until = Some(now + next);
+                new_state = if was_open { None } else { Some(CircuitState::Open) };
+            } else {
+                // Closed-state failure: append, prune old entries, check threshold.
+                state.recent_failures.push(now);
+                let window = self.config.window;
+                state
+                    .recent_failures
+                    .retain(|t| now.duration_since(*t) <= window);
+
+                if state.recent_failures.len() >= self.config.failure_threshold as usize
+                    && !matches!(state.state, CircuitState::Open)
+                {
+                    state.state = CircuitState::Open;
+                    state.cooldown_until = Some(now + state.current_cooldown);
+                    new_state = Some(CircuitState::Open);
+                } else {
+                    new_state = None;
+                }
+            }
         }
-
-        // Closed-state failure: append, prune old entries, check threshold.
-        state.recent_failures.push(now);
-        let window = self.config.window;
-        state
-            .recent_failures
-            .retain(|t| now.duration_since(*t) <= window);
-
-        if state.recent_failures.len() >= self.config.failure_threshold as usize {
-            state.state = CircuitState::Open;
-            state.cooldown_until = Some(now + state.current_cooldown);
+        if let Some(s) = new_state {
+            self.emit_state(s);
         }
     }
 }

@@ -82,10 +82,24 @@ impl SynthesisClient for FallbackSynthesisClient {
         let mut last_err: Option<anyhow::Error> = None;
 
         for (idx, entry) in self.entries.iter().enumerate() {
+            let next_name = self
+                .entries
+                .get(idx + 1)
+                .map(|n| n.name.as_str())
+                .unwrap_or("(none)");
+
             let permit = match entry.breaker.try_acquire() {
                 Some(p) => p,
                 None => {
                     debug!(provider = %entry.name, "tts circuit open, skipping");
+                    warn!(
+                        metric = "provider_fallback_total",
+                        tier = "tts",
+                        from_provider = %entry.name,
+                        to_provider = %next_name,
+                        reason = "circuit_open",
+                        "tts provider skipped (circuit open)"
+                    );
                     continue;
                 }
             };
@@ -104,7 +118,11 @@ impl SynthesisClient for FallbackSynthesisClient {
                         FailureKind::Retryable => {
                             entry.breaker.record_failure(permit);
                             warn!(
-                                provider = %entry.name,
+                                metric = "provider_fallback_total",
+                                tier = "tts",
+                                from_provider = %entry.name,
+                                to_provider = %next_name,
+                                reason = classify_reason(&e),
                                 error = %e,
                                 "tts client construction failed, trying next"
                             );
@@ -131,7 +149,11 @@ impl SynthesisClient for FallbackSynthesisClient {
                     FailureKind::Retryable => {
                         entry.breaker.record_failure(permit);
                         warn!(
-                            provider = %entry.name,
+                            metric = "provider_fallback_total",
+                            tier = "tts",
+                            from_provider = %entry.name,
+                            to_provider = %next_name,
+                            reason = classify_reason(&e),
                             error = %e,
                             "tts start failed, trying next"
                         );
@@ -163,6 +185,22 @@ impl SynthesisClient for FallbackSynthesisClient {
             Some(client) => client.stop().await,
             None => Ok(()),
         }
+    }
+}
+
+/// Bucket the failure into a stable label for `provider_fallback_total{reason}`.
+fn classify_reason(err: &anyhow::Error) -> &'static str {
+    let s = err.to_string().to_ascii_lowercase();
+    if s.contains("timeout") || s.contains("timed out") {
+        "timeout"
+    } else if s.contains("connect") || s.contains("connection") || s.contains("refused") {
+        "connection"
+    } else if s.contains("5") && s.contains("status") {
+        "5xx"
+    } else if s.contains("4") && s.contains("status") {
+        "4xx"
+    } else {
+        "other"
     }
 }
 

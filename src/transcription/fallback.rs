@@ -13,13 +13,14 @@
 
 use super::{TranscriptionClient, TranscriptionType};
 use crate::media::{Sample, SourcePacket};
-use crate::resilience::{CircuitBreaker, classify_error, FailureKind};
+use crate::resilience::{CircuitBreaker, FailureKind, classify_error};
 use anyhow::{Result, anyhow};
 use async_trait::async_trait;
 use std::sync::{
     Arc,
     atomic::{AtomicUsize, Ordering},
 };
+use tracing::warn;
 
 /// One provider entry in the fallback chain. Holds the underlying client
 /// plus its circuit breaker. The `name` field is used for log/metric tags.
@@ -69,10 +70,25 @@ impl TranscriptionClient for FallbackTranscriptionClient {
         for offset in 0..n {
             let idx = (start_idx + offset) % n;
             let entry = &self.providers[idx];
+            let next_name = self
+                .providers
+                .get((idx + 1) % n)
+                .map(|p| p.name.as_str())
+                .unwrap_or("(none)");
 
             let permit = match entry.breaker.try_acquire() {
                 Some(p) => p,
-                None => continue, // Circuit open; skip without attempt.
+                None => {
+                    warn!(
+                        metric = "provider_fallback_total",
+                        tier = "asr",
+                        from_provider = %entry.name,
+                        to_provider = %next_name,
+                        reason = "circuit_open",
+                        "asr provider skipped (circuit open)"
+                    );
+                    continue;
+                }
             };
 
             match entry.client.send_audio(samples, src_packet) {
@@ -88,6 +104,15 @@ impl TranscriptionClient for FallbackTranscriptionClient {
                         return Err(e);
                     }
                     FailureKind::Retryable => {
+                        warn!(
+                            metric = "provider_fallback_total",
+                            tier = "asr",
+                            from_provider = %entry.name,
+                            to_provider = %next_name,
+                            reason = classify_reason(&e),
+                            error = %e,
+                            "asr provider failed, trying next"
+                        );
                         entry.breaker.record_failure(permit);
                         // Continue to next provider.
                     }
@@ -99,6 +124,22 @@ impl TranscriptionClient for FallbackTranscriptionClient {
             "all {} ASR providers failed or are open",
             self.providers.len()
         ))
+    }
+}
+
+/// Bucket the failure into a stable label for `provider_fallback_total{reason}`.
+fn classify_reason(err: &anyhow::Error) -> &'static str {
+    let s = err.to_string().to_ascii_lowercase();
+    if s.contains("timeout") || s.contains("timed out") {
+        "timeout"
+    } else if s.contains("connect") || s.contains("connection") || s.contains("refused") {
+        "connection"
+    } else if s.contains("5") && s.contains("status") {
+        "5xx"
+    } else if s.contains("4") && s.contains("status") {
+        "4xx"
+    } else {
+        "other"
     }
 }
 

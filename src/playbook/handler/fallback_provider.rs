@@ -22,7 +22,7 @@ use futures::Stream;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Instant;
-use tracing::{debug, warn};
+use tracing::{debug, info, warn};
 
 /// One entry in an LLM fallback chain. Holds the provider implementation,
 /// its circuit breaker, and the per-entry config (URL, key, model, timeout).
@@ -82,8 +82,9 @@ impl LlmProvider for FallbackLlmProvider {
     async fn call(&self, config: &LlmConfig, history: &[ChatMessage]) -> Result<String> {
         let start = Instant::now();
         let mut last_err: Option<anyhow::Error> = None;
+        let total = self.entries.len();
 
-        for entry in &self.entries {
+        for (idx, entry) in self.entries.iter().enumerate() {
             if start.elapsed() >= self.budget.total {
                 return Err(anyhow!(
                     "LLM fallback budget of {:?} exhausted",
@@ -95,6 +96,16 @@ impl LlmProvider for FallbackLlmProvider {
                 Some(p) => p,
                 None => {
                     debug!(provider = %entry.provider_name, "circuit open, skipping");
+                    if let Some(next) = self.entries.get(idx + 1) {
+                        info!(
+                            metric = "provider_fallback_total",
+                            tier = "llm",
+                            from_provider = %entry.provider_name,
+                            to_provider = %next.provider_name,
+                            reason = "circuit_open",
+                            "provider fallback"
+                        );
+                    }
                     continue;
                 }
             };
@@ -104,6 +115,12 @@ impl LlmProvider for FallbackLlmProvider {
             match entry.provider.call(&merged, history).await {
                 Ok(text) => {
                     entry.breaker.record_success(permit);
+                    info!(
+                        metric = "llm_tier_used",
+                        tier = idx,
+                        provider = %entry.provider_name,
+                        "llm completion served"
+                    );
                     return Ok(text);
                 }
                 Err(e) => match classify_error(&e) {
@@ -112,8 +129,17 @@ impl LlmProvider for FallbackLlmProvider {
                         return Err(e);
                     }
                     FailureKind::Retryable => {
+                        let to = self
+                            .entries
+                            .get(idx + 1)
+                            .map(|n| n.provider_name.as_str())
+                            .unwrap_or("(none)");
                         warn!(
-                            provider = %entry.provider_name,
+                            metric = "provider_fallback_total",
+                            tier = "llm",
+                            from_provider = %entry.provider_name,
+                            to_provider = %to,
+                            reason = classify_reason(&e),
                             error = %e,
                             "llm provider failed, trying next"
                         );
@@ -124,6 +150,7 @@ impl LlmProvider for FallbackLlmProvider {
             }
         }
 
+        let _ = total;
         Err(last_err.unwrap_or_else(|| {
             anyhow!("all {} LLM providers failed or are open", self.entries.len())
         }))
@@ -142,7 +169,7 @@ impl LlmProvider for FallbackLlmProvider {
         let start = Instant::now();
         let mut last_err: Option<anyhow::Error> = None;
 
-        for entry in &self.entries {
+        for (idx, entry) in self.entries.iter().enumerate() {
             if start.elapsed() >= self.budget.total {
                 return Err(anyhow!(
                     "LLM fallback budget of {:?} exhausted",
@@ -152,7 +179,19 @@ impl LlmProvider for FallbackLlmProvider {
 
             let permit = match entry.breaker.try_acquire() {
                 Some(p) => p,
-                None => continue,
+                None => {
+                    if let Some(next) = self.entries.get(idx + 1) {
+                        info!(
+                            metric = "provider_fallback_total",
+                            tier = "llm",
+                            from_provider = %entry.provider_name,
+                            to_provider = %next.provider_name,
+                            reason = "circuit_open",
+                            "provider fallback (stream)"
+                        );
+                    }
+                    continue;
+                }
             };
 
             let merged = Self::merge_config(config, &entry.config);
@@ -160,6 +199,13 @@ impl LlmProvider for FallbackLlmProvider {
             match entry.provider.call_stream(&merged, history).await {
                 Ok(stream) => {
                     entry.breaker.record_success(permit);
+                    info!(
+                        metric = "llm_tier_used",
+                        tier = idx,
+                        provider = %entry.provider_name,
+                        stream = true,
+                        "llm completion served"
+                    );
                     return Ok(stream);
                 }
                 Err(e) => match classify_error(&e) {
@@ -168,8 +214,17 @@ impl LlmProvider for FallbackLlmProvider {
                         return Err(e);
                     }
                     FailureKind::Retryable => {
+                        let to = self
+                            .entries
+                            .get(idx + 1)
+                            .map(|n| n.provider_name.as_str())
+                            .unwrap_or("(none)");
                         warn!(
-                            provider = %entry.provider_name,
+                            metric = "provider_fallback_total",
+                            tier = "llm",
+                            from_provider = %entry.provider_name,
+                            to_provider = %to,
+                            reason = classify_reason(&e),
                             error = %e,
                             "llm stream provider failed, trying next"
                         );
@@ -183,6 +238,24 @@ impl LlmProvider for FallbackLlmProvider {
         Err(last_err.unwrap_or_else(|| {
             anyhow!("all {} LLM providers failed or are open", self.entries.len())
         }))
+    }
+}
+
+/// Coarse reason tag for `provider_fallback_total{reason}`. Buckets
+/// the failure into a stable label for Prom — full error text goes
+/// alongside in the `error` field for human triage.
+fn classify_reason(err: &anyhow::Error) -> &'static str {
+    let s = err.to_string().to_ascii_lowercase();
+    if s.contains("timeout") || s.contains("timed out") {
+        "timeout"
+    } else if s.contains("connect") || s.contains("connection") || s.contains("refused") {
+        "connection"
+    } else if s.contains("5") && s.contains("status") {
+        "5xx"
+    } else if s.contains("4") && s.contains("status") {
+        "4xx"
+    } else {
+        "other"
     }
 }
 

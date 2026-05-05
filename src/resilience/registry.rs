@@ -22,8 +22,14 @@ fn map() -> &'static Mutex<HashMap<(String, String), Arc<CircuitBreaker>>> {
 /// affects every call afterwards.
 pub fn get_or_create(tier: &str, provider: &str) -> Arc<CircuitBreaker> {
     let mut m = map().lock().unwrap();
+    let name = format!("{tier}:{provider}");
     m.entry((tier.to_string(), provider.to_string()))
-        .or_insert_with(|| Arc::new(CircuitBreaker::new(CircuitBreakerConfig::default())))
+        .or_insert_with(|| {
+            Arc::new(CircuitBreaker::with_name(
+                CircuitBreakerConfig::default(),
+                name,
+            ))
+        })
         .clone()
 }
 
@@ -35,8 +41,9 @@ pub fn get_or_create_with(
     config: CircuitBreakerConfig,
 ) -> Arc<CircuitBreaker> {
     let mut m = map().lock().unwrap();
+    let name = format!("{tier}:{provider}");
     m.entry((tier.to_string(), provider.to_string()))
-        .or_insert_with(|| Arc::new(CircuitBreaker::new(config)))
+        .or_insert_with(|| Arc::new(CircuitBreaker::with_name(config, name)))
         .clone()
 }
 
