@@ -56,12 +56,41 @@ How can I help with your system? I can transfer you: <refer to="sip:human@domain
 
 > 💡 `${VAR}` = environment variables (config-time). `{{var}}` = runtime variables (per-call).
 
-### 4. Offline AI (Privacy-First)
+### 4. Resilient Provider Chains
 
-Run ASR and TTS locally — no cloud API required:
+Each AI tier accepts an ordered list of providers. On retryable
+failure (timeout, 5xx, connection error) the wrapper advances to the
+next provider, with per-provider circuit breakers so a sick provider
+gets cooled off instead of re-probed. Single-provider configs keep
+working unchanged.
+
+```yaml
+asr:
+  providers: [tencent, sensevoice]      # cloud → offline
+tts:
+  providers: [aliyun, supertonic]
+llm:
+  providers:
+    - { provider: openai,   base_url: https://api.openai.com/v1,    model: gpt-4o-mini }
+    - { provider: deepseek, base_url: https://api.deepseek.com/v1,  model: deepseek-chat }
+    - { provider: phi3 }                # in-process Candle (--features offline-llm)
+```
+
+CDRs survive Redis outages via a 10k-record in-process buffer that
+drains back on recovery and spills to disk on shutdown.
+
+See [docs/resilience.md](./docs/resilience.md) for circuit-breaker
+tuning, offline-model setup, and observability fields.
+See [docs/migration-providers.md](./docs/migration-providers.md) for
+old → new config conversion.
+
+### 5. Offline AI (Privacy-First)
+
+Run ASR, TTS, and (optionally) LLM locally — no cloud API required:
 
 - **Offline ASR**: [SenseVoice](https://github.com/FunAudioLLM/SenseVoice) — zh, en, ja, ko, yue
 - **Offline TTS**: [Supertonic](https://github.com/supertone-inc/supertonic) — en, ko, es, pt, fr
+- **Offline LLM**: Phi-3-mini-4k-instruct GGUF via Candle (build with `--features offline-llm`)
 
 ```bash
 # Download models
