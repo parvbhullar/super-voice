@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 12-replace-sofia-sip-with-pjsip-for-carrier-grade-sip-proxy 12-05-PLAN.md
-last_updated: "2026-04-15T14:23:45.962Z"
-last_activity: 2026-04-15 -- Phase 02 execution started
+stopped_at: Completed 13-02-PLAN.md
+last_updated: "2026-05-06T15:01:56.936Z"
+last_activity: 2026-05-06
 progress:
-  total_phases: 12
-  completed_phases: 11
+  total_phases: 16
+  completed_phases: 12
   total_plans: 41
-  completed_plans: 40
-  percent: 98
+  completed_plans: 41
+  percent: 100
 ---
 
 # Project State
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-28)
 
 **Core value:** Any voice call reaches an AI agent or gets routed to the right destination, reliably and at carrier scale, from a single Rust binary.
-**Current focus:** Phase 02 — redis-state-layer
+**Current focus:** Phase 03 — trunk-sub-resources-l1-routing-resolve
 
 ## Current Position
 
-Phase: 02 (redis-state-layer) — EXECUTING
-Plan: 1 of 4
-Status: Executing Phase 02
-Last activity: 2026-04-15 -- Phase 02 execution started
+Phase: 03 (trunk-sub-resources-l1-routing-resolve) — EXECUTING
+Plan: 2 of 5
+Status: Ready to execute
+Last activity: 2026-05-06
 
 Progress: [░░░░░░░░░░] 0%
 
@@ -183,6 +183,9 @@ Recent decisions affecting current work:
 - [Phase 12-replace-sofia-sip-with-pjsip-for-carrier-grade-sip-proxy]: pjsip added as optional dep under carrier feature; PjDialogLayer creates channels internally; WaitOutcome::Connected carries event_rx for post-connect events; extract_user strips sip:/sips: prefix for target URI construction
 - [Phase 12-replace-sofia-sip-with-pjsip-for-carrier-grade-sip-proxy]: outbound_invite test marked #[ignore] — pjsip runtime hangs on macOS kqueue; compile-only verification sufficient for CI
 - [Phase 12-replace-sofia-sip-with-pjsip-for-carrier-grade-sip-proxy]: endpoints_api stack validation updated to accept pjsip alongside sofia/rsipstack for backward compat
+- [Phase 13]: D-09: supersip_endpoints UUID PK; UNIQUE (account_id, username) composite per plan
+- [Phase 13]: D-10: HA1 = md5(username:realm:password) stored; plaintext never stored or returned
+- [Phase 13]: D-13: ExtensionUserBackend tries supersip_endpoints first, falls back to legacy extensions
 
 ### Roadmap Evolution
 
@@ -200,6 +203,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-04-02T10:21:08.680Z
-Stopped at: Completed 12-replace-sofia-sip-with-pjsip-for-carrier-grade-sip-proxy 12-05-PLAN.md
+Last session: 2026-05-06T15:01:49.094Z
+Stopped at: Completed 13-02-PLAN.md
 Resume file: None
