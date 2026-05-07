@@ -3,9 +3,9 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 13-02-PLAN.md
-last_updated: "2026-05-06T15:01:56.936Z"
-last_activity: 2026-05-06
+stopped_at: Completed 13-04-PLAN.md
+last_updated: "2026-05-07T07:49:23.368Z"
+last_activity: 2026-05-07
 progress:
   total_phases: 16
   completed_phases: 12
@@ -26,9 +26,9 @@ See: .planning/PROJECT.md (updated 2026-03-28)
 ## Current Position
 
 Phase: 03 (trunk-sub-resources-l1-routing-resolve) — EXECUTING
-Plan: 2 of 5
+Plan: 3 of 5
 Status: Ready to execute
-Last activity: 2026-05-06
+Last activity: 2026-05-07
 
 Progress: [░░░░░░░░░░] 0%
 
@@ -89,6 +89,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 12-replace-sofia-sip-with-pjsip-for-carrier-grade-sip-proxy P02 | 15 | 2 tasks | 5 files |
 | Phase 12-replace-sofia-sip-with-pjsip-for-carrier-grade-sip-proxy P03 | 10 | 2 tasks | 4 files |
 | Phase 12-replace-sofia-sip-with-pjsip-for-carrier-grade-sip-proxy P05 | 12 | 2 tasks | 5 files |
+| Phase 13 P04 | 35 | 4 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -186,6 +187,7 @@ Recent decisions affecting current work:
 - [Phase 13]: D-09: supersip_endpoints UUID PK; UNIQUE (account_id, username) composite per plan
 - [Phase 13]: D-10: HA1 = md5(username:realm:password) stored; plaintext never stored or returned
 - [Phase 13]: D-13: ExtensionUserBackend tries supersip_endpoints first, falls back to legacy extensions
+- [Phase 13]: TwimlApp delegates to IvrApp via AppAction::Chain; hangup_url hook in SipSession::cleanup() where DB handle is available
 
 ### Roadmap Evolution
 
@@ -203,6 +205,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-05-06T15:01:49.094Z
-Stopped at: Completed 13-02-PLAN.md
+Last session: 2026-05-07T07:49:23.365Z
+Stopped at: Completed 13-04-PLAN.md
 Resume file: None
