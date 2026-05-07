@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 13-04-PLAN.md
-last_updated: "2026-05-07T07:49:23.368Z"
+stopped_at: Completed 13-05-PLAN.md
+last_updated: "2026-05-07T08:30:00.000Z"
 last_activity: 2026-05-07
 progress:
   total_phases: 16
@@ -90,6 +90,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 12-replace-sofia-sip-with-pjsip-for-carrier-grade-sip-proxy P03 | 10 | 2 tasks | 4 files |
 | Phase 12-replace-sofia-sip-with-pjsip-for-carrier-grade-sip-proxy P05 | 12 | 2 tasks | 5 files |
 | Phase 13 P04 | 35 | 4 tasks | 6 files |
+| Phase 13 P05 | 12 | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -188,6 +189,7 @@ Recent decisions affecting current work:
 - [Phase 13]: D-10: HA1 = md5(username:realm:password) stored; plaintext never stored or returned
 - [Phase 13]: D-13: ExtensionUserBackend tries supersip_endpoints first, falls back to legacy extensions
 - [Phase 13]: TwimlApp delegates to IvrApp via AppAction::Chain; hangup_url hook in SipSession::cleanup() where DB handle is available
+- [Phase 13 P05]: IT-05 isolation matrix: webhooks handler uses direct scope.account_id filter (no CommonScopeQuery) so ?include=all is not supported there; other 5 resources use build_account_filter and fully support ?include=all and ?account_id= scope queries
 
 ### Roadmap Evolution
 
