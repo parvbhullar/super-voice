@@ -82,6 +82,9 @@ pub async fn collect_referenced_offline_models(
                 if is_offline_llm_provider(&entry.provider) {
                     refs.insert(OfflineModelKind::Llm);
                 }
+                if is_offline_gemma4_provider(&entry.provider) {
+                    refs.insert(OfflineModelKind::Gemma4);
+                }
             }
         }
     }
@@ -107,6 +110,16 @@ pub fn is_offline_llm_provider(name: &str) -> bool {
     matches!(
         name.to_ascii_lowercase().as_str(),
         "phi3" | "phi-3" | "candle" | "offline-llm"
+    )
+}
+
+/// Returns true if the given LLM provider name designates the
+/// in-process llama.cpp-backed Gemma 4 model. Recognised aliases:
+/// `gemma4`, `gemma-4`, `gemma` (all case-insensitive).
+pub fn is_offline_gemma4_provider(name: &str) -> bool {
+    matches!(
+        name.to_ascii_lowercase().as_str(),
+        "gemma4" | "gemma-4" | "gemma"
     )
 }
 
@@ -264,6 +277,46 @@ mod tests {
         assert!(is_offline_llm_provider("offline-llm"));
         assert!(!is_offline_llm_provider("openai"));
         assert!(!is_offline_llm_provider("phi"));
+    }
+
+    #[test]
+    fn is_offline_gemma4_provider_recognises_aliases() {
+        assert!(is_offline_gemma4_provider("gemma4"));
+        assert!(is_offline_gemma4_provider("GEMMA-4"));
+        assert!(is_offline_gemma4_provider("gemma"));
+        assert!(!is_offline_gemma4_provider("openai"));
+        assert!(!is_offline_gemma4_provider("phi3"));
+    }
+
+    #[tokio::test]
+    async fn playbook_with_gemma4_llm_is_detected() {
+        let tmp = tempfile::tempdir().unwrap();
+        write_playbook(
+            tmp.path(),
+            "g4.md",
+            "---\nllm:\n  provider: gemma4\n---\n# scene\nhi",
+        );
+        let c = config_with_playbook_default("g4.md");
+        let refs = collect_referenced_offline_models(&c, tmp.path())
+            .await
+            .unwrap();
+        assert!(refs.contains(&OfflineModelKind::Gemma4));
+        assert!(!refs.contains(&OfflineModelKind::Llm));
+    }
+
+    #[tokio::test]
+    async fn cloud_to_gemma4_chain_is_detected() {
+        let tmp = tempfile::tempdir().unwrap();
+        write_playbook(
+            tmp.path(),
+            "g4_chain.md",
+            "---\nllm:\n  providers:\n    - provider: openai\n    - provider: gemma4\n---\n# scene\nhi",
+        );
+        let c = config_with_playbook_default("g4_chain.md");
+        let refs = collect_referenced_offline_models(&c, tmp.path())
+            .await
+            .unwrap();
+        assert!(refs.contains(&OfflineModelKind::Gemma4));
     }
 
     #[tokio::test]

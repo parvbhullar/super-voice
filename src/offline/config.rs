@@ -78,6 +78,20 @@ impl OfflineConfig {
         self.llm_gguf_path().exists() && self.llm_tokenizer_path().exists()
     }
 
+    pub fn gemma4_dir(&self) -> PathBuf {
+        self.models_dir.join("gemma4")
+    }
+
+    /// Q4_K_M GGUF for Gemma 4 2B IT (bartowski quantization naming).
+    pub fn gemma4_gguf_path(&self) -> PathBuf {
+        self.gemma4_dir()
+            .join("google_gemma-4-2b-it-Q4_K_M.gguf")
+    }
+
+    pub fn gemma4_available(&self) -> bool {
+        self.gemma4_gguf_path().exists()
+    }
+
     pub fn validate(&self) -> Result<()> {
         if !self.models_dir.exists() {
             anyhow::bail!(

@@ -1,3 +1,216 @@
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 # Active Call Configuration
 #
 # CLI Options (override config file):
@@ -85,6 +298,30 @@ auto_start = true
 [callrecord]
 type = "local"
 root = "./config/cdr"
+
+# LLM provider chain example — Gemma 4 vLLM sidecar → OpenAI cloud backup → Phi-3 offline.
+# Any OpenAI-compatible endpoint works; "provider" is a label for circuit-breaker isolation.
+#
+# Start the sidecar first:
+#   python gemma4_llm_server.py --model prithivMLmods/gemma-4-E2B-it-FP8 --host 0.0.0.0 --port 8002
+#
+# [[llm.providers]]
+# provider    = "gemma4"
+# base_url    = "http://localhost:8002/v1"
+# api_key     = "unused"
+# model       = "gemma-4"
+# timeout_ms  = 15000
+#
+# [[llm.providers]]
+# provider    = "openai"
+# base_url    = "https://api.openai.com/v1"
+# api_key     = "${OPENAI_API_KEY}"
+# model       = "gpt-4o-mini"
+# timeout_ms  = 10000
+#
+# [[llm.providers]]
+# provider    = "phi3"     # requires --features offline-llm
+# timeout_ms  = 30000
 
 # [[register_users]]
 # server = "127.0.0.1:5060" # Your Asterisk server

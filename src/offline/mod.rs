@@ -10,6 +10,9 @@ pub mod supertonic;
 #[cfg(feature = "offline-llm")]
 pub mod candle;
 
+#[cfg(feature = "offline-gemma4")]
+pub mod llama_gemma4;
+
 #[cfg(feature = "offline")]
 mod scan;
 
@@ -17,7 +20,11 @@ pub use config::OfflineConfig;
 pub use downloader::{ModelDownloader, ModelType};
 
 #[cfg(feature = "offline")]
-pub use scan::{collect_referenced_offline_models, is_offline_llm_provider as scan_is_offline_llm_provider};
+pub use scan::{
+    collect_referenced_offline_models,
+    is_offline_llm_provider as scan_is_offline_llm_provider,
+    is_offline_gemma4_provider as scan_is_offline_gemma4_provider,
+};
 
 #[cfg(feature = "offline")]
 pub use sensevoice::SensevoiceEncoder;
@@ -47,6 +54,7 @@ pub enum OfflineModelKind {
     Sensevoice,
     Supertonic,
     Llm,
+    Gemma4,
 }
 
 impl OfflineModelKind {
@@ -55,6 +63,7 @@ impl OfflineModelKind {
             Self::Sensevoice => "sensevoice",
             Self::Supertonic => "supertonic",
             Self::Llm => "llm",
+            Self::Gemma4 => "gemma4",
         }
     }
 }
@@ -66,6 +75,8 @@ pub struct OfflineModels {
     supertonic: Arc<RwLock<Option<SupertonicTts>>>,
     #[cfg(feature = "offline-llm")]
     llm: Arc<RwLock<Option<crate::offline::candle::CandlePhi3State>>>,
+    #[cfg(feature = "offline-gemma4")]
+    gemma4: Arc<RwLock<Option<crate::offline::llama_gemma4::LlamaGemma4State>>>,
 }
 
 #[cfg(feature = "offline")]
@@ -77,6 +88,8 @@ impl OfflineModels {
             supertonic: Arc::new(RwLock::new(None)),
             #[cfg(feature = "offline-llm")]
             llm: Arc::new(RwLock::new(None)),
+            #[cfg(feature = "offline-gemma4")]
+            gemma4: Arc::new(RwLock::new(None)),
         }
     }
 
@@ -168,6 +181,50 @@ impl OfflineModels {
         Ok(self.llm.clone())
     }
 
+    #[cfg(feature = "offline-gemma4")]
+    pub async fn init_gemma4(&self) -> Result<()> {
+        let mut guard = self.gemma4.write().await;
+        if guard.is_none() {
+            if !self.config.gemma4_available() {
+                anyhow::bail!(
+                    "Gemma 4 model file not found at {}. Please run with --download-models gemma4",
+                    self.config.gemma4_dir().display()
+                );
+            }
+            info!("Initializing offline LLM (Gemma 4 2B IT Q4_K_M)...");
+            let gguf_path = self.config.gemma4_gguf_path();
+            let state = tokio::task::spawn_blocking(move || {
+                crate::offline::llama_gemma4::LlamaGemma4State::load(&gguf_path)
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("gemma4 init join error: {e}"))??;
+            *guard = Some(state);
+            info!("✓ Gemma 4 offline LLM initialized");
+        }
+        Ok(())
+    }
+
+    #[cfg(feature = "offline-gemma4")]
+    pub async fn get_gemma4(
+        &self,
+    ) -> Result<Arc<crate::offline::llama_gemma4::LlamaGemma4State>> {
+        self.init_gemma4().await?;
+        let guard = self.gemma4.read().await;
+        guard
+            .as_ref()
+            .map(|s| {
+                // SAFETY: The Arc wrapping the state is held by OfflineModels for the
+                // process lifetime. We clone the inner Arc<Backend> and Arc<Model>
+                // fields into a new Arc<LlamaGemma4State> so callers get a shareable
+                // handle without holding the RwLock.
+                Arc::new(crate::offline::llama_gemma4::LlamaGemma4State {
+                    backend: s.backend.clone(),
+                    model: s.model.clone(),
+                })
+            })
+            .ok_or_else(|| anyhow::anyhow!("gemma4 state missing after init"))
+    }
+
     pub fn config(&self) -> &OfflineConfig {
         &self.config
     }
@@ -240,6 +297,29 @@ impl OfflineModels {
                              this binary was built without the `offline-llm` feature. \
                              Rebuild with --features offline-llm or remove phi3 from playbook \
                              LLM provider chains."
+                        );
+                    }
+                }
+                OfflineModelKind::Gemma4 => {
+                    #[cfg(feature = "offline-gemma4")]
+                    {
+                        if !self.config.gemma4_available() {
+                            anyhow::bail!(
+                                "Referenced offline model 'gemma4' is missing GGUF at {}. \
+                                 Run with --download-models gemma4 or remove gemma4 from \
+                                 playbook LLM provider chains.",
+                                self.config.gemma4_dir().display()
+                            );
+                        }
+                        self.init_gemma4().await?;
+                    }
+                    #[cfg(not(feature = "offline-gemma4"))]
+                    {
+                        anyhow::bail!(
+                            "Playbook references the offline Gemma 4 tier (provider 'gemma4') \
+                             but this binary was built without the `offline-gemma4` feature. \
+                             Rebuild with --features offline-gemma4 or remove gemma4 from \
+                             playbook LLM provider chains."
                         );
                     }
                 }

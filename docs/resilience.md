@@ -17,9 +17,10 @@ Three concerns, one design:
    ordered chain of providers. On a retryable failure the wrapper
    advances to the next provider, with per-provider circuit breakers
    so a sick provider gets cooled off rather than re-probed.
-2. **Cloud unavailability**: an in-process Candle Phi-3 LLM, plus
-   ONNX SenseVoice ASR and Supertonic TTS, can serve traffic at
-   degraded quality with no cloud reachable.
+2. **Cloud unavailability**: in-process offline models (Candle Phi-3
+   or llama.cpp Gemma 4 for LLM, ONNX SenseVoice for ASR, ONNX
+   Supertonic for TTS) can serve traffic at degraded quality with no
+   cloud reachable.
 3. **Redis unavailability**: a bounded in-memory CDR buffer absorbs
    enqueue failures, drains back to Redis on recovery, spills to disk
    on shutdown.
@@ -52,6 +53,8 @@ llm:
       api_key: $DEEPSEEK_API_KEY
       model: deepseek-chat
     - provider: phi3      # in-process Candle (requires `offline-llm` feature)
+    # or:
+    - provider: gemma4    # in-process llama.cpp (requires `offline-gemma4` feature)
 ```
 
 The legacy single-`provider` field still parses; it's wrapped to a
@@ -125,26 +128,45 @@ reachable, at degraded quality, instead of dropping calls.
 
 ### What's available
 
-| Tier | Provider name | Backend | File location |
-|---|---|---|---|
-| ASR | `sensevoice` | ONNX (`ort`) | `models/sensevoice/{model.int8.onnx,tokens.txt}` |
-| TTS | `supertonic` | ONNX (`ort`) | `models/supertonic/{onnx/*,voice_styles/*}` |
-| LLM | `phi3` / `phi-3` / `candle` / `offline-llm` | Candle (GGUF) | `models/llm/{Phi-3-mini-4k-instruct-q4.gguf,tokenizer.json}` |
+| Tier | Provider alias | Backend | Cargo feature | File location |
+|---|---|---|---|---|
+| ASR | `sensevoice` | ONNX (`ort`) | `offline` (default) | `models/sensevoice/{model.int8.onnx,tokens.txt}` |
+| TTS | `supertonic` | ONNX (`ort`) | `offline` (default) | `models/supertonic/{onnx/*,voice_styles/*}` |
+| LLM | `phi3` / `phi-3` / `candle` / `offline-llm` | Candle GGUF | `offline-llm` | `models/llm/{Phi-3-mini-4k-instruct-q4.gguf,tokenizer.json}` |
+| LLM | `gemma4` / `gemma-4` / `gemma` | llama.cpp GGUF | `offline-gemma4` | `models/gemma4/google_gemma-4-2b-it-Q4_K_M.gguf` |
+
+The two LLM offline tiers are independent. Use `phi3` when RAM is tight
+(~2.4 GB, pure-Rust build), `gemma4` when you want a better model and
+can afford the llama.cpp C++ build step (~1.5 GB RAM, Metal/CUDA aware).
 
 ### Setup
 
 ```bash
-# Download all three (≈ 3.5 GB total)
+# Download all offline models (≈ 5 GB total including Gemma 4)
 active-call --download-models all
 # Or selectively:
 active-call --download-models sensevoice
 active-call --download-models supertonic
-active-call --download-models llm
+active-call --download-models llm       # Phi-3 GGUF + tokenizer
+active-call --download-models gemma4    # Gemma 4 2B IT Q4_K_M GGUF
 ```
 
-The LLM tier requires a build with `--features offline-llm` (it adds
-~250 MB of compile-time deps). Without that feature, a playbook that
-references `phi3` will fail at startup with a clear error message.
+Each offline LLM tier is gated behind its own cargo feature:
+
+```bash
+# Phi-3 via Candle (pure Rust, ~250 MB extra deps)
+cargo build --release --no-default-features --features "opus offline offline-llm"
+
+# Gemma 4 via llama.cpp (C++ build step, Metal/CUDA auto-detected)
+cargo build --release --no-default-features --features "opus offline offline-gemma4"
+
+# Both
+cargo build --release --no-default-features --features "opus offline offline-llm offline-gemma4"
+```
+
+Without the matching feature, a playbook that references the offline
+tier will fail at startup with a clear error rather than silently
+degrading at first call.
 
 ### Eager init
 
@@ -158,14 +180,19 @@ mid-call.
 
 Approximate resident memory for each tier:
 
-| Model | Memory |
-|---|---|
-| SenseVoice (ASR) | ~250 MB |
-| Supertonic (TTS) | ~150 MB |
-| Phi-3-mini Q4_K_M (LLM) | ~2.4 GB |
+| Model | Memory | Notes |
+|---|---|---|
+| SenseVoice (ASR) | ~250 MB | ONNX, always loaded when referenced |
+| Supertonic (TTS) | ~150 MB | ONNX, always loaded when referenced |
+| Phi-3-mini Q4_K_M (LLM) | ~2.4 GB | Candle, `offline-llm` feature |
+| Gemma 4 2B IT Q4_K_M (LLM) | ~1.5 GB | llama.cpp, `offline-gemma4` feature |
 
-If your deploy can't carry the LLM, leave it out of the playbook
-chain. The other two tiers stand alone.
+Use at most one LLM offline tier per deploy. The two tiers are
+independent — you can reference `phi3` in one playbook and `gemma4`
+in another, but both will be eagerly loaded at startup.
+
+If your deploy can't carry the LLM memory cost, leave the offline LLM
+tier out of the chain entirely. SenseVoice and Supertonic stand alone.
 
 ## CDR buffer
 

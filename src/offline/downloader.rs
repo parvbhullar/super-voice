@@ -14,6 +14,7 @@ pub enum ModelType {
     Sensevoice,
     Supertonic,
     Llm,
+    Gemma4,
     All,
 }
 
@@ -23,6 +24,7 @@ impl ModelType {
             "sensevoice" => Some(Self::Sensevoice),
             "supertonic" => Some(Self::Supertonic),
             "llm" | "phi3" | "phi-3" => Some(Self::Llm),
+            "gemma4" | "gemma-4" | "gemma" => Some(Self::Gemma4),
             "all" => Some(Self::All),
             _ => None,
         }
@@ -42,10 +44,12 @@ impl ModelDownloader {
             ModelType::Sensevoice => self.download_sensevoice(dest_dir),
             ModelType::Supertonic => self.download_supertonic(dest_dir),
             ModelType::Llm => self.download_llm(dest_dir),
+            ModelType::Gemma4 => self.download_gemma4(dest_dir),
             ModelType::All => {
                 self.download_sensevoice(dest_dir)?;
                 self.download_supertonic(dest_dir)?;
                 self.download_llm(dest_dir)?;
+                self.download_gemma4(dest_dir)?;
                 Ok(())
             }
         }
@@ -104,14 +108,17 @@ impl ModelDownloader {
                 // Handle nested paths in URL
                 let url = format!("{}/{}/resolve/{}/{}", endpoint, repo_id, revision, filename);
 
-                let status = std::process::Command::new("curl")
-                    .arg("-f") // Fail on 404
+                let mut cmd = std::process::Command::new("curl");
+                cmd.arg("-f") // Fail on 4xx
                     .arg("-L")
                     .arg("-o")
-                    .arg(dest)
-                    .arg(&url)
-                    .status()
-                    .context("failed to execute curl")?;
+                    .arg(dest);
+                if let Ok(token) = std::env::var("HF_TOKEN") {
+                    cmd.arg("-H")
+                        .arg(format!("Authorization: Bearer {}", token));
+                }
+                cmd.arg(&url);
+                let status = cmd.status().context("failed to execute curl")?;
 
                 if status.success() {
                     info!("  ✓ Downloaded {} (curl fallback)", filename);
@@ -195,6 +202,20 @@ impl ModelDownloader {
         info!("✓ Offline LLM downloaded successfully");
         Ok(())
     }
+
+    fn download_gemma4(&self, dest_dir: &Path) -> Result<()> {
+        info!("Downloading Gemma 4 2B IT GGUF (Q4_K_M, ~1.5 GB)...");
+        let gemma4_dir = dest_dir.join("gemma4");
+        fs::create_dir_all(&gemma4_dir).context("failed to create gemma4 directory")?;
+
+        // bartowski's Q4_K_M quantization of google/gemma-4-2b-it.
+        let repo_id = "bartowski/google_gemma-4-2b-it-GGUF";
+        let gguf_file = "google_gemma-4-2b-it-Q4_K_M.gguf";
+        self.download_file(repo_id, "main", gguf_file, &gemma4_dir.join(gguf_file))?;
+
+        info!("✓ Gemma 4 model downloaded successfully");
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -214,6 +235,9 @@ mod tests {
         assert_eq!(ModelType::from_str("llm"), Some(ModelType::Llm));
         assert_eq!(ModelType::from_str("phi3"), Some(ModelType::Llm));
         assert_eq!(ModelType::from_str("Phi-3"), Some(ModelType::Llm));
+        assert_eq!(ModelType::from_str("gemma4"), Some(ModelType::Gemma4));
+        assert_eq!(ModelType::from_str("gemma-4"), Some(ModelType::Gemma4));
+        assert_eq!(ModelType::from_str("gemma"), Some(ModelType::Gemma4));
         assert_eq!(ModelType::from_str("all"), Some(ModelType::All));
         assert_eq!(ModelType::from_str("invalid"), None);
     }

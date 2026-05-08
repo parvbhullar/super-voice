@@ -90,13 +90,19 @@ Run ASR, TTS, and (optionally) LLM locally — no cloud API required:
 
 - **Offline ASR**: [SenseVoice](https://github.com/FunAudioLLM/SenseVoice) — zh, en, ja, ko, yue
 - **Offline TTS**: [Supertonic](https://github.com/supertone-inc/supertonic) — en, ko, es, pt, fr
-- **Offline LLM**: Phi-3-mini-4k-instruct GGUF via Candle (build with `--features offline-llm`)
+- **Offline LLM (Phi-3)**: Phi-3-mini-4k-instruct GGUF via Candle — pure Rust, ~2.4 GB RAM (`--features offline-llm`)
+- **Offline LLM (Gemma 4)**: Gemma 4 2B IT Q4_K_M via llama.cpp — Metal/CUDA aware, ~1.5 GB RAM (`--features offline-gemma4`)
 
 ```bash
-# Download models
+# Download all offline models (SenseVoice + Supertonic + Phi-3 + Gemma 4)
 docker run --rm -v $(pwd)/data/models:/models \
   ghcr.io/miuda-ai/active-call:latest \
   --download-models all --models-dir /models --exit-after-download
+
+# Or download only Gemma 4 (~1.5 GB)
+docker run --rm -v $(pwd)/data/models:/models \
+  ghcr.io/miuda-ai/active-call:latest \
+  --download-models gemma4 --models-dir /models --exit-after-download
 
 # Run with offline models
 docker run -d --net host \
@@ -222,11 +228,19 @@ curl -H "Authorization: Bearer $API_KEY" http://localhost:8080/api/v1/system/hea
 
 ```toml
 [features]
-carrier = ["sofia-sip", "spandsp"]   # C FFI carrier features (default)
-minimal = []                          # Pure Rust, no C dependencies
+carrier      = ["sofia-sip", "spandsp"]  # C FFI carrier features (default)
+minimal      = []                         # Pure Rust, no C dependencies
+offline-llm  = ["offline", ...]          # In-process Phi-3 via Candle (pure Rust)
+offline-gemma4 = ["offline", ...]        # In-process Gemma 4 via llama.cpp (C++ build)
 ```
 
 Build with `--no-default-features` for a pure Rust binary without carrier SBC features.
+
+```bash
+# Minimal + offline models including Gemma 4 (no carrier SBC)
+cargo build --release --no-default-features \
+  --features "opus offline offline-gemma4"
+```
 
 ### SIP Carrier Integration
 

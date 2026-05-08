@@ -9,6 +9,7 @@ server_log := "/tmp/active-call-test.log"
 default_port := "18080"
 default_sip_port := "15060"
 ort_version := "1.23.2"
+models_dir := justfile_directory() / "models"
 
 # ──────────────────────────────────────────────
 # Setup / Install
@@ -207,6 +208,43 @@ build:
 build-minimal:
     cargo build --release --no-default-features
 
+# ──────────────────────────────────────────────
+# Offline model downloads
+# ──────────────────────────────────────────────
+
+# Download SenseVoice offline ASR (~50 MB)
+download-sensevoice:
+    {{server_bin}} --download-models sensevoice --models-dir {{models_dir}}
+
+# Download Supertonic offline TTS (~100 MB)
+download-supertonic:
+    {{server_bin}} --download-models supertonic --models-dir {{models_dir}}
+
+# Download Phi-3 offline LLM (~2.4 GB)
+download-llm:
+    {{server_bin}} --download-models llm --models-dir {{models_dir}}
+
+# Download Gemma 4 offline LLM (~1.5 GB)
+download-gemma4:
+    {{server_bin}} --download-models gemma4 --models-dir {{models_dir}}
+
+# Download all offline models (SenseVoice + Supertonic + Phi-3 + Gemma 4 GGUF)
+download-models:
+    {{server_bin}} --download-models all --models-dir {{models_dir}}
+
+# Download Gemma 4 E2B FP8 (safetensors, for vLLM sidecar — public, no token needed, ~4 GB)
+download-gemma4-fp8:
+    #!/usr/bin/env bash
+    dest={{models_dir}}/gemma4-fp8
+    mkdir -p "$dest"
+    echo "Downloading prithivMLmods/gemma-4-E2B-it-FP8 → $dest"
+    if command -v huggingface-cli &>/dev/null; then
+        huggingface-cli download prithivMLmods/gemma-4-E2B-it-FP8 --local-dir "$dest"
+    else
+        python3 -c "from huggingface_hub import snapshot_download; snapshot_download('prithivMLmods/gemma-4-E2B-it-FP8', local_dir='$dest')"
+    fi
+    echo "✓ Gemma 4 E2B FP8 downloaded to $dest"
+
 # Check compilation (both feature paths)
 check:
     cargo check --features carrier
@@ -267,7 +305,10 @@ start: build _gen-config
         echo "Server already running (PID $(cat {{server_pid}}))"
         exit 0
     fi
-    nohup {{server_bin}} --conf {{carrier_conf}} > {{server_log}} 2>&1 &
+    export DYLD_LIBRARY_PATH="/opt/homebrew/opt/onnxruntime/lib:${DYLD_LIBRARY_PATH:-}"
+    export ORT_DYLIB_PATH="/opt/homebrew/opt/onnxruntime/lib/libonnxruntime.dylib"
+    nohup env DYLD_LIBRARY_PATH="$DYLD_LIBRARY_PATH" ORT_DYLIB_PATH="$ORT_DYLIB_PATH" \
+        {{server_bin}} --conf {{carrier_conf}} > {{server_log}} 2>&1 &
     echo $! > {{server_pid}}
     sleep 2
     if kill -0 $(cat {{server_pid}}) 2>/dev/null; then

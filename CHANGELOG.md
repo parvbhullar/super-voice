@@ -16,14 +16,21 @@ plus CDR durability across Redis outages.
   repeated trial failures.
 - Per-tier `FallbackBudget` (default 8 s) on the LLM wrapper so a
   cascading outage can't pin a call indefinitely.
-- Offline LLM tier: Candle-backed Phi-3-mini-4k-instruct GGUF with
-  token-by-token streaming, drop-tools chat-template rendering, and
-  per-request `max_tokens` / `max_inference` bounds. Gated on the new
+- Offline LLM tier (Phi-3): Candle-backed Phi-3-mini-4k-instruct GGUF
+  with token-by-token streaming, drop-tools chat-template rendering, and
+  per-request `max_tokens` / `max_inference` bounds. Gated on the
   `offline-llm` cargo feature.
+- Offline LLM tier (Gemma 4): llama.cpp-backed Gemma 4 2B IT Q4_K_M
+  GGUF via the `llama-cpp-2` crate. Metal/CUDA acceleration picked up
+  automatically; ~1.5 GB RAM vs ~2.4 GB for Phi-3. Provider aliases:
+  `gemma4`, `gemma-4`, `gemma`. Gated on the new `offline-gemma4`
+  cargo feature. Tool schemas are dropped on the in-process path
+  (use the vLLM sidecar route for tool-call support).
 - Eager initialization of every offline model referenced by a
   playbook chain at startup. Missing files are a hard boot failure
   rather than a mid-call surprise.
 - `--download-models llm` for the Phi-3 GGUF + tokenizer.
+- `--download-models gemma4` for the Gemma 4 2B IT Q4_K_M GGUF.
 - `LocalCdrBuffer` between the call path and Redis. Outages route
   records to the buffer (capacity 10k); a 5 s background tick drains
   back to Redis on recovery; graceful shutdown spills the remainder

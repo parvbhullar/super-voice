@@ -1,0 +1,457 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Active Call — Voice Agent Tester</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #0f1117;
+      color: #e2e8f0;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 2rem 1rem;
+    }
+
+    h1 { font-size: 1.5rem; font-weight: 600; margin-bottom: 0.25rem; }
+    .subtitle { font-size: 0.85rem; color: #718096; margin-bottom: 2rem; }
+
+    .card {
+      background: #1a1d27;
+      border: 1px solid #2d3148;
+      border-radius: 12px;
+      padding: 1.5rem;
+      width: 100%;
+      max-width: 640px;
+      margin-bottom: 1rem;
+    }
+
+    .card h2 {
+      font-size: 0.85rem;
+      font-weight: 600;
+      margin-bottom: 1rem;
+      color: #718096;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .field { margin-bottom: 0.75rem; }
+    .field label { display: block; font-size: 0.8rem; color: #718096; margin-bottom: 0.25rem; }
+    .field input, .field select {
+      width: 100%;
+      background: #0f1117;
+      border: 1px solid #2d3148;
+      border-radius: 6px;
+      padding: 0.5rem 0.75rem;
+      color: #e2e8f0;
+      font-size: 0.9rem;
+      outline: none;
+    }
+    .field input:focus, .field select:focus { border-color: #4f46e5; }
+
+    .row { display: flex; gap: 0.75rem; }
+    .row .field { flex: 1; }
+
+    .controls { display: flex; gap: 0.75rem; margin-top: 0.5rem; }
+
+    button {
+      flex: 1;
+      padding: 0.65rem 1rem;
+      border-radius: 8px;
+      border: none;
+      font-size: 0.9rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: opacity 0.15s, background 0.15s;
+    }
+    button:disabled { opacity: 0.4; cursor: default; }
+
+    #btn-connect { background: #4f46e5; color: #fff; }
+    #btn-connect:hover:not(:disabled) { background: #4338ca; }
+    #btn-mute { background: #2d3148; color: #e2e8f0; }
+    #btn-mute:hover:not(:disabled) { background: #3a3f60; }
+    #btn-mute.muted { background: #7c3aed; }
+    #btn-disconnect { background: #dc2626; color: #fff; }
+    #btn-disconnect:hover:not(:disabled) { background: #b91c1c; }
+
+    .status-bar {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      font-size: 0.85rem;
+      color: #718096;
+      margin-bottom: 0.75rem;
+    }
+    .dot {
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      background: #4a5568;
+      flex-shrink: 0;
+    }
+    .dot.connecting { background: #f59e0b; animation: pulse 1s infinite; }
+    .dot.connected  { background: #10b981; }
+    .dot.error      { background: #ef4444; }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50%       { opacity: 0.3; }
+    }
+
+    .meter-row {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      font-size: 0.8rem;
+      color: #718096;
+      margin-bottom: 0.75rem;
+    }
+    .meter { flex: 1; height: 6px; background: #0f1117; border-radius: 3px; overflow: hidden; }
+    .meter-fill {
+      height: 100%;
+      background: #10b981;
+      width: 0%;
+      transition: width 0.08s;
+      border-radius: 3px;
+    }
+
+    .log {
+      background: #0f1117;
+      border: 1px solid #2d3148;
+      border-radius: 8px;
+      padding: 0.75rem;
+      height: 280px;
+      overflow-y: auto;
+      font-family: "Menlo", "Monaco", monospace;
+      font-size: 0.78rem;
+      line-height: 1.6;
+    }
+
+    .log-entry { display: flex; gap: 0.5rem; }
+    .log-time  { color: #4a5568; flex-shrink: 0; }
+    .log-msg        { color: #cbd5e0; word-break: break-all; }
+    .log-msg.ok     { color: #10b981; }
+    .log-msg.err    { color: #f87171; }
+    .log-msg.evt    { color: #60a5fa; }
+    .log-msg.dim    { color: #4a5568; }
+
+    #remote-audio { display: none; }
+  </style>
+</head>
+<body>
+
+<h1>Active Call — Voice Agent Tester</h1>
+<p class="subtitle">WebRTC · real mic · real speakers</p>
+
+<div class="card">
+  <h2>Connection</h2>
+  <div class="field">
+    <label for="backend-url">Backend URL</label>
+    <input id="backend-url" type="text" value="http://localhost:8080" placeholder="http://localhost:8080" />
+  </div>
+  <div class="row">
+    <div class="field">
+      <label for="codec">Codec</label>
+      <select id="codec">
+        <option value="opus">Opus</option>
+        <option value="pcmu">PCMU (G.711 μ-law)</option>
+        <option value="pcma">PCMA (G.711 A-law)</option>
+      </select>
+    </div>
+    <div class="field">
+      <label for="session-id">Session ID (optional)</label>
+      <input id="session-id" type="text" placeholder="auto-generated" />
+    </div>
+  </div>
+
+  <div class="status-bar">
+    <div class="dot" id="status-dot"></div>
+    <span id="status-text">Idle</span>
+  </div>
+
+  <div class="meter-row">
+    <span>Mic</span>
+    <div class="meter"><div class="meter-fill" id="mic-meter"></div></div>
+    <span>Spk</span>
+    <div class="meter"><div class="meter-fill" id="spk-meter"></div></div>
+  </div>
+
+  <div class="controls">
+    <button id="btn-connect">Connect</button>
+    <button id="btn-mute" disabled>Mute</button>
+    <button id="btn-disconnect" disabled>Hang Up</button>
+  </div>
+</div>
+
+<div class="card">
+  <h2>Event Log</h2>
+  <div class="log" id="log"></div>
+</div>
+
+<audio id="remote-audio" autoplay playsinline></audio>
+
+<script>
+  'use strict';
+
+  const btnConnect    = document.getElementById('btn-connect');
+  const btnMute       = document.getElementById('btn-mute');
+  const btnDisconnect = document.getElementById('btn-disconnect');
+  const statusDot     = document.getElementById('status-dot');
+  const statusText    = document.getElementById('status-text');
+  const logEl         = document.getElementById('log');
+  const micMeter      = document.getElementById('mic-meter');
+  const spkMeter      = document.getElementById('spk-meter');
+  const remoteAudio   = document.getElementById('remote-audio');
+
+  let pc          = null;
+  let ws          = null;
+  let localStream = null;
+  let muted       = false;
+  let audioCtx    = null;
+  let micAnalyser = null;
+  let spkAnalyser = null;
+  let animFrame   = null;
+
+  function uid() {
+    return 'ui-' + Math.random().toString(36).slice(2, 10);
+  }
+
+  function addLog(msg, kind) {
+    const now  = new Date();
+    const hms  = now.toTimeString().slice(0, 8);
+    const ms   = String(now.getMilliseconds()).padStart(3, '0');
+    const time = hms + '.' + ms;
+
+    const entry   = document.createElement('div');
+    entry.className = 'log-entry';
+
+    const timeSpan = document.createElement('span');
+    timeSpan.className   = 'log-time';
+    timeSpan.textContent = time;
+
+    const msgSpan = document.createElement('span');
+    msgSpan.className   = 'log-msg' + (kind ? ' ' + kind : '');
+    msgSpan.textContent = msg;
+
+    entry.appendChild(timeSpan);
+    entry.appendChild(msgSpan);
+    logEl.appendChild(entry);
+    logEl.scrollTop = logEl.scrollHeight;
+  }
+
+  function setStatus(label, state) {
+    statusDot.className  = 'dot' + (state ? ' ' + state : '');
+    statusText.textContent = label;
+  }
+
+  function setButtons(connected) {
+    btnConnect.disabled    = connected;
+    btnMute.disabled       = !connected;
+    btnDisconnect.disabled = !connected;
+  }
+
+  function makeAnalyser(stream) {
+    const src = audioCtx.createMediaStreamSource(stream);
+    const an  = audioCtx.createAnalyser();
+    an.fftSize = 256;
+    src.connect(an);
+    return an;
+  }
+
+  function startMeters(local, remote) {
+    audioCtx    = new AudioContext();
+    micAnalyser = makeAnalyser(local);
+    spkAnalyser = remote ? makeAnalyser(remote) : null;
+
+    const buf = new Uint8Array(micAnalyser.frequencyBinCount);
+
+    function tick() {
+      animFrame = requestAnimationFrame(tick);
+
+      micAnalyser.getByteTimeDomainData(buf);
+      let rms = 0;
+      for (let i = 0; i < buf.length; i++) rms += (buf[i] - 128) ** 2;
+      micMeter.style.width = Math.min(100, Math.sqrt(rms / buf.length) * 6) + '%';
+
+      if (spkAnalyser) {
+        spkAnalyser.getByteTimeDomainData(buf);
+        rms = 0;
+        for (let i = 0; i < buf.length; i++) rms += (buf[i] - 128) ** 2;
+        spkMeter.style.width = Math.min(100, Math.sqrt(rms / buf.length) * 6) + '%';
+      }
+    }
+    tick();
+  }
+
+  function stopMeters() {
+    if (animFrame) { cancelAnimationFrame(animFrame); animFrame = null; }
+    micMeter.style.width = '0%';
+    spkMeter.style.width = '0%';
+    if (audioCtx) { audioCtx.close().catch(() => {}); audioCtx = null; }
+    micAnalyser = null;
+    spkAnalyser = null;
+  }
+
+  async function connect() {
+    const base      = document.getElementById('backend-url').value.trim().replace(/\/$/, '');
+    const codec     = document.getElementById('codec').value;
+    const sessionId = document.getElementById('session-id').value.trim() || uid();
+
+    setStatus('Requesting microphone…', 'connecting');
+    addLog('Requesting microphone access…', 'dim');
+
+    try {
+      localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+    } catch (err) {
+      setStatus('Mic denied', 'error');
+      addLog('Mic error: ' + err.message, 'err');
+      return;
+    }
+    addLog('Mic granted', 'ok');
+
+    pc = new RTCPeerConnection({
+      iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
+    });
+
+    for (const track of localStream.getAudioTracks()) {
+      pc.addTrack(track, localStream);
+    }
+
+    pc.ontrack = function(ev) {
+      addLog('Remote track received: ' + ev.track.kind, 'evt');
+      const remote = ev.streams[0] || new MediaStream([ev.track]);
+      remoteAudio.srcObject = remote;
+      if (!micAnalyser) startMeters(localStream, remote);
+    };
+
+    pc.oniceconnectionstatechange = function() {
+      const s = pc.iceConnectionState;
+      const kind = (s === 'connected' || s === 'completed') ? 'ok'
+                  : s === 'failed' ? 'err' : 'dim';
+      addLog('ICE → ' + s, kind);
+      if (s === 'connected' || s === 'completed') {
+        setStatus('Connected · ' + sessionId, 'connected');
+        setButtons(true);
+        if (!micAnalyser) startMeters(localStream, null);
+      }
+      if (s === 'failed' || s === 'closed' || s === 'disconnected') {
+        setStatus('Disconnected', 'error');
+        setButtons(false);
+        stopMeters();
+      }
+    };
+
+    pc.onsignalingstatechange = function() {
+      addLog('Signaling → ' + pc.signalingState, 'dim');
+    };
+
+    // Open WebSocket — the /call/webrtc route is a WebSocket upgrade, not HTTP
+    const wsBase = base.replace(/^http/, 'ws');
+    const wsUrl  = wsBase + '/call/webrtc'
+      + '?id='    + encodeURIComponent(sessionId)
+      + '&codec=' + encodeURIComponent(codec);
+    addLog('WS → ' + wsUrl, 'dim');
+
+    await new Promise(function(resolve, reject) {
+      ws = new WebSocket(wsUrl);
+
+      ws.onopen = function() {
+        addLog('WebSocket open — creating SDP offer…', 'ok');
+        pc.createOffer().then(function(offer) {
+          return pc.setLocalDescription(offer);
+        }).then(function() {
+          // Send Invite command with the SDP offer
+          const invite = JSON.stringify({
+            command: 'invite',
+            option: {
+              offer: pc.localDescription.sdp,
+              codec: codec
+            }
+          });
+          ws.send(invite);
+          addLog('Invite sent — waiting for answer…', 'dim');
+          setStatus('Waiting for SDP answer…', 'connecting');
+        }).catch(reject);
+      };
+
+      ws.onmessage = function(ev) {
+        let msg;
+        try { msg = JSON.parse(ev.data); } catch (_) { return; }
+        addLog('← ' + (msg.event || JSON.stringify(msg)), 'evt');
+
+        if (msg.event === 'answer' && msg.sdp) {
+          pc.setRemoteDescription(new RTCSessionDescription({ type: 'answer', sdp: msg.sdp }))
+            .then(function() {
+              addLog('Remote description set — ICE negotiating…', 'ok');
+              setStatus('Negotiating ICE…', 'connecting');
+              resolve();
+            })
+            .catch(function(err) {
+              addLog('setRemoteDescription failed: ' + err.message, 'err');
+              reject(err);
+            });
+        } else if (msg.event === 'reject') {
+          reject(new Error('Call rejected: ' + (msg.reason || 'unknown')));
+        } else if (msg.event === 'hangup') {
+          addLog('Server hung up: ' + (msg.reason || ''), 'dim');
+          cleanup().then(function() { setStatus('Idle', ''); });
+        }
+      };
+
+      ws.onerror = function(ev) {
+        reject(new Error('WebSocket error'));
+      };
+
+      ws.onclose = function(ev) {
+        if (ev.code !== 1000) {
+          addLog('WS closed: ' + ev.code + ' ' + ev.reason, 'dim');
+        }
+      };
+    }).catch(function(err) {
+      setStatus('Connection failed', 'error');
+      addLog('Signaling failed: ' + err.message, 'err');
+      cleanup();
+    });
+  }
+
+  async function cleanup() {
+    stopMeters();
+    if (ws)  { ws.close(); ws = null; }
+    if (pc)  { pc.close(); pc = null; }
+    if (localStream) { localStream.getTracks().forEach(function(t) { t.stop(); }); localStream = null; }
+    remoteAudio.srcObject = null;
+    muted = false;
+    btnMute.textContent = 'Mute';
+    btnMute.classList.remove('muted');
+    setButtons(false);
+  }
+
+  btnConnect.addEventListener('click', connect);
+
+  btnMute.addEventListener('click', function() {
+    if (!localStream) return;
+    muted = !muted;
+    localStream.getAudioTracks().forEach(function(t) { t.enabled = !muted; });
+    btnMute.textContent = muted ? 'Unmute' : 'Mute';
+    btnMute.classList.toggle('muted', muted);
+    addLog(muted ? 'Mic muted' : 'Mic unmuted', 'dim');
+  });
+
+  btnDisconnect.addEventListener('click', async function() {
+    addLog('Hanging up…', 'dim');
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ command: 'hangup', reason: 'user', initiator: 'caller' }));
+    }
+    await cleanup();
+    setStatus('Idle', '');
+    addLog('Call ended', 'ok');
+  });
+
+  addLog('Ready — enter backend URL and click Connect.', 'dim');
+</script>
+</body>
+</html>

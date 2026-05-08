@@ -340,7 +340,7 @@ impl PjEndpoint {
 
     fn start_tcp_transport(&mut self) -> Result<()> {
         let mut addr: pjsip_sys::pj_sockaddr_in = unsafe { std::mem::zeroed() };
-        addr.sin_family = libc::AF_INET as u16;
+        addr.sin_family = libc::AF_INET as _;
         addr.sin_port = self.config.port.to_be();
         addr.sin_addr.s_addr = 0;
 
@@ -388,7 +388,7 @@ impl PjEndpoint {
             unsafe { pjsip_sys::pj_str(key_cstr.as_ptr() as *mut _) };
 
         let mut addr: pjsip_sys::pj_sockaddr_in = unsafe { std::mem::zeroed() };
-        addr.sin_family = libc::AF_INET as u16;
+        addr.sin_family = libc::AF_INET as _;
         addr.sin_port = self.config.port.to_be();
         addr.sin_addr.s_addr = 0;
 

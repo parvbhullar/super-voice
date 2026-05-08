@@ -36,6 +36,15 @@ offline-llm = [
     "dep:candle-transformers",
     "dep:tokenizers",
 ]
+# In-process Gemma 4 GGUF via llama.cpp (llama-cpp-2 Rust bindings).
+# Compiles llama.cpp as a build dependency; Metal/CUDA acceleration
+# is picked up automatically when available. Off by default because
+# it requires the llama.cpp C++ build step (~1-2 min on first compile).
+# `offline` is required for OfflineModels / startup scan integration.
+offline-gemma4 = [
+    "offline",
+    "dep:llama-cpp-2",
+]
 cross = ["opus", "offline", "aws-lc-rs/bindgen"]
 not_vad = []
 
@@ -137,6 +146,11 @@ candle-transformers = { version = "0.8", default-features = false, optional = tr
 tokenizers = { version = "0.21", default-features = false, features = [
     "onig",
 ], optional = true }
+
+# In-process Gemma 4 (and any GGUF model) via llama.cpp.
+# The crate compiles llama.cpp from source; Metal is auto-detected on macOS,
+# CUDA when CUDA_PATH is set, otherwise pure CPU. Gated on offline-gemma4.
+llama-cpp-2 = { version = "0.1", optional = true }
 
 # Audio processing
 symphonia = { version = "0.5", features = ["all"], optional = true }

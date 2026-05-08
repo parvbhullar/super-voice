@@ -192,13 +192,20 @@ impl LlmHandler {
 
 /// Construct the right `LlmProvider` impl for a chain entry by name.
 /// Cloud providers all share `DefaultLlmProvider` (the per-entry config
-/// supplies base_url / api_key / model). The offline LLM tier routes to
-/// `CandlePhi3Provider` when the binary was built with `offline-llm`.
+/// supplies base_url / api_key / model). Offline tiers dispatch by alias:
+/// - `phi3` / `candle` / `offline-llm` → `CandlePhi3Provider` (`offline-llm` feature)
+/// - `gemma4` / `gemma-4` / `gemma`    → `LlamaGemma4Provider` (`offline-gemma4` feature)
 fn build_provider_for_entry(provider_name: &str) -> Arc<dyn LlmProvider> {
     #[cfg(feature = "offline-llm")]
     {
         if crate::offline::scan_is_offline_llm_provider(provider_name) {
             return Arc::new(crate::offline::candle::CandlePhi3Provider::new());
+        }
+    }
+    #[cfg(feature = "offline-gemma4")]
+    {
+        if crate::offline::scan_is_offline_gemma4_provider(provider_name) {
+            return Arc::new(crate::offline::llama_gemma4::LlamaGemma4Provider::new());
         }
     }
     let _ = provider_name;

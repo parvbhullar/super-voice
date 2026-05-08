@@ -221,6 +221,19 @@ records:
     @curl -s http://localhost:8080/api/records 2>/dev/null | python3 -m json.tool || echo "Server unreachable"
 
 # ──────────────────────────────────────────────
+# Browser UI
+# ──────────────────────────────────────────────
+
+# Serve the WebRTC browser tester at http://localhost:9090 and open it
+ui port="9090":
+    #!/usr/bin/env bash
+    echo "Voice agent tester UI → http://localhost:{{port}}"
+    echo "Connect the UI to your active-call backend (default http://localhost:8080)"
+    echo "Press Ctrl-C to stop."
+    open "http://localhost:{{port}}" 2>/dev/null || true
+    python3 -m http.server {{port}} --directory ui
+
+# ──────────────────────────────────────────────
 # Convenience aliases
 # ──────────────────────────────────────────────
 
