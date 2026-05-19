@@ -292,6 +292,10 @@ _gen-config:
     redis_url = "redis://127.0.0.1:6379"
     log_level = "info"
 
+    # WebRTC: bind + advertise loopback so a same-machine browser can reach ICE candidates.
+    external_ip = "127.0.0.1"
+    rtp_bind_ip = "127.0.0.1"
+
     [handler]
     type = "playbook"
     default = "hello.md"
