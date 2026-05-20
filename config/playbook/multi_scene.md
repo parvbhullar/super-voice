@@ -1,9 +1,9 @@
 ---
 asr:
-  provider: "openai"
+  provider: "sensevoice"
 tts:
-  provider: "openai"
-  voice: "alloy"
+  provider: "supertonic"
+  speaker: "F1"
 llm:
   provider: "openai"
   model: "gpt-4-turbo"

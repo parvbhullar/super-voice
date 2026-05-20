@@ -1,22 +1,24 @@
 ---
 llm:
   providers:
-    # Primary: Gemma 4 E2B FP8 vLLM sidecar (just download-gemma4-fp8 + gemma4_llm_server.py)
-    - provider: "gemma4-sidecar"
-      baseUrl: "${GEMMA4_BASE_URL:-http://localhost:8002/v1}"
-      apiKey: "${GEMMA4_API_KEY:-unused}"
-      model: "gemma-4"
-      timeoutMs: 15000
-    # Fallback: OpenAI-compatible cloud
+    # Primary: in-process Phi-3 via Candle (requires --features offline-llm
+    # at build time; run `just download-llm` once to fetch the weights).
+    - provider: "candle"
+      model: "phi3-mini-4k-instruct-q4_k_m"
+      timeoutMs: 30000
+    # Fallback: OpenAI-compatible cloud (only used if OPENAI_API_KEY is set).
     - provider: "openai"
       baseUrl: "${OPENAI_BASE_URL:-https://api.openai.com/v1}"
       apiKey: "${OPENAI_API_KEY}"
       model: "${OPENAI_MODEL:-gpt-4o-mini}"
       timeoutMs: 10000
 
+asr:
+  provider: "sensevoice"
+
 tts:
-  provider: "msedge"
-  speaker: "en-US-AriaNeural"
+  provider: "supertonic"
+  speaker: "F1"
   speed: 1.0
 
 vad:

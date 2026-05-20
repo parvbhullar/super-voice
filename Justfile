@@ -200,9 +200,11 @@ gen-config:
 # Build
 # ──────────────────────────────────────────────
 
-# Build release binary with carrier features
+# Build release binary with carrier + in-process Phi-3 LLM
+# (offline-llm is required by hello.md's "candle" provider chain;
+#  drop it if you want a lighter build and switch playbooks accordingly).
 build:
-    cargo build --release
+    cargo build --release --features offline-llm
 
 # Build without C dependencies (pure Rust)
 build-minimal:
@@ -278,6 +280,10 @@ test-mod mod:
 test-startup: build
     bash scripts/check_startup.sh {{server_bin}}
 
+# Lint shipped playbooks against registered ASR/TTS/VAD providers
+check-playbooks:
+    bash scripts/check_playbook_providers.sh
+
 # ──────────────────────────────────────────────
 # Server (Carrier Mode with Redis)
 # ──────────────────────────────────────────────
@@ -309,8 +315,16 @@ start: build _gen-config
         echo "Server already running (PID $(cat {{server_pid}}))"
         exit 0
     fi
-    export DYLD_LIBRARY_PATH="/opt/homebrew/opt/onnxruntime/lib:${DYLD_LIBRARY_PATH:-}"
-    export ORT_DYLIB_PATH="/opt/homebrew/opt/onnxruntime/lib/libonnxruntime.dylib"
+    # Prefer a self-contained ORT from $HOME/.local/onnxruntime if installed
+    # (avoids the brew protobuf@33 vs protobuf 34 ABI conflict that loops
+    # forever inside the ONNX model loader). Fall back to brew's ORT.
+    if [ -f "$HOME/.local/onnxruntime/lib/libonnxruntime.1.24.3.dylib" ]; then
+        export ORT_DYLIB_PATH="$HOME/.local/onnxruntime/lib/libonnxruntime.1.24.3.dylib"
+        unset DYLD_LIBRARY_PATH   # keep brew's onnx out of the resolver
+    else
+        export DYLD_LIBRARY_PATH="/opt/homebrew/opt/onnxruntime/lib:${DYLD_LIBRARY_PATH:-}"
+        export ORT_DYLIB_PATH="/opt/homebrew/opt/onnxruntime/lib/libonnxruntime.dylib"
+    fi
     nohup env DYLD_LIBRARY_PATH="$DYLD_LIBRARY_PATH" ORT_DYLIB_PATH="$ORT_DYLIB_PATH" \
         {{server_bin}} --conf {{carrier_conf}} > {{server_log}} 2>&1 &
     echo $! > {{server_pid}}

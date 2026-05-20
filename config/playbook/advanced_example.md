@@ -3,9 +3,9 @@
 # Demonstrates SIP Headers, variable management, HTTP calls and other advanced features
 
 asr:
-  provider: "aliyun"
+  provider: "sensevoice"
   sampleRate: 16000
-  
+
 llm:
   provider: "openai"
   model: "gpt-4o"
@@ -16,10 +16,10 @@ llm:
   features:
     - "intent_clarification"
     - "context_repair"
-  
+
 tts:
-  provider: "aliyun"
-  voice: "zhixiaobai"
+  provider: "supertonic"
+  speaker: "F1"
   
 vad:
   provider: "silero"

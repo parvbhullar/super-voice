@@ -21,7 +21,7 @@ asr:
   secret_key: "${ASR_SECRET_KEY}"
 
 tts:
-  provider: "${TTS_PROVIDER}"        # e.g., "supertonic", "cosyvoice"
+  provider: "${TTS_PROVIDER}"        # e.g., "supertonic", "aliyun", "deepgram"
   speaker: "${TTS_SPEAKER}"          # e.g., "F1", "M1"
   speed: ${TTS_SPEED}                # Numeric values: 0.8, 1.0, 1.2
   language: "${TTS_LANGUAGE}"        # e.g., "en", "zh"

@@ -3,15 +3,16 @@
 # Demonstrates basic SIP Headers and variable usage
 
 asr:
-  provider: "aliyun"
-  
+  provider: "sensevoice"
+
 llm:
   provider: "aliyun"
   model: "qwen-turbo"
   apiKey: "${ALIYUN_API_KEY}"
-  
+
 tts:
-  provider: "aliyun"
+  provider: "supertonic"
+  speaker: "F1"
 
 sip:
   extract_headers:

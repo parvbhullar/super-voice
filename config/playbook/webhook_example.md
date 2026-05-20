@@ -3,15 +3,16 @@
 # Demonstrates HTTP API calls
 
 asr:
-  provider: "aliyun"
-  
+  provider: "sensevoice"
+
 llm:
   provider: "openai"
   model: "gpt-4o-mini"
   apiKey: "${OPENAI_API_KEY}"
-  
+
 tts:
-  provider: "aliyun"
+  provider: "supertonic"
+  speaker: "F1"
 
 ---
 

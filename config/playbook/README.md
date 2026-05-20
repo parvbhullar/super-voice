@@ -1,257 +1,202 @@
-# Playbook 示例集合
+# Playbook Examples
 
-本目录包含各种 Active-Call Playbook 配置示例。
+This directory contains example Active-Call Playbook configurations.
 
-## 📚 示例列表
+A playbook is a Markdown file with a YAML frontmatter that selects the ASR, TTS,
+LLM, and VAD providers (and other call options), followed by the system prompt
+the LLM should follow during the call.
 
-### 基础示例
+## ⚠️ Allowed provider values
 
-1. **[demo.md](./demo.md)** - 最简单的问候示例
-   - 适合新手入门
-   - 展示基本的 ASR/TTS/LLM 配置
+A playbook MUST use only provider identifiers that are registered in
+`StreamEngine::default()` for the current build. Anything else will trigger
+`failed to prepare stream processors: ASR/TTS type not registered: <name>`
+at call setup, the WebRTC handshake will still succeed, and then audio will
+go nowhere — no greeting out, no transcript in. That failure is silent unless
+you read the server log.
 
-2. **[hello.md](./hello.md)** - Hello World 示例
-   - 最小化配置
-   - 快速验证系统运行
+| Field            | Allowed values                                              |
+|------------------|-------------------------------------------------------------|
+| `asr.provider`   | `sensevoice`, `tencent`, `aliyun`                           |
+| `tts.provider`   | `supertonic`, `aliyun`, `tencent`, `tencent_basic`, `deepgram` |
+| `vad.provider`   | `silero`, `nop`                                             |
+| `llm.provider`   | any value supported by the LLM dispatcher (e.g. `openai`, `aliyun`, `gemma4`, `gemma4-sidecar`, `candle`) |
 
-3. **[multi_scene.md](./multi_scene.md)** - 多场景切换
-   - 演示场景管理
-   - DTMF 按键交互
+For ASR/TTS fallback chains (`asr.providers: [...]`, `tts.providers: [...]`)
+every entry must also come from the lists above.
 
-### 进阶示例
+**Explicitly not supported in this build (do not use):**
 
-4. **[simple_crm.md](./simple_crm.md)** ⭐ - 简单 CRM 客服
-   - SIP Headers 提取
-   - 变量记录
-   - BYE Headers 定制
-   - **推荐用于学习 Headers 流程**
+- `openai` as `asr.provider` or `tts.provider` — only the LLM dispatcher
+  understands `openai`. For OpenAI ASR+TTS in one stream, see the separate
+  Realtime API code path (set the `realtime:` block instead of `asr:` and
+  `tts:`), not implemented as a default in any shipped playbook.
+- `msedge` as `tts.provider`.
+- Whisper variants (`whisper`, `faster-whisper`, `whisper-ct2`,
+  `whisper-hindi2hinglish`, etc.) — not yet integrated. Tracked as a
+  future change in `openspec/`.
 
-5. **[webhook_example.md](./webhook_example.md)** ⭐ - HTTP API 集成
-   - 外部 API 调用
-   - 数据获取与提交
-   - **推荐用于学习 HTTP 工具**
+The lint script `scripts/check_playbook_providers.sh` enforces this list and
+runs as part of `bash scripts/run_tests.sh`.
 
-6. **[advanced_example.md](./advanced_example.md)** 🚀 - 完整智能客服系统
-   - 综合所有高级特性
-   - 真实业务场景
-   - 包含完整工作流程
-   - **推荐用于生产环境参考**
+## 🏁 First-time setup
 
-## 🎯 快速开始
-
-### 1. 选择示例
-
-根据需求选择合适的示例：
+The shipped playbooks default to fully-offline ASR and TTS, so a fresh clone
+just needs the model weights on disk:
 
 ```bash
-# 初学者
-cp config/playbook/demo.md config/playbook/my_first.md
-
-# 需要 SIP 集成
-cp config/playbook/simple_crm.md config/playbook/my_sip.md
-
-# 需要 HTTP 调用
-cp config/playbook/webhook_example.md config/playbook/my_webhook.md
-
-# 完整功能
-cp config/playbook/advanced_example.md config/playbook/my_advanced.md
+just download-sensevoice   # ~50 MB  — required by all playbooks (ASR)
+just download-supertonic   # ~100 MB — required by all playbooks (TTS)
 ```
 
-### 2. 配置环境变量
-
-编辑 `.env` 或在配置中替换：
+The default `hello.md` LLM chain prefers an in-process Gemma-4 sidecar and
+falls back to OpenAI cloud. Pick one of:
 
 ```bash
+# Option A: run the local Gemma-4 vLLM sidecar
+just download-gemma4-fp8
+python gemma4_llm_server.py --host 0.0.0.0 --port 8002
+
+# Option B: rely on the cloud fallback
 export OPENAI_API_KEY="sk-..."
-export ALIYUN_API_KEY="sk-..."
 ```
 
-### 3. 启动测试
+Cloud ASR / TTS playbooks need their own credentials:
 
-```bash
-# WebRTC 方式（浏览器测试）
-cargo run -- --config active-call.toml
+- `aliyun` ASR/TTS → `ALIYUN_API_KEY` / `DASHSCOPE_API_KEY` (see
+  `webhook_example.md`, `simple_crm.md`, `advanced_example.md` — these were
+  ported to `sensevoice`/`supertonic` for the default experience, but the
+  template lines remain for users who want cloud).
+- `tencent` ASR/TTS → `TENCENT_SECRET_ID`, `TENCENT_SECRET_KEY`, `TENCENT_APPID`.
+- `deepgram` TTS → `DEEPGRAM_API_KEY`.
 
-# SIP 方式（需要 SIP 客户端）
-# 配置 SIP 注册后拨打对应号码
-```
+## 📚 Example index
 
-## 📖 特性对照表
+### Starter
 
-| 特性 | demo | hello | multi_scene | simple_crm | webhook | advanced |
-|-----|------|-------|-------------|------------|---------|----------|
-| 基础对话 | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| 多场景 | ❌ | ❌ | ✅ | ❌ | ❌ | ✅ |
-| DTMF | ❌ | ❌ | ✅ | ❌ | ❌ | ✅ |
-| SIP Headers | ❌ | ❌ | ❌ | ✅ | ❌ | ✅ |
-| `<set_var>` | ❌ | ❌ | ❌ | ✅ | ❌ | ✅ |
-| `<http>` | ❌ | ❌ | ❌ | ❌ | ✅ | ✅ |
-| BYE Headers | ❌ | ❌ | ❌ | ✅ | ❌ | ✅ |
-| 转人工 | ❌ | ❌ | ✅ | ✅ | ❌ | ✅ |
-| 完整业务流程 | ❌ | ❌ | ❌ | ⚠️ | ⚠️ | ✅ |
+- **[hello.md](./hello.md)** — minimal: `sensevoice` ASR + `supertonic` TTS +
+  `gemma4-sidecar`/`openai` LLM fallback chain. This is the default playbook
+  the web UI runs when you click "Run".
 
-✅ 完整支持 | ⚠️ 简单演示 | ❌ 不包含
+### Scene / DTMF
 
-## 🔧 配置说明
+- **[multi_scene.md](./multi_scene.md)** — scene switching, DTMF input,
+  refer/hangup actions. Now uses the offline ASR/TTS stack.
 
-### YAML 配置部分
+### SIP integration
+
+- **[simple_crm.md](./simple_crm.md)** ⭐ — SIP header extraction,
+  `<set_var>`, BYE headers. Good entry point for SIP-driven flows.
+
+### HTTP tools
+
+- **[webhook_example.md](./webhook_example.md)** ⭐ — calling external HTTP
+  APIs from the playbook (`<http url=… />`).
+
+### Advanced
+
+- **[advanced_example.md](./advanced_example.md)** 🚀 — full customer-service
+  flow with headers, variables, HTTP tooling, multiple intents.
+- **[fallback_example.md](./fallback_example.md)** — ASR / TTS / LLM
+  fallback chains. Demonstrates provider-list ordering.
+- **[gemma4_example.md](./gemma4_example.md)** — in-process Gemma 4 (no
+  sidecar) with a cloud LLM backup.
+- **[env_vars_example.md](./env_vars_example.md)** — `${VAR}` substitution
+  across all configuration fields.
+
+## 🛠 Configuration anatomy
 
 ```yaml
 ---
-# ASR 配置
 asr:
-  provider: "aliyun"  # 或 "azure", "openai"
-  
-# LLM 配置
-llm:
-  provider: "openai"  # 或 "aliyun", "azure"
-  model: "gpt-4o"
-  apiKey: "${API_KEY}"
-  
-# TTS 配置
+  provider: "sensevoice"                 # offline ONNX, no key required
+  language: "auto"
+
 tts:
-  provider: "aliyun"
-  
-# SIP 配置（仅 SIP 呼叫需要）
-sip:
-  extract_headers: ["X-Header-Name"]
-  hangup_headers:
-    X-Custom: "{{ variable }}"
----
-```
+  provider: "supertonic"                 # offline ONNX, no key required
+  speaker: "F1"                          # F1, F2, M1, M2
+  speed: 1.0
 
-### Markdown Prompt 部分
+vad:
+  provider: "silero"
 
-紧跟在 YAML 后的 Markdown 内容是 LLM 的系统提示词。
-
-## 🎨 自定义 Playbook
-
-### 步骤 1: 创建文件
-
-```bash
-touch config/playbook/my_bot.md
-```
-
-### 步骤 2: 编写配置
-
-```yaml
----
-asr:
-  provider: "aliyun"
 llm:
-  provider: "openai"
-  model: "gpt-4o"
+  provider: "openai"                     # see allowed values above
+  model: "gpt-4o-mini"
   apiKey: "${OPENAI_API_KEY}"
-  prompt: |
-    你是 [角色描述]
-tts:
-  provider: "aliyun"
+
+denoise: true
+greeting: "Hello, how can I help you?"
+
+sip:                                     # optional, only for SIP calls
+  extract_headers: ["X-Customer-ID"]
+  hangup_headers:
+    X-Hangup-Reason: "{{ reason }}"
 ---
 
-[这里写详细的 System Prompt]
+You are a helpful assistant. Keep responses concise.
 ```
 
-### 步骤 3: 测试
+The Markdown body after the frontmatter is the system prompt the LLM follows
+during the call.
 
-```bash
-# 通过 API 指定 playbook
-curl -X POST http://localhost:3000/call \
-  -H "Content-Type: application/json" \
-  -d '{"playbook": "my_bot.md"}'
-```
+## 🎯 Running a playbook
 
-## 📚 深入学习
+The webapp at `http://localhost:18080/` lets you pick a playbook from the
+dropdown, edit it in the textarea, and click **Run** to start a WebRTC call.
+The dropdown loads from `/api/playbooks`; the textarea content (not the
+dropdown name) is what actually gets sent for the call. If you edit the
+textarea, save back with the **Save** button before relying on the file on
+disk.
 
-- **[Playbook 高级特性文档](../docs/playbook_advanced_features.md)** - 详细特性说明
-- **[测试用例](../src/playbook/handler/tests.rs)** - 查看单元测试了解实现细节
-- **[API 文档](../docs/api.md)** - 完整 API 参考
+For SIP calls, enter a callee URI and click **SIP Call**.
 
-## 💡 最佳实践
+## 🐛 Troubleshooting
 
-### 1. Prompt 设计
+### "ASR type not registered: openai" / "TTS type not registered: msedge"
 
-✅ **清晰的角色定义**
-```
-你是专业的客服助手，负责...
-```
+Your playbook references a provider that is not in `StreamEngine::default()`.
+Pick a value from the [allowed list](#-allowed-provider-values) and try again,
+or run `bash scripts/check_playbook_providers.sh` to be told which file and
+field is wrong.
 
-✅ **明确的工具说明**
-```
-可用工具：
-- <set_var key="..." value="..." />
-- <http url="..." />
-```
+### Voice connects but I hear silence
 
-✅ **提供示例对话**
-```
-示例：
-用户: ...
-你: ...
-```
+Usually one of:
+- Missing model weights (`models/sensevoice/`, `models/supertonic/`). Run the
+  matching `just download-*` recipe.
+- Cloud provider chosen without API keys in the environment.
+- LLM sidecar referenced but not running (`gemma4-sidecar` expects an HTTP
+  service on `GEMMA4_BASE_URL`; otherwise the chain falls through to
+  `openai`, which needs `OPENAI_API_KEY`).
 
-### 2. 变量命名
+### Variables not landing in BYE headers
 
-✅ 使用描述性名称：`user_name`, `ticket_id`  
-❌ 避免：`var1`, `x`, `temp`
+- Only SIP calls deliver BYE headers; WebRTC does not.
+- `sip.hangup_headers` must be set in the playbook frontmatter.
+- The variable must be set via `<set_var>` *before* `<hangup/>`.
 
-### 3. 错误处理
+## 🤝 Contributing examples
 
-在 Prompt 中说明错误情况：
-```
-如果 API 调用失败，礼貌告知用户...
-```
+1. Fork the repo.
+2. Create a new file in `config/playbook/`.
+3. Use only [allowed providers](#-allowed-provider-values).
+4. Run `bash scripts/check_playbook_providers.sh` and make sure it passes.
+5. Add the example to the index above.
+6. Submit a PR.
 
-### 4. 性能优化
+Naming convention: `<use_case>_<feature>.md`, e.g.
+`customer_service_basic.md`, `order_assistant_webhook.md`.
 
-- HTTP 调用会增加延迟，合理使用
-- 避免过长的 Prompt（影响响应速度）
-- 使用流式输出提升体验
+## 🔭 Roadmap (not yet supported)
 
-## 🐛 常见问题
+- OpenAI ASR + OpenAI TTS as standalone providers (today only OpenAI Realtime
+  is wired up, via the separate `realtime:` block).
+- Whisper STT (the `whisper-hindi2hinglish-ct2` model in
+  `super-model/inference/stt/legacy/`). Integration paths under
+  consideration: CTranslate2 FFI, ONNX-converted weights, or a
+  faster-whisper HTTP sidecar.
+- Startup-time validation that every referenced provider has its model
+  weights or credentials available, so the failure is loud instead of silent.
 
-### Q: Playbook 不生效？
-
-A: 检查：
-1. 文件路径是否正确（`config/playbook/xxx.md`）
-2. YAML 格式是否正确（注意缩进）
-3. 日志中是否有错误信息
-
-### Q: 变量未传递到 BYE Headers？
-
-A: 确保：
-1. 在 SIP 通话中（WebRTC 不支持）
-2. `sip.hangup_headers` 已配置
-3. 变量在挂断前已设置
-
-### Q: HTTP 调用失败？
-
-A: 检查：
-1. URL 是否可访问
-2. 网络/防火墙配置
-3. API 是否需要认证
-
-## 🤝 贡献示例
-
-欢迎贡献更多示例！
-
-1. Fork 项目
-2. 在 `config/playbook/` 创建新示例
-3. 更新本 README
-4. 提交 PR
-
-示例命名规范：`[用途]_[特性].md`
-
-例如：
-- `customer_service_basic.md`
-- `order_assistant_webhook.md`
-- `survey_bot_multilang.md`
-
-## 📝 更新日志
-
-- **2024-02**: 添加高级特性示例（SIP Headers, set_var, http）
-- **2024-01**: 添加多场景示例
-- **2023-12**: 初始版本
-
----
-
-有问题？查看[完整文档](../docs/playbook_advanced_features.md)或提交 [Issue](https://github.com/your-repo/issues)。
+Track these in the `openspec/changes/` directory.
