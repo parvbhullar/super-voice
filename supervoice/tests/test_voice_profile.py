@@ -21,5 +21,5 @@ def test_unknown_profile_raises():
 
 def test_list_profiles():
     cat = VoiceProfileCatalog.load_default()
-    ids = {p.id for p in cat.list()}
+    ids = {p.id for p in cat.all()}
     assert {"hi-female", "hi-male", "en-female", "en-male"} <= ids

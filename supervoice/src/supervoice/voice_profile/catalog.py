@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from importlib.resources import files
 from pathlib import Path
-from typing import List
 
 import yaml
 from pydantic import BaseModel
@@ -22,12 +21,13 @@ class VoiceProfile(BaseModel):
     id: str
     language: str
     persona: str
-    stt_preference: List[STTSpec]
-    tts_preference: List[TTSSpec]
+    stt_preference: list[STTSpec]
+    tts_preference: list[TTSSpec]
 
 
 class VoiceProfileCatalog(BaseModel):
-    profiles: List[VoiceProfile]
+    version: int = 1
+    profiles: list[VoiceProfile]
 
     @classmethod
     def load_default(cls) -> "VoiceProfileCatalog":
@@ -48,5 +48,5 @@ class VoiceProfileCatalog(BaseModel):
                 return p
         raise KeyError(profile_id)
 
-    def list(self) -> list[VoiceProfile]:
+    def all(self) -> list[VoiceProfile]:
         return list(self.profiles)
