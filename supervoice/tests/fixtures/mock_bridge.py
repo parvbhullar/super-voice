@@ -21,7 +21,7 @@ async def mock_bridge_handler(ws):
             continue
         turn_id = msg["turn_id"]
         text = msg["text"]
-        for chunk in [f"You said ", text, "."]:
+        for chunk in ["You said ", text, "."]:
             await ws.send(
                 json.dumps(
                     {
