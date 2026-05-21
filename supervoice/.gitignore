@@ -6,3 +6,10 @@ __pycache__/
 .pyrefly_cache/
 *.log
 .env
+dist/
+build/
+*.egg-info/
+.coverage
+htmlcov/
+.mypy_cache/
+.env.*
