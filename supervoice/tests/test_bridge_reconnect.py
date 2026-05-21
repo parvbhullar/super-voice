@@ -62,3 +62,24 @@ async def test_reconnect_exhausted_gives_up():
             pass  # acceptable: connect raised after exhaustion
     finally:
         await client.close()
+
+
+@pytest.mark.asyncio
+async def test_send_after_exhaustion_raises():
+    """After supervisor exhausts attempts, send() must raise, not hang."""
+    client = AgentBridgeClient(
+        url="ws://127.0.0.1:1",
+        reconnect_max_attempts=1,
+        reconnect_initial_delay_ms=10,
+    )
+    try:
+        await asyncio.wait_for(client.connect(), timeout=2.0)
+        # Give supervisor a moment to exhaust.
+        await asyncio.sleep(0.1)
+        with pytest.raises(RuntimeError):
+            await asyncio.wait_for(
+                client.send(UserTextEvent(turn_id=1, text="x")),
+                timeout=1.0,
+            )
+    finally:
+        await client.close()

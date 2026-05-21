@@ -39,6 +39,7 @@ class AgentBridgeClient:
         url: str,
         reconnect_max_attempts: int = 5,
         reconnect_initial_delay_ms: int = 200,
+        reconnect_max_delay_ms: int = 30000,
     ) -> None:
         self._url = url
         self._ws: Any = None
@@ -47,6 +48,7 @@ class AgentBridgeClient:
         self._closed = False
         self._reconnect_max = reconnect_max_attempts
         self._reconnect_initial_ms = reconnect_initial_delay_ms
+        self._reconnect_max_delay_ms = reconnect_max_delay_ms
         self._connected = asyncio.Event()
 
     async def connect(self) -> None:
@@ -87,10 +89,16 @@ class AgentBridgeClient:
                 if attempt > self._reconnect_max:
                     logger.error("bridge reconnect exhausted; giving up")
                     return
-                delay = (self._reconnect_initial_ms / 1000.0) * (2 ** (attempt - 1))
+                delay_ms = self._reconnect_initial_ms * (2 ** (attempt - 1))
+                delay_ms = min(delay_ms, self._reconnect_max_delay_ms)
                 self._connected.clear()
-                await asyncio.sleep(delay)
+                await asyncio.sleep(delay_ms / 1000.0)
         finally:
+            # Mark closed so send() raises immediately instead of hanging on
+            # _connected.wait(). If close() was already called this is a no-op.
+            self._closed = True
+            # Unblock anyone awaiting connection — they'll observe _closed.
+            self._connected.set()
             # Ensure events() consumers unblock.
             with contextlib.suppress(asyncio.QueueFull):
                 self._recv_queue.put_nowait(_QUEUE_CLOSED)
@@ -117,6 +125,9 @@ class AgentBridgeClient:
         if self._closed:
             raise RuntimeError("client is closed")
         await self._connected.wait()
+        if self._closed:
+            # Supervisor exited (give-up or close) while we were waiting.
+            raise RuntimeError("client is closed")
         if self._ws is None:
             raise RuntimeError("not connected")
         await self._ws.send(event.model_dump_json())
