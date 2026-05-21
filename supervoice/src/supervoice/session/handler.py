@@ -10,6 +10,7 @@ The ``runner_factory`` parameter is injected for testability — tests pass a
 
 from __future__ import annotations
 
+import contextlib
 from typing import Any, Callable
 
 from loguru import logger
@@ -66,27 +67,32 @@ async def run_bridge_call(
 ) -> None:
     """Production call mode: AgentBridgeProcessor talks to remote bridge over WSS."""
     state = SessionState(session_id=session_id)
-
     client = AgentBridgeClient(url=agent_bridge_url)
-    await client.connect()
+    bridge: Any = None
 
-    config = PipelineConfig(
-        stt=stt, tts=tts, transport=transport, echo_mode=False
-    )
-    pipeline, bridge = build_pipeline(config)
-    # The pipeline builder creates a fresh bridge processor in echo or WSS
-    # mode. For WSS mode (echo_mode=False), the bridge has no client yet —
-    # inject ours before start() runs the consumer task.
-    bridge.attach_client(client)
-    await bridge.start()
-
-    task = PipelineTask(pipeline)
-    runner = runner_factory()
-    logger.info(f"starting bridge call session_id={session_id}")
     try:
+        await client.connect()
+
+        config = PipelineConfig(
+            stt=stt, tts=tts, transport=transport, echo_mode=False
+        )
+        pipeline, bridge = build_pipeline(config)
+        # The pipeline builder creates a fresh bridge processor in echo or
+        # WSS mode. For WSS mode (echo_mode=False), the bridge has no client
+        # yet — inject ours before start() runs the consumer task.
+        bridge.attach_client(client)
+        await bridge.start()
+
+        task = PipelineTask(pipeline)
+        runner = runner_factory()
+        logger.info(f"starting bridge call session_id={session_id}")
         await runner.run(task)
     finally:
-        await bridge.stop()
-        await client.close()
+        # Each cleanup is independent — one failure must not skip the others.
+        if bridge is not None:
+            with contextlib.suppress(Exception):
+                await bridge.stop()
+        with contextlib.suppress(Exception):
+            await client.close()
         state.end()
         logger.info(f"bridge call ended session_id={session_id}")

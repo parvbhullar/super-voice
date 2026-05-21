@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from pydantic import SecretStr
 
+from supervoice.bridge.client import AgentBridgeClient
 from supervoice.session.handler import run_bridge_call
 from supervoice.speech.stt_factory import STTProviderConfig
 from supervoice.speech.tts_factory import TTSProviderConfig
@@ -36,7 +37,9 @@ async def test_run_bridge_call_connects_and_runs(mock_bridge):
 
 
 @pytest.mark.asyncio
-async def test_run_bridge_call_closes_client_on_runner_exception(mock_bridge):
+async def test_run_bridge_call_closes_client_on_runner_exception(
+    mock_bridge, monkeypatch
+):
     """If runner.run raises, the bridge client must still be closed."""
     fake_transport = MagicMock()
     fake_transport.input = MagicMock(return_value=MagicMock())
@@ -45,6 +48,15 @@ async def test_run_bridge_call_closes_client_on_runner_exception(mock_bridge):
     fake_runner = MagicMock()
     fake_runner.run = AsyncMock(side_effect=RuntimeError("boom"))
     runner_factory = MagicMock(return_value=fake_runner)
+
+    close_called: list[bool] = []
+    original_close = AgentBridgeClient.close
+
+    async def tracking_close(self):
+        close_called.append(True)
+        await original_close(self)
+
+    monkeypatch.setattr(AgentBridgeClient, "close", tracking_close)
 
     with pytest.raises(RuntimeError, match="boom"):
         await run_bridge_call(
@@ -59,5 +71,7 @@ async def test_run_bridge_call_closes_client_on_runner_exception(mock_bridge):
             agent_bridge_url=mock_bridge,
             runner_factory=runner_factory,
         )
-    # If we got here, the finally block executed cleanly (no hang on
-    # bridge client close).
+
+    assert close_called == [True], (
+        "client.close() must be called even on runner exception"
+    )
