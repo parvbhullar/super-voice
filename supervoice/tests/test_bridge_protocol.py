@@ -1,5 +1,8 @@
 import json
 
+import pytest
+from pydantic import ValidationError
+
 from supervoice.bridge.protocol import (
     AgentTextDeltaEvent,
     AgentTextEndEvent,
@@ -41,6 +44,32 @@ def test_user_interrupt_parses():
 def test_unknown_event_raises():
     try:
         parse_event({"event": "acme"})
+    except ValueError:
+        return
+    raise AssertionError("expected ValueError")
+
+
+def test_user_text_too_long_rejected():
+    """64 KiB+1 chars should fail validation."""
+    with pytest.raises(ValidationError):
+        UserTextEvent(turn_id=1, text="a" * 65537)
+
+
+def test_agent_delta_too_long_rejected():
+    with pytest.raises(ValidationError):
+        AgentTextDeltaEvent(turn_id=1, text="b" * 4097)
+
+
+def test_parse_event_missing_turn_id_raises():
+    """Pydantic should raise ValidationError if turn_id is missing."""
+    with pytest.raises(ValidationError):
+        parse_event({"event": "user.text", "text": "hi"})
+
+
+def test_parse_event_no_event_key_raises():
+    """parse_event must raise ValueError when 'event' key is absent."""
+    try:
+        parse_event({"text": "no event field"})
     except ValueError:
         return
     raise AssertionError("expected ValueError")

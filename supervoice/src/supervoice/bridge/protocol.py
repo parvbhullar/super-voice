@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import Any, Literal, Union
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class UserTextEvent(BaseModel):
@@ -18,7 +18,7 @@ class UserTextEvent(BaseModel):
 
     event: Literal["user.text"] = "user.text"
     turn_id: int
-    text: str
+    text: str = Field(max_length=65536)
     final: bool = True
 
 
@@ -34,7 +34,7 @@ class AgentTextDeltaEvent(BaseModel):
 
     event: Literal["agent.text.delta"] = "agent.text.delta"
     turn_id: int
-    text: str
+    text: str = Field(max_length=4096)
 
 
 class AgentTextEndEvent(BaseModel):
