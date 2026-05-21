@@ -48,8 +48,7 @@ async def test_client_send_user_text_and_receive_agent_text():
 
         assert json.loads(received_by_server[0])["text"] == "hello"
         assert any(
-            isinstance(e, AgentTextDeltaEvent) and e.text == "hi"
-            for e in received
+            isinstance(e, AgentTextDeltaEvent) and e.text == "hi" for e in received
         )
     finally:
         await client.close()
@@ -66,7 +65,11 @@ async def test_events_iterator_terminates_on_server_close():
 
     server = await websockets.serve(handler, "127.0.0.1", 0)
     port = server.sockets[0].getsockname()[1]
-    client = AgentBridgeClient(url=f"ws://127.0.0.1:{port}")
+    client = AgentBridgeClient(
+        url=f"ws://127.0.0.1:{port}",
+        reconnect_max_attempts=0,
+        reconnect_initial_delay_ms=10,
+    )
     try:
         await client.connect()
         # If events() didn't terminate, this would hang.
