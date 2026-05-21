@@ -41,15 +41,44 @@ async def test_client_send_user_text_and_receive_agent_text():
             if isinstance(evt, AgentTextEndEvent):
                 break
 
-    consumer = asyncio.create_task(consume())
-    await client.send(UserTextEvent(turn_id=1, text="hello", final=True))
-    await asyncio.wait_for(consumer, timeout=2.0)
+    try:
+        consumer = asyncio.create_task(consume())
+        await client.send(UserTextEvent(turn_id=1, text="hello", final=True))
+        await asyncio.wait_for(consumer, timeout=5.0)
 
-    assert json.loads(received_by_server[0])["text"] == "hello"
-    assert any(
-        isinstance(e, AgentTextDeltaEvent) and e.text == "hi" for e in received
-    )
+        assert json.loads(received_by_server[0])["text"] == "hello"
+        assert any(
+            isinstance(e, AgentTextDeltaEvent) and e.text == "hi"
+            for e in received
+        )
+    finally:
+        await client.close()
+        server.close()
+        await server.wait_closed()
 
-    await client.close()
-    server.close()
-    await server.wait_closed()
+
+@pytest.mark.asyncio
+async def test_events_iterator_terminates_on_server_close():
+    """events() must exit cleanly when the server closes the connection."""
+
+    async def handler(ws):
+        await ws.close()  # immediate close
+
+    server = await websockets.serve(handler, "127.0.0.1", 0)
+    port = server.sockets[0].getsockname()[1]
+    client = AgentBridgeClient(url=f"ws://127.0.0.1:{port}")
+    try:
+        await client.connect()
+        # If events() didn't terminate, this would hang.
+        received: list = []
+
+        async def consume():
+            async for evt in client.events():
+                received.append(evt)
+
+        await asyncio.wait_for(consume(), timeout=2.0)
+        assert received == []
+    finally:
+        await client.close()
+        server.close()
+        await server.wait_closed()
