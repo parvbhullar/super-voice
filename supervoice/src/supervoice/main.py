@@ -26,7 +26,7 @@ from pipecat.transports.smallwebrtc.connection import SmallWebRTCConnection
 
 from supervoice.config import Settings
 from supervoice.pipeline.transport import create_webrtc_transport
-from supervoice.session.handler import run_echo_call
+from supervoice.session.handler import run_bridge_call
 from supervoice.speech.stt_factory import STTProviderConfig
 from supervoice.speech.tts_factory import TTSProviderConfig
 
@@ -116,8 +116,12 @@ async def call_endpoint(ws: WebSocket) -> None:
 
     session_id = getattr(connection, "pc_id", None) or "anon"
     try:
-        await run_echo_call(
-            session_id=session_id, transport=transport, stt=stt, tts=tts
+        await run_bridge_call(
+            session_id=session_id,
+            transport=transport,
+            stt=stt,
+            tts=tts,
+            agent_bridge_url=settings.agent_bridge_url,
         )
     except asyncio.CancelledError:
         raise

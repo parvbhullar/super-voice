@@ -16,6 +16,7 @@ from loguru import logger
 from pipecat.pipeline.runner import PipelineRunner
 from pipecat.pipeline.task import PipelineParams, PipelineTask
 
+from supervoice.bridge.client import AgentBridgeClient
 from supervoice.pipeline.builder import PipelineConfig, build_pipeline
 from supervoice.session.state import SessionState
 from supervoice.speech.stt_factory import STTProviderConfig
@@ -53,3 +54,39 @@ async def run_echo_call(
     finally:
         state.end()
         logger.info(f"echo call ended session_id={session_id}")
+
+
+async def run_bridge_call(
+    session_id: str,
+    transport: Any,
+    stt: STTProviderConfig,
+    tts: TTSProviderConfig,
+    agent_bridge_url: str,
+    runner_factory: Callable[..., PipelineRunner] = PipelineRunner,
+) -> None:
+    """Production call mode: AgentBridgeProcessor talks to remote bridge over WSS."""
+    state = SessionState(session_id=session_id)
+
+    client = AgentBridgeClient(url=agent_bridge_url)
+    await client.connect()
+
+    config = PipelineConfig(
+        stt=stt, tts=tts, transport=transport, echo_mode=False
+    )
+    pipeline, bridge = build_pipeline(config)
+    # The pipeline builder creates a fresh bridge processor in echo or WSS
+    # mode. For WSS mode (echo_mode=False), the bridge has no client yet —
+    # inject ours before start() runs the consumer task.
+    bridge.attach_client(client)
+    await bridge.start()
+
+    task = PipelineTask(pipeline)
+    runner = runner_factory()
+    logger.info(f"starting bridge call session_id={session_id}")
+    try:
+        await runner.run(task)
+    finally:
+        await bridge.stop()
+        await client.close()
+        state.end()
+        logger.info(f"bridge call ended session_id={session_id}")
