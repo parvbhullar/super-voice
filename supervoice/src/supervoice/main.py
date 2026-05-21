@@ -43,6 +43,13 @@ async def health() -> dict[str, str]:
 @app.websocket("/call")
 async def call_endpoint(ws: WebSocket) -> None:
     """WebRTC signaling endpoint — real call handler lands in Task 11."""
+    from fastapi import WebSocketDisconnect
+
     await ws.accept()
     await ws.send_json({"event": "not_implemented", "phase": 1})
-    await ws.close()
+    # Stay open until client disconnects to avoid first-send races.
+    try:
+        while True:
+            await ws.receive_text()
+    except WebSocketDisconnect:
+        return

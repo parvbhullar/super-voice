@@ -13,6 +13,8 @@ mount VAD/turn processors at the appropriate pipeline stage.
 
 from __future__ import annotations
 
+from functools import lru_cache
+
 from pipecat.transports.base_transport import TransportParams
 from pipecat.transports.smallwebrtc.connection import SmallWebRTCConnection
 from pipecat.transports.smallwebrtc.transport import SmallWebRTCTransport
@@ -25,6 +27,17 @@ AUDIO_IN_SAMPLE_RATE = 16000
 AUDIO_OUT_SAMPLE_RATE = 24000
 
 
+@lru_cache(maxsize=1)
+def _default_detector() -> PipecatTurnDetector:
+    """Process-wide cached default detector.
+
+    The ``PipecatTurnDetector`` constructor loads two ONNX models (Silero VAD
+    + SmartTurn EOU), which takes hundreds of milliseconds. Caching avoids
+    re-paying that cost on every call when no custom detector is supplied.
+    """
+    return PipecatTurnDetector()
+
+
 def create_webrtc_transport(
     connection: SmallWebRTCConnection,
     detector: PipecatTurnDetector | None = None,
@@ -33,15 +46,18 @@ def create_webrtc_transport(
 
     Args:
         connection: An established (or pending) ``SmallWebRTCConnection``.
-        detector: Optional pre-built detector. If omitted, a fresh
-            ``PipecatTurnDetector`` is constructed (loads ONNX models).
+        detector: Optional pre-built detector. If ``detector`` is ``None``,
+            a process-wide cached singleton is used (loaded once, reused
+            across calls). Production callers MAY pass their own pre-warmed
+            detector to avoid sharing.
 
     Returns:
         ``(transport, detector)`` — the detector is returned so the pipeline
         builder can mount VAD and turn analyzers in the processor chain
         (Pipecat 1.2.1 no longer accepts them on ``TransportParams``).
     """
-    detector = detector or PipecatTurnDetector()
+    if detector is None:
+        detector = _default_detector()
     params = TransportParams(
         audio_in_enabled=True,
         audio_out_enabled=True,
