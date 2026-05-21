@@ -15,6 +15,8 @@ without the runtime env vars being present.
 
 from __future__ import annotations
 
+import asyncio
+import json
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
@@ -61,14 +63,30 @@ async def call_endpoint(ws: WebSocket) -> None:
     settings: Settings = app.state.settings
     await ws.accept()
 
+    connection = SmallWebRTCConnection()
+
+    # v1 only does single-shot SDP offer/answer over the WS. Trickle ICE
+    # candidate exchange after the answer isn't implemented; clients that
+    # require it will see incomplete connectivity (follow-up).
     try:
-        offer = await ws.receive_json()
+        offer = await asyncio.wait_for(
+            ws.receive_json(), timeout=settings.webrtc_handshake_timeout_s
+        )
+        sdp = offer["sdp"]
+        sdp_type = offer["type"]
+    except asyncio.TimeoutError:
+        logger.warning("webrtc handshake timeout")
+        await ws.close(code=1008)
+        return
+    except (json.JSONDecodeError, KeyError, ValueError) as e:
+        logger.warning(f"malformed sdp offer: {e}")
+        await ws.close(code=1003)
+        return
     except WebSocketDisconnect:
         return
 
-    connection = SmallWebRTCConnection()
     try:
-        await connection.initialize(sdp=offer["sdp"], type=offer["type"])
+        await connection.initialize(sdp=sdp, type=sdp_type)
     except Exception as e:
         logger.exception(f"SDP initialize failed: {e}")
         await ws.close()
@@ -81,6 +99,8 @@ async def call_endpoint(ws: WebSocket) -> None:
         return
     await ws.send_json(answer)
 
+    # detector wires VAD/EOU into the transport — the pipeline doesn't need
+    # a direct handle yet.
     transport, _detector = create_webrtc_transport(connection)
 
     stt = STTProviderConfig(
@@ -99,7 +119,9 @@ async def call_endpoint(ws: WebSocket) -> None:
         await run_echo_call(
             session_id=session_id, transport=transport, stt=stt, tts=tts
         )
+    except asyncio.CancelledError:
+        raise
     except WebSocketDisconnect:
         return
-    except Exception as e:
-        logger.exception(f"call failed session_id={session_id}: {e}")
+    except Exception:
+        logger.exception(f"call failed session_id={session_id}")

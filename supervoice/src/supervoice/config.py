@@ -17,6 +17,7 @@ class Settings(BaseSettings):
     agent_bridge_url: str
     agent_bridge_reconnect_max_attempts: int = 5
     agent_bridge_reconnect_initial_delay_ms: int = 200
+    webrtc_handshake_timeout_s: int = 10
 
     deepgram_api_key: SecretStr
     cartesia_api_key: SecretStr
