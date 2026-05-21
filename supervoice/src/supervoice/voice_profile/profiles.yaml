@@ -1,0 +1,32 @@
+profiles:
+  - id: hi-female
+    language: hi
+    persona: warm
+    stt_preference:
+      - {provider: deepgram, language: hi}
+      - {provider: cartesia, language: hi}
+    tts_preference:
+      - {provider: cartesia, voice_id: sonic-hindi-female}
+      - {provider: elevenlabs, voice_id: hi-female-rachel}
+  - id: hi-male
+    language: hi
+    persona: deep
+    stt_preference:
+      - {provider: deepgram, language: hi}
+    tts_preference:
+      - {provider: cartesia, voice_id: sonic-hindi-male}
+  - id: en-female
+    language: en
+    persona: warm
+    stt_preference:
+      - {provider: deepgram, language: en}
+    tts_preference:
+      - {provider: cartesia, voice_id: sonic-english-female}
+      - {provider: elevenlabs, voice_id: rachel}
+  - id: en-male
+    language: en
+    persona: deep
+    stt_preference:
+      - {provider: deepgram, language: en}
+    tts_preference:
+      - {provider: cartesia, voice_id: sonic-english-male}
