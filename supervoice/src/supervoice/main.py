@@ -26,9 +26,7 @@ from pipecat.transports.smallwebrtc.connection import SmallWebRTCConnection
 
 from supervoice.config import Settings
 from supervoice.pipeline.transport import create_webrtc_transport
-from supervoice.session.handler import run_bridge_call
-from supervoice.speech.stt_factory import STTProviderConfig
-from supervoice.speech.tts_factory import TTSProviderConfig
+from supervoice.session.handler import run_call_with_profile
 
 
 @asynccontextmanager
@@ -49,7 +47,7 @@ async def health() -> dict[str, str]:
 
 
 @app.websocket("/call")
-async def call_endpoint(ws: WebSocket) -> None:
+async def call_endpoint(ws: WebSocket, profile: str = "en-female") -> None:
     """WebRTC signaling endpoint that hands off to the echo call handler.
 
     Protocol (v1, minimal):
@@ -103,24 +101,20 @@ async def call_endpoint(ws: WebSocket) -> None:
     # a direct handle yet.
     transport, _detector = create_webrtc_transport(connection)
 
-    stt = STTProviderConfig(
-        provider="deepgram",
-        api_key=settings.deepgram_api_key,
-        language="en",
-    )
-    tts = TTSProviderConfig(
-        provider="cartesia",
-        api_key=settings.cartesia_api_key,
-        voice_id="sonic-english",  # placeholder; voice profile lands in Task 21
-    )
+    api_keys = {
+        "deepgram": settings.deepgram_api_key,
+        "cartesia": settings.cartesia_api_key,
+    }
+    if settings.elevenlabs_api_key is not None:
+        api_keys["elevenlabs"] = settings.elevenlabs_api_key
 
     session_id = getattr(connection, "pc_id", None) or "anon"
     try:
-        await run_bridge_call(
+        await run_call_with_profile(
             session_id=session_id,
             transport=transport,
-            stt=stt,
-            tts=tts,
+            profile_id=profile,
+            api_keys=api_keys,
             agent_bridge_url=settings.agent_bridge_url,
         )
     except asyncio.CancelledError:
