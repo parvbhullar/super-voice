@@ -1,139 +1,78 @@
-"""FastAPI application shell for the supervoice service.
+"""Thin entry point for the supervoice service.
 
-Exposes:
+Delegates to the V2 orchestrator ``create_app()`` factory, providing
+default/stub service instances so the app can be imported without
+requiring external infrastructure or specific env vars at import time.
 
-* ``GET /health`` — liveness probe.
-* ``WS  /call`` — WebRTC signaling + audio path. The client sends an SDP
-  offer as a JSON message ``{"sdp": ..., "type": "offer"}``; the server
-  replies with the SDP answer and then runs the echo pipeline for the
-  lifetime of the WebRTC peer connection.
-
-``Settings`` is intentionally constructed inside the lifespan context
-manager (not at module import) so tests and tooling can import ``app``
-without the runtime env vars being present.
+V1 consumers (tests, ``uvicorn supervoice.main:app``) continue to work
+unchanged.
 """
 
 from __future__ import annotations
 
-import asyncio
-import json
+import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
-from loguru import logger
-from pipecat.transports.smallwebrtc.connection import SmallWebRTCConnection
+from fastapi import FastAPI
 
-from supervoice.shared.config import Settings
-from supervoice.worker.pipeline.transport import create_webrtc_transport
-from supervoice.session.handler import run_call_with_profile
-
-
-@asynccontextmanager
-async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-    """Construct ``Settings`` once the app starts (not at import time)."""
-    app.state.settings = Settings()  # pyright: ignore[reportCallIssue]
-    logger.info("supervoice booted")
-    yield
-
-
-app = FastAPI(lifespan=lifespan)
+from supervoice.orchestrator.api.auth import AuthConfig
+from supervoice.orchestrator.main import create_app
+from supervoice.orchestrator.mapping.cache import (
+    NumberMappingCache,
+)
+from supervoice.orchestrator.room.in_process_engine import (
+    InProcessRoomEngine,
+)
+from supervoice.orchestrator.session.registry import SessionRegistry
+from supervoice.orchestrator.worker_registry.dispatch import (
+    WorkerDispatcher,
+)
+from supervoice.orchestrator.worker_registry.registry import WorkerRegistry
 
 
-@app.get("/health")
-async def health() -> dict[str, str]:
-    """Liveness probe used by container/orchestrator health checks."""
-    return {"status": "ok"}
+def _build_app() -> FastAPI:
+    """Construct the orchestrator app with env-var-based config.
 
-
-@app.websocket("/call")
-async def call_endpoint(ws: WebSocket, profile: str = "en-female") -> None:
-    """WebRTC signaling endpoint that hands off to the echo call handler.
-
-    Protocol (v1, minimal):
-        1. Client connects to ``ws://host/call``.
-        2. Client sends JSON ``{"sdp": "...", "type": "offer"}``.
-        3. Server initializes ``SmallWebRTCConnection``, replies with
-           ``{"sdp": "...", "type": "answer", "pc_id": "..."}``.
-        4. Server runs the echo pipeline; the WS stays open until the
-           peer connection or socket closes.
+    Uses safe defaults for all services so tests that don't set
+    orchestrator-specific env vars still get a bootable app.
     """
-    settings: Settings = app.state.settings
-    await ws.accept()
+    auth_config = AuthConfig.from_env(os.environ.get("SUPERVOICE_API_SECRETS"))
+    room_engine = InProcessRoomEngine()
+    mapping_cache = NumberMappingCache()
+    worker_registry = WorkerRegistry()
+    worker_dispatcher = WorkerDispatcher(worker_registry)
+    session_registry = SessionRegistry()
 
-    configured = settings.call_bearer_token
-    if configured is not None:
-        # Prefer Authorization header; fall back to query param.
-        auth_header = ws.headers.get("authorization", "")
-        provided: str | None = None
-        if auth_header.lower().startswith("bearer "):
-            provided = auth_header[7:].strip()
-        if provided is None:
-            provided = ws.query_params.get("token")
-        if provided != configured.get_secret_value():
-            logger.warning("call rejected: invalid bearer token")
-            await ws.close(code=1008)
-            return
+    inner = create_app(
+        auth_config=auth_config,
+        room_engine=room_engine,
+        mapping_cache=mapping_cache,
+        worker_dispatcher=worker_dispatcher,
+        session_registry=session_registry,
+    )
 
-    connection = SmallWebRTCConnection()
+    # Preserve V1 lifespan behavior: construct Settings lazily so
+    # tests that monkeypatch env vars before entering the TestClient
+    # context still work.
 
-    # v1 only does single-shot SDP offer/answer over the WS. Trickle ICE
-    # candidate exchange after the answer isn't implemented; clients that
-    # require it will see incomplete connectivity (follow-up).
-    try:
-        offer = await asyncio.wait_for(
-            ws.receive_json(), timeout=settings.webrtc_handshake_timeout_s
-        )
-        sdp = offer["sdp"]
-        sdp_type = offer["type"]
-    except asyncio.TimeoutError:
-        logger.warning("webrtc handshake timeout")
-        await ws.close(code=1008)
-        return
-    except (json.JSONDecodeError, KeyError, ValueError) as e:
-        logger.warning(f"malformed sdp offer: {e}")
-        await ws.close(code=1003)
-        return
-    except WebSocketDisconnect:
-        return
+    @asynccontextmanager
+    async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+        """Optionally construct V1 Settings if env vars are present."""
+        try:
+            from supervoice.shared.config import Settings
 
-    try:
-        await connection.initialize(sdp=sdp, type=sdp_type)
-    except Exception as e:
-        logger.exception(f"SDP initialize failed: {e}")
-        await ws.close()
-        return
+            app.state.settings = Settings()  # type: ignore[call-arg]
+        except Exception:
+            # V1 env vars not set — that's fine for orchestrator-only
+            # usage. Store a sentinel so tests can check presence.
+            app.state.settings = None
+        yield
 
-    answer = connection.get_answer()
-    if answer is None:
-        logger.error("SmallWebRTC connection produced no SDP answer")
-        await ws.close()
-        return
-    await ws.send_json(answer)
+    inner.router.lifespan_context = lifespan
+    return inner
 
-    # detector wires VAD/EOU into the transport — the pipeline doesn't need
-    # a direct handle yet.
-    transport, _detector = create_webrtc_transport(connection)
 
-    api_keys = {
-        "deepgram": settings.deepgram_api_key,
-        "cartesia": settings.cartesia_api_key,
-    }
-    if settings.elevenlabs_api_key is not None:
-        api_keys["elevenlabs"] = settings.elevenlabs_api_key
+app: FastAPI = _build_app()
 
-    session_id = getattr(connection, "pc_id", None) or "anon"
-    try:
-        await run_call_with_profile(
-            session_id=session_id,
-            transport=transport,
-            profile_id=profile,
-            api_keys=api_keys,
-            agent_bridge_url=settings.agent_bridge_url,
-        )
-    except asyncio.CancelledError:
-        raise
-    except WebSocketDisconnect:
-        return
-    except Exception:
-        logger.exception(f"call failed session_id={session_id}")
+__all__ = ["app"]
