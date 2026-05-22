@@ -1,470 +1,631 @@
 # supervoice v2 — Flow Diagrams
 
 **Companion to:** `2026-05-22-supervoice-v2-twopager.md` + `openspec/changes/supervoice-session-orchestrator/proposal.md` + `design.md`
+**Revised:** 2026-05-22 to reflect Orchestrator + Speech-Worker split + single-endpoint dispatch API
 
-Five diagrams covering the system: topology, inbound-call sequence, supervoice internals, mid-call transfer, cross-room merge, and the dev-mode shortcut.
+Six diagrams covering the system: topology, inbound dispatch sequence, supervoice internals (two services), worker dispatch protocol, mid-call transfer, cross-call merge, and the dev-mode shortcut.
 
 ---
 
-## 1. System topology — five components, three text/control boundaries
+## 1. System topology — three external services, two internal supervoice components
 
 ```
-                          ┌─────────────────────┐
-                          │  THE DEVELOPER      │
-                          │  writes & runs:     │
-                          │                     │
-                          │  ┌───────────────┐  │
-                          │  │  superdialog  │  │  WSS (bridge protocol v2)
-                          │  │  WebSocket-   │  │  • HMAC-signed
-                          │  │   Runner +    │◄─┼─── supervoice opens
-                          │  │  Dialog-      │  │     per-call WSS to runner_url
-                          │  │   Machine     │  │
-                          │  └───────────────┘  │
-                          └─────────────────────┘
-                                    ▲
-                                    │ (text events: user.text, call.started, etc.)
-                                    │ (text verbs:  agent.say, agent.transfer, etc.)
-                                    │
-                                    │
-   ┌─────────────────┐         ┌────┴────────────────────────┐         ┌─────────────────┐
-   │   unpod         │         │  supervoice                 │         │   telephony     │
-   │   Control Plane │         │  (Room Orchestrator +       │         │   Service       │
-   │                 │         │   Speech Service)           │         │                 │
-   │  • numbers      │  REST   │                             │  REST   │  • SIP trunks   │
-   │  • voice        │────────►│   /v1/rooms                 │◄────────│  • FreeSWITCH   │
-   │    profiles     │         │   /v1/rooms/{id}/parts      │         │  • Channel      │
-   │  • agents       │         │   /v1/rooms/{id}/dispatch   │         │    Router       │
-   │  • calls        │         │   /v1/rooms/{id}/transfer   │         │  • Number Mgmt  │
-   │  • transcripts  │         │   /v1/rooms/merge           │         │  • WA/SMS/      │
-   │  • recordings   │         │                             │         │    widget       │
-   │                 │         │                             │         │                 │
-   │  • OSS UI       │         │                             │         │                 │
-   │  • billing      │         └───────────┬─────────────────┘         └─────────┬───────┘
-   │  • multi-tenant │                     │                                     │
-   │    auth         │                     │ uses LiveKit/in-process             │
-   └─────────────────┘                     │ via RoomEngine trait                │
-                                           ▼                                     │
-                                ┌─────────────────────┐                          │
-                                │   Room Engine       │                          │
-                                │   (LiveKit Cloud /  │◄─────── SIP leg ─────────┘
-                                │    self-hosted /    │         attaches as
-                                │    in_process)      │         a participant
-                                │                     │
-                                │   Rooms here are    │
-                                │   audio buses with  │
-                                │   N participants    │
-                                └─────────────────────┘
+        ┌──────────────────────┐
+        │  THE DEVELOPER       │
+        │                      │
+        │  ┌────────────────┐  │
+        │  │ superdialog    │  │   WSS (bridge protocol v2, HMAC-signed)
+        │  │ WebSocketRunner│◄─┼───── worker opens per-call WSS to runner_url
+        │  │ + DialogMachine│  │
+        │  └────────────────┘  │
+        └──────────────────────┘
+                  ▲
+                  │ text events: user.text, call.started, call.ended
+                  │ text verbs: agent.say, agent.transfer, ...
+                  │
+   ┌─────────────┴────────────────────────────────────────────────────────┐
+   │                                                                      │
+┌──┴───────────┐                                                          │
+│ unpod        │       REST                ┌─────────────────────────────┐│
+│ Control Plane│──── number map sync ────► │  SUPERVOICE                 ││
+│              │       (initial +          │                             ││
+│ • numbers    │        webhook on update) │  ┌────────────────────────┐ ││
+│ • voice      │                           │  │  ORCHESTRATOR          │ ││
+│   profiles   │                           │  │  • Call state machine  │ ││
+│ • agents     │                           │  │  • Number → mapping    │ ││
+│ • calls (    │                           │  │    cache               │ ││
+│   read-only  │                           │  │  • Room engine         │ ││
+│   replica)   │                           │  │    (LiveKit self-host) │ ││
+│ • multi-     │                           │  │  • Worker registry     │ ││
+│   tenant     │                           │  │  • REST API + auth     │ ││
+│   auth       │                           │  └──────────┬─────────────┘ ││
+└──────────────┘                           │             │ dispatch job  ││
+                                           │             │ (WSS RPC)     ││
+┌──────────────┐                           │             ▼               ││
+│ telephony    │   POST /v1/dispatch       │  ┌────────────────────────┐ ││
+│ (media       │   { sdp_offer, from,      │  │  SPEECH WORKERS        │ ││
+│  gateway)    │     to, metadata }        │  │  (pool, horizontal)    │ ││
+│              │──────────────────────────►│  │  • Registered with     │ ││
+│ • SIP trunks │                           │  │    orchestrator        │ ││
+│ • FreeSWITCH │   ◄ 201 { call_id,        │  │  • One PipeCat         │ ││
+│ • Channel    │       sdp_answer,         │  │    pipeline per job    │ ││
+│   Router     │       room: {url,token},  │  │  • Joins LK room       │ ││
+│              │       state: "ringing"    │  │  • Opens HMAC bridge   │ ││
+│              │       state_url, ... }    │  │    WSS to runner_url   │ ││
+└──────────────┘                           │  └──────────┬─────────────┘ ││
+                                           └─────────────┼───────────────┘│
+                                                         │ joins as       │
+                                                         │ participant    │
+                                                         ▼                │
+                                          ┌──────────────────────────────┐│
+                                          │  LiveKit Room                ││
+                                          │  (self-hosted, single-node   ││
+                                          │   V1; cluster V2)            ││
+                                          │                              ││
+                                          │  participants:               ││
+                                          │   • SIP leg (via LK-SIP) ◄───┘│
+                                          │   • Speech worker            │
+                                          └──────────────────────────────┘
+                                                         ▲
+                                                         │ SIP/RTP bridged
+                                                         │ via SDP answer
+                                                         │ (LK-SIP gateway)
+                                                         │
+                                                         │
+                                              back to telephony → carrier → caller
 ```
 
-**Three boundaries, three protocols:**
+**External services:** unpod, telephony, superdialog (the dev's runner).
+**Internal to supervoice:** Orchestrator + Speech Workers.
 
-| Boundary | Protocol | Owner of the contract |
+**Three external contracts owned by supervoice:**
+
+| Contract | Owner | What it is |
 |---|---|---|
-| unpod ↔ supervoice | REST `/v1/*` | this proposal |
-| telephony ↔ supervoice | REST `/v1/*` (same surface) | this proposal |
-| supervoice ↔ superdialog | WSS (bridge protocol v2) | this proposal |
-| dev's app ↔ unpod | unpod SDK + REST | unpod's PRD (out of scope here) |
+| `POST /v1/dispatch` REST | this proposal | telephony's single entry point |
+| number-mapping sync | this proposal | unpod → orchestrator webhook + initial sync |
+| bridge protocol v2 WSS | this proposal | worker → dev's runner, text-only |
+
+**One internal contract:**
+
+| Contract | What it is |
+|---|---|
+| worker dispatch protocol | orchestrator ↔ workers, WSS-based, mirrors LiveKit Agent Dispatch |
 
 ---
 
-## 2. Inbound SIP call — the canonical end-to-end
+## 2. Inbound call — single-dispatch flow
 
 ```
-caller         carrier        telephony     supervoice            engine(LK)      runner(dev)
-  │               │              │              │                      │              │
-  │── PSTN ────►  │              │              │                      │              │
-  │               │── SIP ────►  │              │                      │              │
-  │               │              │ resolve      │                      │              │
-  │               │              │ number→agent │                      │              │
-  │               │              │              │                      │              │
-  │               │              │              │                      │              │
-  │               │              │ POST /v1/rooms                      │              │
-  │               │              │─────────────►│                      │              │
-  │               │              │              │ engine.create_room   │              │
-  │               │              │              │─────────────────────►│              │
-  │               │              │              │◄─── room_handle ─────│              │
-  │               │              │◄─ 201 {room_id: R1}                 │              │
-  │               │              │              │                      │              │
-  │               │              │ POST /v1/rooms/R1/participants      │              │
-  │               │              │   {type:sip, direction:inbound,     │              │
-  │               │              │    sip_call_id, sdp_offer}          │              │
-  │               │              │─────────────►│                      │              │
-  │               │              │              │ engine.add_media_    │              │
-  │               │              │              │ participant(sip)     │              │
-  │               │              │              │─────────────────────►│              │
-  │               │              │              │   LiveKit-SIP        │              │
-  │               │              │              │   attaches leg       │              │
-  │               │              │              │◄────── ParticipantHandle ───────────│
-  │               │              │◄─ 201 {participant_id: P_sip,       │              │
-  │               │              │        sdp_answer}                  │              │
-  │               │ ◄────────────│              │                      │              │
-  │               │ 200 OK w/    │              │                      │              │
-  │               │ sdp_answer   │              │                      │              │
-  │◄──────────────│              │              │                      │              │
-  │ media flowing │              │              │                      │              │
-  │               │              │ POST /v1/rooms/R1/dispatch          │              │
-  │               │              │   {runner_url, voice_profile_id,    │              │
-  │               │              │    agent_secret, metadata}          │              │
-  │               │              │─────────────►│                      │              │
-  │               │              │              │                      │              │
-  │               │              │              │ build Pipecat pipeline             │
-  │               │              │              │ join LK room as participant         │
-  │               │              │              │─────────────────────►│              │
-  │               │              │              │                      │              │
-  │               │              │              │ open HMAC-signed WSS to runner_url  │
-  │               │              │              │─────────────────────────────────────►│
-  │               │              │              │                                     │
-  │               │              │              │              {hello, supported_*}   │
-  │               │              │              │◄─────────────────────────────────── │
-  │               │              │              │ {hello.ack, call_id, room_id,...}   │
-  │               │              │              │─────────────────────────────────────►│
-  │               │              │              │ {event:call.started, ...metadata}   │
-  │               │              │              │─────────────────────────────────────►│
-  │               │              │◄─ 201 {dispatch_id: D_agent}         session.on    │
-  │               │              │              │                       ("call_start")│
-  │               │              │              │                       fires; dev    │
-  │               │              │              │                       writes:       │
-  │               │              │              │                       session.say(  │
-  │               │              │              │                          "नमस्ते")   │
-  │               │              │              │                                     │
-  │               │              │              │      {verb:agent.say, text:"नमस्ते"}│
-  │               │              │              │◄─────────────────────────────────── │
-  │               │              │              │ verbatim TTS → publishes audio      │
-  │               │              │              │─────────────────────►│              │
-  │◄──────────────────────────────  audio reaches caller via LK SIP    │              │
-  │                                                                                   │
-  │── "मेरा Aadhaar..."                                                                │
-  │── RTP frames ─────────────────────────────────────────►│ STT pipeline             │
-  │                                              │        │                          │
-  │                                              │        │ {event:user.text,        │
-  │                                              │        │  call_id, turn_id,       │
-  │                                              │        │  text, final:true}       │
-  │                                              │        │─────────────────────────►│
-  │                                              │        │              dialog_     │
-  │                                              │        │              machine.    │
-  │                                              │        │              turn(text)  │
-  │                                              │        │                          │
-  │                                              │        │   stream tokens          │
-  │                                              │        │◄─{agent.text.delta,...}──│
-  │                                              │        │ TTS sanitize + synth     │
-  │                                              │        │─────►LK audio out────────│
-  │◄──────────────────────────── reply audio reaches caller                          │
-  │                                                                                   │
-  │── ... continues ...                                                               │
-  │                                                                                   │
-  │── SIP BYE ──►│                                                                    │
-  │              │─── notify ──►│                                                     │
-  │              │              │ DELETE /v1/rooms/R1?graceful=true                   │
-  │              │              │─────────────►│                                     │
-  │              │              │              │ AgentAdapter.detach:                 │
-  │              │              │              │  send {event:call.ended,...}         │
-  │              │              │              │─────────────────────────────────────►│
-  │              │              │              │              session.on("call_end") │
-  │              │              │              │              fires; dev's cleanup    │
-  │              │              │              │  close bridge WSS                    │
-  │              │              │              │  engine.destroy_room                 │
-  │              │              │              │─────────────────────►│               │
-  │              │              │◄─ 200        │                      │               │
+caller     carrier     telephony     orchestrator      worker         runner(dev)
+  │           │            │              │              │              │
+  │──PSTN───► │            │              │              │              │
+  │           │── SIP ───► │              │              │              │
+  │           │            │  state:ringing              │              │
+  │           │            │              │              │              │
+  │           │            │  POST /v1/dispatch          │              │
+  │           │            │    { sdp_offer,             │              │
+  │           │            │      from, to,              │              │
+  │           │            │      metadata,              │              │
+  │           │            │      callback_url? }        │              │
+  │           │            │─────────────►│              │              │
+  │           │            │              │              │              │
+  │           │            │  number → mapping lookup    │              │
+  │           │            │  (local cache, synced       │              │
+  │           │            │   from unpod)               │              │
+  │           │            │              │  → voice_profile,           │
+  │           │            │              │    runner_url,              │
+  │           │            │              │    agent_secret,            │
+  │           │            │              │    tenant_id                │
+  │           │            │              │              │              │
+  │           │            │              │ engine.create_room          │
+  │           │            │              │ engine.add_sip_participant  │
+  │           │            │              │   (uses LK-SIP; returns     │
+  │           │            │              │    sdp_answer)              │
+  │           │            │              │              │              │
+  │           │            │              │ pick worker from pool       │
+  │           │            │              │ (least-loaded matching      │
+  │           │            │              │  voice_profile)             │
+  │           │            │              │              │              │
+  │           │            │              │ ── dispatch ──►│            │
+  │           │            │              │  { job_id, call_id,         │
+  │           │            │              │    room: {url, token, name},│
+  │           │            │              │    voice_profile_id,        │
+  │           │            │              │    runner_url, agent_secret,│
+  │           │            │              │    metadata }               │
+  │           │            │              │              │              │
+  │           │            │              │ ◄ dispatch.ack│             │
+  │           │            │              │   {status:accepted}         │
+  │           │            │              │              │              │
+  │           │            │ ◄ 201        │              │              │
+  │           │            │   { call_id,                │              │
+  │           │            │     state:"ringing",        │              │
+  │           │            │     sdp_answer,             │              │
+  │           │            │     room: {url, token},     │              │
+  │           │            │     state_url }             │              │
+  │           │            │              │              │              │
+  │           │ ◄ 200 OK   │              │              │              │
+  │           │   sdp_answer              │              │              │
+  │ ◄─────────│            │              │              │              │
+  │ media flowing to LK    │              │              │              │
+  │ via LK-SIP gateway     │              │              │              │
+  │           │            │              │              │              │
+  │           │            │              │              │ start PipeCat pipeline
+  │           │            │              │              │ join LK room with token
+  │           │            │              │              │ (now participant in room)
+  │           │            │              │              │              │
+  │           │            │              │              │ open HMAC-signed WSS
+  │           │            │              │              │ to runner_url
+  │           │            │              │              │─────────────►│
+  │           │            │              │              │              │
+  │           │            │              │              │  ── hello ──►│
+  │           │            │              │              │ ◄─ hello.ack │
+  │           │            │              │              │ ◄─ call.started
+  │           │            │              │              │              │
+  │           │            │              │              │              │ session.on
+  │           │            │              │              │              │ ("call_start") fires
+  │           │            │              │              │              │ session.say("नमस्ते")
+  │           │            │              │              │ ── agent.say ◄
+  │           │            │              │              │              │
+  │           │            │              │              │ verbatim TTS → publish
+  │           │            │              │              │ audio to LK room
+  │ ◄─────────────────────────────────────────────────────────────────  │
+  │ caller hears greeting  │              │              │              │
+  │           │            │              │              │              │
+  │           │            │              │  worker → orchestrator      │
+  │           │            │              │ ◄ { type: "state_changed",  │
+  │           │            │              │     job_id,                 │
+  │           │            │              │     state: "connected" }    │
+  │           │            │              │              │              │
+  │           │            │              │ webhook POST callback_url   │
+  │           │            │              │ { call_id, state:"connected",│
+  │           │            │              │   ts, ... }                 │
+  │           │            │ ─ webhook ──►│              │              │
+  │           │            │  notify ack                 │              │
+  │           │            │              │              │              │
+  │── "मेरा Aadhaar..." ─────────────────────────────────►│ STT picks up │
+  │           │            │              │              │ user.text ──►│
+  │           │            │              │              │              │ dialog.turn()
+  │           │            │              │              │ ◄ agent.text.delta
+  │           │            │              │              │ TTS synth + publish to LK
+  │ ◄─────────────────────────────────────────────────────────────────  │
+  │ caller hears reply     │              │              │              │
+  │                                                                     │
+  │ ... continues ...                                                   │
+  │                                                                     │
+  │── SIP BYE ──►│         │              │              │              │
+  │              │─ DELETE /v1/calls/{call_id}           │              │
+  │              │         │─────────────►│              │              │
+  │              │         │              │ worker.detach │             │
+  │              │         │              │  ── job.end ─►│             │
+  │              │         │              │              │ send call.ended
+  │              │         │              │              │─────────────►│
+  │              │         │              │              │              │ session.on
+  │              │         │              │              │              │ ("call_end") fires
+  │              │         │              │              │ close bridge WSS
+  │              │         │              │              │ leave LK room
+  │              │         │              │ destroy_room │             │
+  │              │         │              │              │              │
+  │              │         │ ◄ 200        │              │              │
 ```
 
-**The fourth column (supervoice) is doing all the orchestration.** Telephony only knows about REST endpoints and SIP. The runner only knows about the bridge protocol. Neither knows the other exists.
+**Single call = single REST round-trip from telephony's perspective.** Everything between dispatch and `connected` is internal to supervoice.
 
 ---
 
-## 3. Supervoice internals — what those REST + WSS calls actually run
+## 3. Supervoice internals — two services, clear boundary
 
 ```
-┌──────────────────────────────────────────────────────────────────────────────────┐
-│  HTTP/WSS ingress (FastAPI)                                                      │
-├──────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                  │
-│  ┌──────────────┐   ┌──────────────┐   ┌──────────────┐   ┌──────────────┐       │
-│  │  api/rooms   │   │ api/         │   │  api/        │   │  api/dev     │       │
-│  │              │   │ participants │   │  dispatch    │   │ (dev-mode)   │       │
-│  │  POST /v1/   │   │              │   │              │   │              │       │
-│  │   rooms      │   │ POST/PATCH/  │   │ POST/PATCH/  │   │ POST /v1/    │       │
-│  │  GET .../    │   │ DELETE       │   │ DELETE       │   │  dev/inject- │       │
-│  │   {id}       │   │              │   │              │   │  audio       │       │
-│  │  DELETE      │   │              │   │              │   │              │       │
-│  │  ────        │   │              │   │              │   │              │       │
-│  │  ops:        │   │              │   │              │   │              │       │
-│  │  /transfer   │   │              │   │              │   │              │       │
-│  │  /merge      │   │              │   │              │   │              │       │
-│  └──────┬───────┘   └──────┬───────┘   └──────┬───────┘   └──────┬───────┘       │
-│         │                  │                  │                  │               │
-│         └──────────────────┴──────────────────┴──────────────────┘               │
-│                                     │                                            │
-│                                     ▼                                            │
-│  ┌──────────────────────────────────────────────────────────────────────────┐    │
-│  │  Auth middleware  (API-secret or JWT → tenant_id → AuthContext)          │    │
-│  └──────────────────────────────────────┬───────────────────────────────────┘    │
-│                                         │                                        │
-│                                         ▼                                        │
-│  ┌──────────────────────────────────────────────────────────────────────────┐    │
-│  │  Room Registry                                                           │    │
-│  │   • rooms: dict[room_id, Room]                                           │    │
-│  │   • dispatches: dict[dispatch_id, AgentAdapter]                          │    │
-│  │   • reconnect TTL map (sayna-style; default 30s)                         │    │
-│  │   • Idempotency-Key cache  (tenant_id, key) → response                   │    │
-│  └──────────────────────────────────────┬───────────────────────────────────┘    │
-│                                         │                                        │
-│                                         ▼                                        │
-│  ┌─────────────────────────────────┐  ┌─────────────────────────────────┐        │
-│  │  ParticipantAdapter             │  │  AgentAdapter (dispatch)        │        │
-│  │  (media legs)                   │  │  (specialized lifecycle)        │        │
-│  │                                 │  │                                 │        │
-│  │  sip_adapter                    │  │  Pipecat pipeline               │        │
-│  │  webrtc_adapter                 │  │   ├── STT (provider via         │        │
-│  │  livekit_adapter (token mint)   │  │   │     voice profile)          │        │
-│  │                                 │  │   ├── TurnDetector (Silero+     │        │
-│  │  Each one knows how to attach   │  │   │     SmartTurn)              │        │
-│  │  itself to a RoomEngine.        │  │   ├── BridgeProcessor ◄──── WSS │        │
-│  │                                 │  │   ├── Sanitize                  │        │
-│  │                                 │  │   └── TTS (provider via         │        │
-│  │                                 │  │         voice profile)          │        │
-│  │                                 │  │                                 │        │
-│  │                                 │  │  BridgeClient                   │        │
-│  │                                 │  │   ├── HMAC handshake            │        │
-│  │                                 │  │   ├── Supervised reconnect      │        │
-│  │                                 │  │   └── Bounded queue (256)       │        │
-│  └──────────────┬──────────────────┘  └──────────────┬──────────────────┘        │
-│                 │                                    │                           │
-│                 └──────────────────┬─────────────────┘                           │
-│                                    ▼                                             │
-│  ┌──────────────────────────────────────────────────────────────────────────┐    │
-│  │  RoomEngine  Protocol (swappable; host_config picks one)                 │    │
-│  │                                                                          │    │
-│  │   ┌─────────────────────┐   ┌─────────────────────┐                      │    │
-│  │   │  livekit_engine     │   │  in_process_engine  │                      │    │
-│  │   │  • LiveKit Server   │   │  • In-memory bus    │                      │    │
-│  │   │    SDK              │   │  • Max 2 participants                      │    │
-│  │   │  • Multi-party      │   │  • Dev-mode only    │                      │    │
-│  │   │  • SIP via LK-SIP   │   │  • No SIP / no SFU  │                      │    │
-│  │   │  • Egress (V1.5     │   │                     │                      │    │
-│  │   │    recording)       │   │                     │                      │    │
-│  │   └─────────┬───────────┘   └─────────┬───────────┘                      │    │
-│  └─────────────┼─────────────────────────┼──────────────────────────────────┘    │
-└────────────────┼─────────────────────────┼───────────────────────────────────────┘
-                 │                         │
-                 ▼                         ▼
-        LiveKit Cloud /            in-process (Python)
-        self-hosted SFU
+┌──────────────────────────────────────────────────────────────────────────────┐
+│  ORCHESTRATOR  (one process per region)                                      │
+│                                                                              │
+│  ┌──────────────────────────────────────────────────────────────────────┐    │
+│  │  HTTP/WSS ingress (FastAPI)                                          │    │
+│  └────────────────────────────┬─────────────────────────────────────────┘    │
+│                               │                                              │
+│                               ▼                                              │
+│  ┌──────────────────────────────────────────────────────────────────────┐    │
+│  │  Auth middleware                                                     │    │
+│  │  (API-secret / JWT / admin scope; tenant context)                    │    │
+│  └────────────────────────────┬─────────────────────────────────────────┘    │
+│                               │                                              │
+│                               ▼                                              │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐      │
+│  │ /v1/dispatch │  │ /v1/calls/   │  │ /v1/workers  │  │ /v1/rooms    │      │
+│  │              │  │   {id}       │  │  (admin)     │  │   (admin)    │      │
+│  │ POST: create │  │   /end       │  │              │  │              │      │
+│  │ Call         │  │   /transfer  │  │  GET pool    │  │  GET debug   │      │
+│  │              │  │   /merge     │  │              │  │              │      │
+│  └──────┬───────┘  └──────┬───────┘  └──────────────┘  └──────────────┘      │
+│         │                  │                                                 │
+│         └────────┬─────────┘                                                 │
+│                  ▼                                                           │
+│  ┌──────────────────────────────────────────────────────────────────────┐    │
+│  │  CALL ORCHESTRATOR  (state machine + room engine + worker dispatch)  │    │
+│  │                                                                      │    │
+│  │   ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐      │    │
+│  │   │ Call Registry   │  │ Number Mapping  │  │ Worker Registry │      │    │
+│  │   │ • call_id state │  │ • local cache   │  │ • registered    │      │    │
+│  │   │ • state machine │  │ • synced from   │  │   workers       │      │    │
+│  │   │ • room handle   │  │   unpod (sync + │  │ • capabilities  │      │    │
+│  │   │ • worker job_id │  │   webhook)      │  │ • heartbeats    │      │    │
+│  │   │ • TTL / reconn. │  │ • TTL 60s       │  │ • active jobs   │      │    │
+│  │   └─────────────────┘  └─────────────────┘  └─────────────────┘      │    │
+│  │                                                                      │    │
+│  │   ┌─────────────────────────────────────────────────────────────┐    │    │
+│  │   │ RoomEngine Protocol (swappable: livekit | in_process)       │    │    │
+│  │   │  • create_room / destroy_room                               │    │    │
+│  │   │  • add_sip_participant (LK-SIP for `livekit` engine)        │    │    │
+│  │   │  • move_participants (for merge)                            │    │    │
+│  │   └─────────────────────────────────────────────────────────────┘    │    │
+│  │                                                                      │    │
+│  │   ┌─────────────────────────────────────────────────────────────┐    │    │
+│  │   │ Worker Dispatch (WSS server)                                │    │    │
+│  │   │  • Accept worker registration                               │    │    │
+│  │   │  • Send dispatch jobs                                       │    │    │
+│  │   │  • Receive state_changed / job.completed                    │    │    │
+│  │   └─────────────────────────────────────────────────────────────┘    │    │
+│  └──────────────────────────────────────────────────────────────────────┘    │
+└────────────────────────────────────┬─────────────────────────────────────────┘
+                                     │ WSS dispatch protocol
+                                     ▼
+┌──────────────────────────────────────────────────────────────────────────────┐
+│  SPEECH WORKER  (N instances; horizontally scaled)                           │
+│                                                                              │
+│  ┌──────────────────────────────────────────────────────────────────────┐    │
+│  │  Worker Runtime                                                      │    │
+│  │   • WSS client to orchestrator                                       │    │
+│  │   • Registration + heartbeat loop                                    │    │
+│  │   • Job slot pool (max_concurrent)                                   │    │
+│  └────────────────────────────┬─────────────────────────────────────────┘    │
+│                               │ per job                                      │
+│                               ▼                                              │
+│  ┌──────────────────────────────────────────────────────────────────────┐    │
+│  │  Job (one per dispatched call)                                       │    │
+│  │                                                                      │    │
+│  │   ┌────────────────────────────────────────────────────────────┐     │    │
+│  │   │ PipeCat Pipeline                                           │     │    │
+│  │   │  ├─ LiveKit transport (joins room with token)              │     │    │
+│  │   │  ├─ VAD (Silero)                                           │     │    │
+│  │   │  ├─ EOU (Smart-Turn v3)                                    │     │    │
+│  │   │  ├─ STT (via voice profile + failover)                     │     │    │
+│  │   │  ├─ BridgeProcessor ◄──── WSS to runner                    │     │    │
+│  │   │  ├─ TTSSanitize                                            │     │    │
+│  │   │  └─ TTS (via voice profile + failover)                     │     │    │
+│  │   └────────────────────────────────────────────────────────────┘     │    │
+│  │                                                                      │    │
+│  │   ┌────────────────────────────────────────────────────────────┐     │    │
+│  │   │ BridgeClient (HMAC-signed, supervised reconnect,           │     │    │
+│  │   │  bounded queue, v2 wire format)                            │     │    │
+│  │   └────────────────────────────────────────────────────────────┘     │    │
+│  └──────────────────────────────────────────────────────────────────────┘    │
+└──────────────────────────────────────────────────────────────────────────────┘
 ```
 
-**Key invariants on this diagram:**
-- All four API routers go through Auth → Room Registry. No shortcuts.
-- ParticipantAdapter and AgentAdapter never call each other; they both call the engine.
-- The engine is the only thing that touches LiveKit / in-process audio. Adapters never reach past it.
-- The bridge WSS is owned by AgentAdapter exclusively; ParticipantAdapters don't know it exists.
+**Crisp split:** Orchestrator handles state + routing + REST. Worker handles audio + bridge. They communicate only over the dispatch protocol.
 
 ---
 
-## 4. Mid-call transfer to human — the `add_participant`-shaped flow
+## 4. Worker dispatch protocol — frame-level
 
 ```
-                            ACTIVE ROOM R1
-                       ┌───────────────────────┐
-                       │  participants:        │
-                       │   • P_sip_user        │
-                       │   • D_agent (bot)     │
-                       └───────────┬───────────┘
-                                   │
-        runner observes user        │
-        says "I need a human"       │
-                                   │
-   runner  ─── agent.transfer ────► supervoice
-            { remove: D_agent,
-              add: {type:sip,
-                    to:"+91-helpdesk"},
-              mode:"warm",
-              warm_handoff_ms:5000 }
-                                   │
-                                   ▼
-                       POST /v1/rooms/R1/transfer (internal)
-                                   │
-                                   │ step 1: engine.add_media_participant
-                                   ▼            (sip, outbound to helpdesk)
-                       ┌───────────────────────┐
-                       │  ROOM R1              │
-                       │   • P_sip_user        │
-                       │   • D_agent (bot)     │
-                       │   • P_sip_help  ◄── new (ringing → answered)
-                       └───────────┬───────────┘
-                                   │
-                                   │ step 2: AgentAdapter handles warm window
-                                   │   sends agent.say("Connecting you now")
-                                   │   waits 5000ms
-                                   │
-                                   │ step 3: AgentAdapter.detach
-                                   │   send call.ended(reason:transferred)
-                                   │   close bridge WSS
-                                   │   engine.remove_participant(D_agent)
-                                   ▼
-                       ┌───────────────────────┐
-                       │  ROOM R1              │
-                       │   • P_sip_user        │
-                       │   • P_sip_help        │
-                       └───────────────────────┘
-                       caller and helpdesk talking
-                       directly — no agent in the loop
+┌─────────────────────────┐                          ┌─────────────────────────┐
+│ orchestrator            │                          │ worker (one of N)       │
+└─────────────────────────┘                          └─────────────────────────┘
+                                                                │
+                                                                │ on startup:
+                                                                │ open WSS
+                                                                │
+                                              ◄─── WSS open ────│
+                                                                │
+                                                                │ frame: { type:"register",
+                                                                │   worker_id:"w-abc",
+                                                                │   pool:"default",
+                                                                │   capabilities: {
+                                                                │     voice_profiles:[hi-female,en-female],
+                                                                │     max_concurrent: 50 }}
+                                              ◄─────────────────│
+                                                                │
+worker added to registry                                        │
+                                                                │
+frame: { type:"registered",
+  heartbeat_interval_s:10 }              ──────────────────────►│
+                                                                │
+                                                                │ heartbeat loop:
+                                                                │ frame: { type:"heartbeat",
+                                                                │   active_jobs:12 }
+                                              ◄─────────────────│
+                                                                │ (every 10s)
+                                                                │
+[ ... call comes in via POST /v1/dispatch ...]                  │
+                                                                │
+pick least-loaded worker matching                               │
+voice_profile; if none, fall through                            │
+                                                                │
+frame: { type:"dispatch",
+  job_id:"j-xyz",
+  call_id:"c-...",
+  room: { url, token, name },
+  voice_profile_id:"hi-female",
+  runner_url:"wss://...",
+  agent_secret:"...",
+  metadata:{...} }                       ──────────────────────►│
+                                                                │
+                                                                │ check slots; if available:
+                                                                │  - accept, allocate slot
+                                                                │  - spawn pipeline
+                                                                │  - join LK room
+                                                                │
+                                                                │ frame: { type:"dispatch.ack",
+                                                                │   job_id, status:"accepted" }
+                                              ◄─────────────────│
+                                                                │
+                                                                │ (if not available:)
+                                                                │ frame: { type:"dispatch.ack",
+                                                                │   job_id, status:"rejected",
+                                                                │   reason:"no_slot" }
+                                              ◄─────────────────│
+                                                                │
+[ on reject: try next worker in pool; if all reject:            │
+  call → "rejected" state with reason "no_worker_available" ]   │
+                                                                │
+[ ... call active; worker bridges audio ↔ runner ... ]          │
+                                                                │
+                                                                │ frame: { type:"state_changed",
+                                                                │   job_id, state:"connected"|
+                                                                │     "failed"|... }
+                                              ◄─────────────────│
+                                                                │
+                                                                │ frame: { type:"metric",
+                                                                │   job_id, snapshot:{ttfa_ms,...} }
+                                              ◄─────────────────│
+                                                                │
+[ ... call ends (caller hangs up or runner ends) ... ]          │
+                                                                │
+                                                                │ frame: { type:"job.completed",
+                                                                │   job_id, duration_s,
+                                                                │   final_state:"ended",
+                                                                │   final_metric:{...} }
+                                              ◄─────────────────│
+                                                                │
+                                                                │ free slot
+                                                                │
+[ orchestrator updates call state to "ended" ]                  │
+[ orchestrator hits webhook callback_url ]                      │
+                                                                │
+                                              [ heartbeat continues ]
 ```
 
-**Same primitive (`remove + add` atomically) covers:**
-- transfer to human (`add.type=sip`)
-- cross-agent swap (`add.type=agent` → new dispatch)
-- channel switch (`add.type=webrtc`)
-
-One verb. Three use cases.
+**Key properties:**
+- One WSS per worker (NOT per call) — long-lived, multiplexed across jobs.
+- Acks are explicit. No retries within dispatch.ack — orchestrator falls through to next worker.
+- State transitions stream up as events; orchestrator is the source of truth for call state, worker is the source of truth for job state.
 
 ---
 
-## 5. Cross-room merge — `room.migrated_to` event flow
+## 5. Mid-call transfer to human
+
+```
+ACTIVE CALL  C1   (room R1)
+                       ┌──────────────────────────────┐
+                       │  participants in R1:         │
+                       │   • SIP caller               │
+                       │   • Worker w-abc (job j-xyz) │
+                       │     bridged to runner R      │
+                       └──────────────┬───────────────┘
+                                      │
+        user says "I need a human"    │
+                                      │
+   runner sends ─── agent.transfer ──►│ (via bridge WSS to worker)
+       { to: {type:"sip",
+              number:"+91-helpdesk"},
+         mode:"warm",
+         warm_handoff_ms:5000 }
+                                      │
+                                      │  worker forwards to orchestrator:
+                                      │  POST /v1/calls/c1/transfer (internal)
+                                      │
+                                      ▼
+                       ┌──────────────────────────────┐
+                       │ orchestrator:                │
+                       │  1. engine.add_sip_           │
+                       │     participant(R1,           │
+                       │       outbound to            │
+                       │       +91-helpdesk)          │
+                       │  2. dial helpdesk; ring      │
+                       │  3. on answer:               │
+                       │     - LK adds participant    │
+                       │     - signal worker to       │
+                       │       start warm window      │
+                       └──────────────┬───────────────┘
+                                      │
+   call state: connected (still)      │
+                                      ▼
+                       ┌──────────────────────────────┐
+                       │  participants in R1:         │
+                       │   • SIP caller               │
+                       │   • Worker w-abc             │
+                       │   • SIP helpdesk  ◄── new    │
+                       └──────────────┬───────────────┘
+                                      │
+                                      │ worker plays handoff line:
+                                      │ agent.say("Connecting you now")
+                                      │
+                                      │ wait warm_handoff_ms (5000ms)
+                                      │
+                                      ▼
+                       ┌──────────────────────────────┐
+                       │ worker:                      │
+                       │  - send call.ended           │
+                       │    (reason:"transferred")    │
+                       │    to runner                 │
+                       │  - leave LK room             │
+                       │  - free job slot             │
+                       │  - send job.completed to     │
+                       │    orchestrator              │
+                       └──────────────┬───────────────┘
+                                      │
+                                      ▼
+                       ┌──────────────────────────────┐
+                       │  participants in R1:         │
+                       │   • SIP caller               │
+                       │   • SIP helpdesk             │
+                       │                              │
+                       │  Caller and helpdesk         │
+                       │  converse directly.          │
+                       │  Worker is GONE.             │
+                       └──────────────────────────────┘
+
+   call state still "connected" — note: call C1 lives on
+   even though the bot worker left. State machine continues
+   until both human participants are gone.
+```
+
+`transfer` covers ALL of these uniformly (same endpoint, different `to.type`):
+- transfer to human → `to.type = "sip"`
+- agent-for-agent swap → `to.type = "agent"` (orchestrator picks a fresh worker)
+- channel rotation → `to.type = "agent"` with different voice profile
+
+---
+
+## 6. Cross-call merge — `call.migrated_to` event flow
 
 ```
    BEFORE                                    AFTER
    ──────                                    ─────
-   ROOM R1 (primary)                         ROOM R1 (surviving)
+   CALL C1 (room R1) — primary               CALL C1 (room R1) — surviving
    ┌──────────────────┐                      ┌──────────────────┐
-   │ • P_sip_user_A   │                      │ • P_sip_user_A   │
-   │ • D_agent_X      │                      │ • D_agent_X      │
-   └──────────────────┘                      │ • P_sip_user_B   │ ◄── moved from R2
+   │ • SIP caller A   │                      │ • SIP caller A   │
+   │ • worker (j_X)   │                      │ • worker (j_X)   │
+   └──────────────────┘                      │ • SIP caller B   │ ◄── moved from C2
                                              └──────────────────┘
-   ROOM R2 (secondary)
-   ┌──────────────────┐                      ROOM R2 → ENDED
-   │ • P_sip_user_B   │
-   │ • D_agent_Y      │ ◄── will be dropped
+   CALL C2 (room R2)
+   ┌──────────────────┐                      CALL C2 → ENDED, room R2 destroyed
+   │ • SIP caller B   │
+   │ • worker (j_Y)   │ ◄── will be dropped
    └──────────────────┘
 
    ┌─────────────────────────────────────────────────────────────────────────┐
-   │  POST /v1/rooms/merge                                                   │
+   │  POST /v1/calls/merge                                                   │
    │  {                                                                      │
-   │    primary_room_id: R1,                                                 │
-   │    secondary_room_ids: [R2],                                            │
-   │    drop_dispatches: [D_agent_Y]      ◄── operator-supplied; explicit    │
+   │    primary_call_id: C1,                                                 │
+   │    secondary_call_ids: [C2],                                            │
+   │    drop_participants: [{call:C2, type:"agent"}]   ◄── operator-supplied │
    │  }                                                                      │
    └─────────────────────────────────────────────────────────────────────────┘
 
-   STEP-BY-STEP (supervoice's internal sequence):
+   STEP-BY-STEP:
 
-   1. supervoice:    runner_Y bridge WSS for D_agent_Y →
-                     send {event: room.migrated_to, new_room_id: R1}
-                     (runner can clean up its local state cleanly)
+   1. orchestrator: ack secondary worker j_Y is going away
+      → send call.migrated_to(C1) on j_Y's bridge to runner R_Y
+      → wait for ack (or 2s timeout)
+      → tell worker: detach (close bridge, leave R2)
+      → free j_Y's slot
 
-   2. supervoice:    AgentAdapter for D_agent_Y → detach
-                     send call.ended(reason:"merged_out") on bridge
-                     close bridge
-                     engine.remove_participant(D_agent_Y from R2)
+   2. orchestrator: engine.move_participants(R2 → R1, [SIP caller B])
+      (LiveKit: removeParticipant + createSIPParticipant; ~300-600ms)
 
-   3. supervoice:    engine.move_participants(from=R2, to=R1, [P_sip_user_B])
-                     (LiveKit: removeParticipant on R2 + createSIPParticipant on R1
-                      with same audio track endpoints. ~300-600ms.)
+   3. orchestrator: engine.destroy_room(R2)
+      → call C2 transitions to "ended"
 
-   4. supervoice:    engine.destroy_room(R2, graceful=false)
+   4. orchestrator: notify primary worker (j_X) → forwards to runner R_X:
+      send call.merged_in(merged_from_call_id:C2,
+                          new_participants:[{type:"sip", display:"B"}])
+      → runner can update its dialog context to reflect the new participant
 
-   5. supervoice:    For each remaining dispatch in R1 (just D_agent_X here):
-                     send {event: room.merged_in,
-                           merged_from_room_id: R2,
-                           new_participants: [P_sip_user_B]}
-                     (D_agent_X's runner now knows there's a new participant)
-
-   6. Response →     207 Multi-Status
-                     { primary_room_id: R1,
-                       outcomes: [
-                         {room_id: R2, status: "merged",
-                          participants_moved: 1,
-                          dispatches_moved: 0,
-                          dispatches_dropped: 1}
-                       ]}
+   5. Response → 207 Multi-Status
+      { primary_call_id: C1,
+        outcomes: [
+          { call_id: C2, status: "merged",
+            participants_moved: 1, workers_dropped: 1 }
+        ]}
 ```
-
-**Failure modes:**
-- If step 1's bridge unreachable → still proceed (D_agent_Y is going away anyway).
-- If step 3 fails for one participant → log warning, continue with the rest, partial-success 207.
-- If step 3 fails for ALL participants in R2 → abort, leave both rooms intact, return 502.
 
 ---
 
-## 6. Dev-mode shortcut — the 5-minute hello-world
-
-The whole topology collapses for local development:
+## 7. Dev mode — single-process for local testing
 
 ```
    Terminal 1                  Terminal 2                  Terminal 3
    ──────────                  ──────────                  ──────────
    dev's runner                supervoice                  test driver
-   (superdialog)               (supervoice --dev-mode)     (curl + wav)
+   (superdialog)               (--single-process           (curl + wav)
+                                + --dev-mode)
 
-   $ python my_runner.py       $ uv run uvicorn            $ curl POST /v1/rooms
-   serving on :9000              supervoice.main:app       → R1
-                                 --port 8080 --dev-mode
-                                                           $ curl POST /v1/rooms/R1/dispatch
-                                                             { runner_url:
-                                                               ws://localhost:9000,
-                                                               voice_profile_id:en-female,
-                                                               agent_secret:dev-shared }
+   $ python my_runner.py       $ uv run python -m          $ # 1. Create dispatch
+   serving on :9000              supervoice                   curl POST /v1/dispatch
+                                 --single-process            -d '{"direction":"incoming",
+                                 --dev-mode                       "from_number":"+91dev",
+                                                                  "to_number":"+91test",
+                                 (orchestrator AND a          "metadata":{"voice_profile":
+                                  worker run in the              "en-female",
+                                  same process; no               "runner_url":
+                                  external LiveKit;              "ws://localhost:9000"},
+                                  in_process_engine)             "sdp_offer":null}'
+                                                              → { call_id: c-...,
+                                                                  state:"ringing" }
+                                                            $
+                                                            $ # 2. wait for connected
+                                                            $ curl GET /v1/calls/c-...
+                                                              → { state:"connected" }
+                                                            $
+                                                            $ # 3. inject audio
+   ◄─── HMAC ──── opens ────►                                  curl POST /v1/dev/inject-audio
+   bridge WSS, hello,                                          -F call_id=c-...
+   call.started fires                                          -F file=@hello.wav
 
-                                                           (supervoice opens WSS to runner)
-                                ◄─── HMAC ──── opens ────►
-
-                                                           (handshake; runner gets
-                                                            call.started event)
-
-                                                           $ curl POST /v1/dev/inject-audio
-                                                             -F room_id=R1
-                                                             -F file=@hello.wav
-
-   user.text "Hello"           inject_audio adapter
-   fires on session.on(        runs wav into
+   user.text "Hello"           inject_audio
+   fires session.on(           pushes into
    "user_turn")                in_process_bus → STT
-                               sees it as a real
-                               participant speaking
+                               sees real participant
 
    dialog_machine.turn()
-   replies "Hi there"
-   ─── agent.text.delta ──────►TTS → audio → in_process_bus
-                               (no one's listening since
-                                no real audio participant
-                                is attached — that's fine
-                                for dev test; dev confirms
-                                their dialog logic ran
-                                correctly from the
-                                runner's session.on hooks)
+   → "Hi there"
+   ── agent.text.delta ──►     TTS path runs end-to-end
+                               (audio published to
+                                in_process_bus; no one
+                                listens — dev confirms
+                                their dialog ran via
+                                runner's hooks)
 
-   $ curl DELETE /v1/rooms/R1
+                                                            $ # 4. cleanup
+                                                            $ curl POST /v1/calls/c-.../end
 ```
 
 **What's exercised:**
-- ✅ REST API surface (rooms, dispatch)
-- ✅ Bridge protocol v2 handshake + HMAC
-- ✅ Voice profile resolution
-- ✅ STT path
+- ✅ `POST /v1/dispatch` REST API
+- ✅ Call state machine (incoming → ringing → connected)
+- ✅ Worker dispatch protocol (orchestrator → in-process worker)
+- ✅ Bridge protocol v2 + HMAC + handshake
+- ✅ Voice profile resolution + STT + TTS path
 - ✅ Dialog logic (in dev's runner)
-- ✅ TTS path
+- ✅ `POST /v1/dev/inject-audio` for synthetic user audio
 
 **What's skipped:**
-- ❌ LiveKit (no infra needed)
-- ❌ Telephony (the wav substitutes for SIP)
-- ❌ Real participants (in_process_engine is 1:1, with the injection adapter as the "user")
+- ❌ External LiveKit (in_process_engine)
+- ❌ Real telephony / SIP / SDP
+- ❌ Real audio in/out (audio loops back inside the process)
 
-Time from `git pull` to a verified runner: **~5 minutes**.
+Time from `git pull` to validated runner: **~5 minutes**.
 
 ---
 
-## 7. Where each diagram appears in the journey
+## 8. Which diagram appears in the journey
 
 ```
-PRODUCT JOURNEY                                              DIAGRAM TO READ
-────────────────                                             ───────────────
+PRODUCT JOURNEY                                              READ
+────────────────                                             ────
 
-"Where does supervoice fit in the platform?"             →   §1 system topology
-"What happens when a real call lands?"                   →   §2 inbound SIP sequence
-"What's inside supervoice — how do these REST calls
- actually work?"                                         →   §3 internals
-"How do transfers work? Why are they not magic?"         →   §4 transfer
-"How does cross-room merge work without dropping
- audio for the participants who stay?"                   →   §5 merge with migration event
-"How can I test all this locally without LiveKit
- or a phone number?"                                     →   §6 dev mode
+"Where does supervoice fit in the platform?"             →   §1 topology
+"What does telephony see when a call lands?"             →   §2 inbound dispatch
+"What's inside supervoice — what are the two services?"  →   §3 internals
+"How does the orchestrator dispatch jobs to workers?"    →   §4 worker protocol
+"How does mid-call transfer work?"                       →   §5 transfer
+"How does cross-call merge work?"                        →   §6 merge
+"How can I test this locally?"                           →   §7 dev mode
 ```
 
-Read in this order if you're new to the design. Read §3 + §4 if you're integrating from telephony or unpod. Read §2 + §5 if you're building the superdialog runner side.
+Read §1 + §2 first if you're integrating telephony or unpod.
+Read §3 + §4 first if you're building or operating workers.
+Read §5 + §6 if you're writing dialog logic that uses transfer/merge from the runner side.
+Read §7 if you're a dev wanting to evaluate the platform in 5 minutes.

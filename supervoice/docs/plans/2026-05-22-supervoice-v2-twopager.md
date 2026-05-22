@@ -1,141 +1,216 @@
 # supervoice — v2 Two-Pager
 
-**Date:** 2026-05-22
+**Date:** 2026-05-22 (revised after architecture meeting same day)
 **Status:** Proposal for review
 **Decision needed by:** End of week
-**Reference:** `openspec/changes/supervoice-session-orchestrator/proposal.md`
+**Supersedes:** prior draft same date (Rooms/Participants/Dispatch/Operations public API)
+**Reference:** `openspec/changes/supervoice-session-orchestrator/`
 
 ---
 
 ## TL;DR
 
-Reshape supervoice from "speech-pipeline relay" to the **Room Orchestrator** the voice-infra PRD describes. Four REST resource families (Rooms, Participants, Dispatch, Operations) modeled on LiveKit's existing API for vocabulary consistency, two new internal protocols (swappable RoomEngine, ParticipantAdapter), expanded bridge protocol. The existing Pipecat speech pipeline becomes the AgentAdapter — one of several. ~7 weeks of one-engineer work. Unblocks telephony integration, multi-participant flows, transfer/conference, and the developer SDK's hook-and-control surface.
+supervoice splits into **two internal services**: an **Orchestrator** (call lifecycle, room management, worker pool, REST API) and a pool of **Speech Workers** (PipeCat pipelines registered with the orchestrator and dispatched per call). Telephony talks to supervoice through **one endpoint** — `POST /v1/dispatch` with SDP + metadata. Everything else (room creation, worker dispatch, agent join, SDP answer) is internal. Public API is **Call-centric**; the previously-proposed Rooms/Participants/Dispatch surface is now internal-only. ~7 weeks of one-engineer work.
 
 ---
 
-## Why now
+## What changed from the previous draft
 
-V1 (just shipped, 65 tests) gives us a working audio↔text relay over WebRTC, with a text-only bridge to a remote dialog runner. That's ~30% of what the PRD positions supervoice to be.
+Architecture meeting clarified that:
 
-The other 70% — REST surface for the control plane, participant model so multiple legs can share a Room, `add_participant` primitive for transfer/conference, swappable Room engine, multi-tenant auth — is greenfield. Without it:
+1. **Telephony should hit one endpoint, not four.** Media gateway has a SIP/RTP leg and an SDP offer — it doesn't want to make 3 separate REST calls to assemble a Room. Supervoice owns the orchestration.
+2. **Speech pipeline lives in workers**, not in the orchestrator process. Workers register with the orchestrator (LiveKit Agent Dispatch–style), receive jobs, run their own PipeCat pipeline, bridge to dev's runner. Lets us scale workers horizontally and upgrade them independently.
+3. **Call is the user-facing primitive.** Rooms/Participants/Dispatch are internal abstractions. We expose them only to admins/debuggers.
+4. **The number → {voice_profile, runner_url} mapping lives in supervoice's local cache** (synced from unpod control plane), so PSTN answer-time isn't gated on a cross-service lookup.
 
-- **Telephony service has no integration path.** It needs a REST API to spin up sessions; we have only a WebSocket endpoint.
-- **Transfer to human / cross-agent handoff is impossible.** PRD's core feature, currently not wireable.
-- **The developer SDK's hooks and live controls are stubs.** `session.on("call_start")` can't fire because we don't emit the event; `session.transfer_to_human()` has no actuator.
-- **Production telephony requires LiveKit** (or equivalent SFU) for multi-party. We're locked to single-peer WebRTC.
-
-This change closes the gap.
+These aren't architectural u-turns — they reshape the **public surface** while keeping the internal `RoomEngine` / `ParticipantAdapter` / bridge-protocol designs intact.
 
 ---
 
-## What changes
-
-### Four REST resource families (mirroring LiveKit's vocabulary)
+## Architecture
 
 ```
-ROOMS                              PARTICIPANTS                  DISPATCH                    OPERATIONS
-─────                              ─────────────                 ─────────                    ────────────
-POST   /v1/rooms                   POST   .../participants       POST   .../dispatch          POST /v1/rooms/{id}/transfer
-GET    /v1/rooms                   GET    .../participants       GET    .../dispatch          POST /v1/rooms/merge
-GET    /v1/rooms/{id}              GET    .../participants/{p}   GET    /v1/dispatch/{did}
-DELETE /v1/rooms/{id}              PATCH  .../participants/{p}   PATCH  /v1/dispatch/{did}
-       [?graceful=true]            DELETE .../participants/{p}   DELETE /v1/dispatch/{did}
+                                  carrier ── PSTN ──► media gateway (telephony)
+                                                                │
+                                                                │  POST /v1/dispatch
+                                                                │  { sdp_offer, from, to, metadata }
+                                                                ▼
+                          ┌─────────────────────────────────────────────────────────┐
+                          │  SUPERVOICE                                             │
+                          │                                                         │
+                          │  ┌─────────────────────────────────────────────────┐    │
+                          │  │  ORCHESTRATOR  (one process per region)         │    │
+                          │  │  • Call lifecycle (state machine)               │    │
+                          │  │  • Room engine (LiveKit, self-hosted)           │    │
+                          │  │  • Number → mapping cache (synced from unpod)   │    │
+                          │  │  • Worker registry + dispatch                   │    │
+                          │  │  • REST API + tenant auth                       │    │
+                          │  └────────────────┬────────────────────────────────┘    │
+                          │                   │ dispatch job (WSS protocol)        │
+                          │                   ▼                                    │
+                          │  ┌─────────────────────────────────────────────────┐    │
+                          │  │  SPEECH WORKERS  (horizontally scalable)        │    │
+                          │  │  • Register with orchestrator on startup        │    │
+                          │  │  • Run PipeCat pipeline per job                 │    │
+                          │  │  • Join LiveKit room as participant             │    │
+                          │  │  • Open HMAC-signed WSS to dev's runner         │    │
+                          │  └────────────────┬────────────────────────────────┘    │
+                          └───────────────────┼────────────────────────────────────┘
+                                              │ joins as participant
+                                              ▼
+                                  LiveKit Room (self-hosted)
+                                     ▲
+                                     │ caller joins via LiveKit-SIP
+                                     │ (SDP answer routed through telephony)
+                                     │
+                          back to telephony / carrier / caller
 
-   (room container only)             (media legs:                  (agent participants —        (cross-cutting verbs)
-                                      sip / webrtc / livekit)       have brains + runner +
-                                                                    bridge WSS)
+   meanwhile worker bridges text via WSS to:
+                          dev's runner (superdialog) — text-only bridge protocol
 ```
 
-**Why split Participants and Dispatch instead of one unified endpoint:** an agent is a process with a runner URL, a bridge WSS, dispatch state — fundamentally different lifecycle than a sip leg or webrtc peer. LiveKit recognized this with separate `RoomService` / `AgentDispatch` / `SIPService` APIs. We mirror the same shape (engine-agnostic naming) so anyone fluent in LiveKit reads our docs without translation, and so error/lifecycle semantics don't get smudged.
+Two distinct processes, two distinct concerns. Orchestrator is I/O-bound (good fit for Python). Workers are CPU-bound on audio frames (still Python+PipeCat for V1; Rust workers are a V2 optimization if needed).
 
-**Why split Operations:** `transfer` (within a room) and `merge` (across rooms) are atomic verbs over multiple participants. They're sugar over the lower-level Participants/Dispatch APIs, but exposing them at the top level makes the common cases one call. `transfer` covers human handoff, agent-for-agent swap, and channel rotation uniformly — `add` plus `remove` plus optional warm-handoff window.
+---
 
-Participant types in V1: `sip`, `webrtc`, `livekit`. Agents are NOT participants — they're dispatches. Adding new participant types (`recorder`, `supervisor-observer`) is a new adapter module, not a protocol change.
+## Call state machine
 
-`GET /v1/rooms` is scoped to the caller's tenant (from auth context). No global admin listing in V1.
+```
+                                                  /v1/calls/{id}/end
+                                                  (either side hangs up,
+                                                   or worker reports done)
+                                                              │
+                                                              ▼
+incoming ────► ringing ───────────────────► connected ───► ended
+(dispatch     (room created,                (worker joined room,
+ accepted)    worker dispatched,            audio flowing,
+              awaiting accept)              call.started sent to runner)
 
-### Two swappable internal protocols
+                  │                              │
+                  ▼                              ▼
+              rejected /                      failed
+              timed_out                       (mid-call error)
+              (no worker / worker             — surfaces via webhook
+               busy / runner unreachable)       + GET /v1/calls/{id}
+```
 
-- **`RoomEngine`** — the audio bus. Default: LiveKit. Also ships: `in_process_bus` (zero-infra, dev mode). Picked via host config. Anything else (FreeSWITCH conf, Daily.co, custom) is a new module behind the same interface.
-- **`ParticipantAdapter`** — one per participant type. The existing speech pipeline becomes `AgentAdapter`. The existing WebRTC transport becomes `WebRtcAdapter`. Both refactored as wrappers, not rewritten.
+State transitions emit webhooks (if `callback_url` was supplied in the dispatch) and are observable via `GET /v1/calls/{id}`.
 
-### Bridge protocol v2
+---
 
-Backward-compatible expansion via a `hello` handshake. New events upstream:
+## Public API (call-centric, three endpoints + two operations)
 
-- `call.started` — fires the dev's `session.on("call_start")`
-- `call.ended` — fires `session.on("call_end")`
-- `error` — surfaces STT/TTS/transport failures to the dev (promoted from V1.5)
-- `metric` — periodic latency/cost snapshot (promoted from V1.5)
+```
+PRIMARY (telephony + unpod)
+─────────────────────────────────────────────────────────────────────────────
+POST   /v1/dispatch                  Create a call. Body: { direction,
+                                     sdp_offer, from_number, to_number,
+                                     metadata, callback_url?, credentials? }
+                                     Response: { call_id, state, room: {url,
+                                     token, name}, sdp_answer, state_url }
 
-New verbs downstream:
+GET    /v1/calls/{call_id}           State + room info + active participants
 
-- `agent.say` — verbatim TTS, bypasses sanitize (greetings + ad-hoc lines)
-- `agent.transfer` — atomic swap; actuates `POST /v1/rooms/{id}/transfer`. Covers human handoff, agent-for-agent swap, and channel change. One verb, three use cases.
-- `agent.dispatch` — add another agent to the same room (supervisor, specialist); actuates `POST /v1/rooms/{id}/dispatch`.
-- `agent.add_participant` / `agent.remove_participant` — for non-agent participants (rare from the runner; usually unpod/telephony's job).
-- `agent.merge` — cross-room participant merge; actuates `POST /v1/rooms/merge`.
-- `agent.end_call` — bridge-initiated hangup; actuates `DELETE /v1/rooms/{id}`.
+POST   /v1/calls/{call_id}/end       End gracefully
 
-Every event/verb carries `call_id` for correlation. Bridge WSS stays per-call (not multiplexed). Runner connections are HMAC-authenticated: `?signature=hmac(agent_secret, call_id || nonce || timestamp)` — closes a real production security gap.
+POST   /v1/calls/{call_id}/transfer  body: { to: {type:"sip"|"agent", config},
+                                     mode: "cold"|"warm", warm_handoff_ms? }
+                                     Atomic swap. Same primitive covers human
+                                     handoff, agent rotation, channel change.
 
-### Auth (lifted from sayna)
+POST   /v1/calls/merge               body: { primary_call_id, secondary_call_ids[],
+                                     drop_participants? }
+                                     Cross-call merge into one room.
 
-API-secret first, JWT fallback. Tenant isolation enforced on every session/participant operation. Credentials in request bodies (`deepgram_api_key`, …) are **optional** — fall through to supervoice-configured providers.
+INTERNAL (admin / observability — gated behind admin auth)
+─────────────────────────────────────────────────────────────────────────────
+GET    /v1/workers                   Registered worker pool view
+GET    /v1/rooms                     Active rooms (debug)
+GET    /v1/rooms/{id}/participants   Per-room participant view
+```
 
-### Dev mode (new)
+Rooms/Participants/Dispatch APIs from the prior draft are **moved to internal use**. The orchestrator uses them internally; the public API is just Calls.
 
-`--dev-mode` flag enables an `in_process_bus` engine + a `POST /v1/dev/inject-audio` endpoint that feeds a wav file as a synthetic participant. Lets a third-party dev run supervoice + their runner locally, test end-to-end in 5 minutes, no telephony, no LiveKit account.
+---
+
+## Worker dispatch protocol (mirrors LiveKit Agent Dispatch)
+
+Each speech worker on startup opens a persistent WSS to the orchestrator:
+
+```
+worker → orchestrator:  { type: "register",
+                          worker_id, pool: "default",
+                          capabilities: { voice_profiles: [...],
+                                          max_concurrent: 50 } }
+orchestrator → worker:  { type: "registered", heartbeat_interval_s: 10 }
+
+worker → orchestrator:  { type: "heartbeat", active_jobs: 12 }      (every 10s)
+
+orchestrator → worker:  { type: "dispatch",
+                          job_id, call_id,
+                          room: { url, token, name },
+                          voice_profile_id,
+                          runner_url, agent_secret,
+                          metadata }
+worker → orchestrator:  { type: "dispatch.ack",
+                          job_id, status: "accepted"|"rejected", reason? }
+
+worker → orchestrator:  { type: "job.completed",
+                          job_id, duration_s, final_state, final_metric }
+```
+
+Worker selection: orchestrator picks the least-loaded worker in the pool that advertises the requested `voice_profile_id`. Rejected dispatches fall through to the next worker; if all reject, call transitions to `rejected` with reason `no_worker_available`.
+
+---
+
+## Bridge protocol v2 (unchanged from prior draft)
+
+Worker ↔ dev's runner over WSS, HMAC-signed, per-call. Events upstream: `call.started`, `call.ended`, `user.text`, `user.interrupted`, `error`, `metric`. Verbs downstream: `agent.text.delta`, `agent.text.end`, `agent.say`, `agent.transfer`, `agent.add_participant`, `agent.remove_participant`, `agent.merge`, `agent.end_call`. Protocol-version handshake; v1 runners continue to work. Full wire format in `design.md`.
 
 ---
 
 ## Scope
 
-### In V1 (this proposal, ~7 weeks)
+### In V1 (~7 weeks)
 
-- 4 REST resource families (Rooms / Participants / Dispatch / Operations)
-- RoomEngine protocol + LiveKit + in-process implementations
-- ParticipantAdapter protocol + 3 media-leg implementations (sip, webrtc, livekit) + AgentAdapter for dispatch
-- Bridge protocol v2 with version handshake + HMAC runner auth
-- `error` + `metric` events (promoted from V1.5)
-- Atomic `transfer` operation (covers human handoff, agent swap, channel rotation — replaces V2's "rotate" as a special case; history forwarding still V2)
-- Cross-room `merge` operation
-- Room reconnect TTL (lifted from sayna's SessionMap)
-- Auth middleware with multi-tenancy + tenant-scoped `GET /v1/rooms`
-- Dev-mode + audio injection harness
-- Migration: existing `/call` becomes a thin shim over the new APIs
+- Orchestrator service: REST API (5 public endpoints), call state machine, room engine (LiveKit), worker registry + dispatch
+- Speech Worker service: registration protocol, PipeCat pipeline per job, LiveKit join, HMAC-signed bridge WSS
+- Number → mapping cache with unpod sync
+- Bridge protocol v2 (events + verbs + handshake + HMAC + tenant auth)
+- Dev mode: `--single-process` flag runs orchestrator + one worker in-process; `POST /v1/dev/inject-audio` for local testing without telephony
+- Migration: existing `/call` WS becomes a thin shim that internally calls `POST /v1/dispatch` then joins a WebRTC participant via the returned room token
 
 ### Out of V1 — deferred
 
-- **Transfer with history preservation** (V2; transcript-on-the-wire so the rotated agent inherits context)
-- **Recording stream** with pause/resume (V1.5 — recording becomes an engine capability, not a participant)
-- **Mid-call language switch** (V2 per PRD)
-- **Mid-call voice profile swap** (V2; the `PATCH /v1/dispatch/{did}` endpoint is the design hook)
-- **Outbound call origination** (telephony service owns this; supervoice receives the SIP leg after answer)
-- **Number/agent registries, transcripts API, recordings API** (unpod control plane)
-- **SDK** (superdialog)
+- Multi-region orchestrator (single region V1)
+- Worker auto-scaling (manually-managed pool V1)
+- Mid-call language switch / voice swap (V2)
+- Transfer with conversation history forwarding (V2)
+- Recording (V1.5 via LiveKit Egress)
+- Number management, agent registry, transcripts API (unpod)
+- SDK (superdialog)
 
 ### Non-goals
 
-- Replacing Pipecat — the speech pipeline stays Python.
-- Rewriting in Rust — the orchestration layer is I/O-bound; Pipecat (Python) covers the hot path. Sayna's patterns (auth, SessionMap, transport traits) get ported as Python.
-- Owning the dialog/LLM/tools surface — that's `superdialog`.
+- Replacing Pipecat — speech pipeline stays Python.
+- Rewriting in Rust — orchestrator is I/O-bound; workers may move to Rust if scale demands, but not in V1.
+- Owning LLM/dialog surface — superdialog.
 
 ---
 
-## Effort & sequencing
+## Sequencing
 
 | Week | Goal | Tests-green checkpoint |
 |---|---|---|
-| 1 | RoomEngine + in-process impl; ParticipantAdapter; AgentAdapter refactor; Session Registry + TTL | Unit tests for protocols and existing pipeline path still green |
-| 2 | Rooms / Participants / Dispatch / Operations REST routers; Auth middleware; `/call` migrated as shim | All V1 tests pass via new code path |
-| 3 | LiveKit engine + LiveKit/WebRTC adapters | E2E through LiveKit confirmed locally |
-| 4 | Bridge protocol v2 + handshake + HMAC + error/metric events | Old v1 runners still work in compat mode |
-| 5 | SipAdapter; telephony integration test stub; dev-mode wav injection | Telephony stub can drive a full call |
-| 6 | Tenant isolation, reconnect TTL tests, observability polish | Multi-tenant negative tests pass |
-| 7 | Documentation: API reference, bridge spec, adapter authoring guide; design-partner readiness | First design partner can run hello-world in 1 day |
+| 1 | Call state machine + Room engine + LiveKit integration | Internal: create room, destroy room, query state |
+| 2 | Worker registration protocol + dispatch protocol + one in-process worker | One end-to-end dispatch works, worker joins room |
+| 3 | `POST /v1/dispatch` REST API + auth + number mapping cache | Telephony stub drives a call end-to-end |
+| 4 | Bridge protocol v2 + HMAC + handshake + `error` + `metric` events | Old v1 runners still work in compat mode |
+| 5 | Call operations: `/end`, `/transfer`, `/merge` + SIP via LiveKit-SIP | Full PSTN-style flow via telephony stub |
+| 6 | Dev mode (`--single-process` + `inject-audio`); tenant isolation; reconnect TTL | First design partner can test locally in 5 min |
+| 7 | Docs (API reference, bridge protocol spec, worker authoring guide, integration runbook); polish | Design partner runs real call in 1 day |
 
-**Total: ~33-36 days, ~7 weeks, one engineer.** Buffer for LiveKit operational learnings: +1 week.
+**Total: ~36 days, ~7 weeks.** Buffer for LiveKit self-hosting operational learnings: +1 week.
 
 ---
 
@@ -143,31 +218,32 @@ API-secret first, JWT fallback. Tenant isolation enforced on every session/parti
 
 | # | Risk / Question | Recommendation |
 |---|---|---|
-| 1 | **Room engine choice — LiveKit cloud, self-hosted, or other?** Affects deploy story and unit economics. | Default to LiveKit Cloud for V1 (fastest path), keep abstraction so self-hosted or alt-engine swap is a config change. |
-| 2 | **WebRTC trickle ICE channel** — REST is sync, WebRTC signaling sometimes isn't. | Add `WS /v1/rooms/{id}/participants/{pid}/signal` as the post-handshake signaling channel. Single-shot SDP is the fallback. |
-| 3 | **Merge semantics edge cases** — when two rooms with agents on each side merge, what happens? | Caller specifies `drop_participants: [...]` explicitly. No implicit drops. |
-| 4 | **Cross-room merge breaks `call_id`** for the dissolved room. | Add `room.migrated_to(new_room_id)` event so runners rebind cleanly. |
-| 5 | **In-process engine recording** — there's no SFU to fan-out audio to a recorder participant. | Make recording an engine capability, not a participant. LiveKit engine uses Egress; in-process engine doesn't support recording. |
-| 6 | **Telephony integration timing** — telephony service ready for our REST surface? | Coordinate contracts in week 5 stub phase. Integration test against telephony stub before week 7. |
+| 1 | **Self-hosted LiveKit vs LiveKit Cloud for V1?** Affects deploy story and unit economics. | Self-hosted (per meeting). Single-node V1; cluster V2. |
+| 2 | **Worker scale model V1: one process per orchestrator, or pool from day one?** | One process for V1 dev; pool support in the protocol from day one so adding worker N+1 is a deploy, not a code change. |
+| 3 | **Where does the number → mapping live?** | Local cache in orchestrator, synced from unpod on startup + via webhook on update. Avoids per-call cross-service latency. |
+| 4 | **SDP handling: supervoice generates the answer (LiveKit-SIP), or telephony passes through?** | Supervoice generates via LiveKit-SIP. Telephony proxies the SDP answer back to carrier. Keeps telephony as a thin shim. |
+| 5 | **Worker accept timeout — how long does orchestrator wait?** | 3 seconds before falling through to next worker; total dispatch timeout 8 seconds before transitioning call to `rejected`. |
+| 6 | **Call ID issued by orchestrator or by telephony/unpod?** | Orchestrator-issued (UUIDv7). Callers correlate via `callback_url` + `metadata` echo. |
 
 ---
 
 ## Why this is worth doing now (not later)
 
-1. **Telephony is blocked on us.** Their service has no API to call until ours exists.
-2. **Bridge protocol v2 is the contract everything else negotiates against.** Every week we delay it, superdialog and unpod have to either guess or wait.
-3. **The amendments (`error` + `metric` + HMAC + dev-mode) cost 5 days and prevent month-1 production fires.** Cheaper to do now than to retrofit.
-4. **The structural commitment** (Rooms / Participants / Dispatch / Operations split, swappable engine) makes every subsequent feature (recording, mid-call profile swap, observability) a slot-in, not a rework.
+1. **Telephony team is blocked on the dispatch contract.** They can't wire the media gateway until `POST /v1/dispatch` exists.
+2. **One contract beats four.** Telephony's mental model is "I have a call, hand it off." Anything that forces them to assemble a Room from primitives is friction we'll regret at integration time.
+3. **Worker model unblocks horizontal scale.** Once the dispatch protocol is in, adding workers is a deploy, not a code change. We bake the contract now or live with the rewrite later.
+4. **HMAC + tenant auth + error/metric events cost 5 days and prevent month-1 production fires.** Cheaper to do now than retrofit.
 
-After V1 ships: telephony can integrate. First design partner can write a 30-line runner and answer real calls. The whole platform's developer journey works end-to-end for the first time.
+After V1: telephony makes one REST call per incoming call. Workers scale to match traffic. First design partner runs a hello-world in under an hour.
 
 ---
 
 ## Asks
 
-1. **Approve the scope** (in / out / non-goals).
-2. **Confirm Room engine default** (LiveKit Cloud unless objection).
-3. **Confirm telephony team availability** for stub integration in week 5.
-4. **Approve the amendments** that promote `error` + `metric` + HMAC + dev-mode to V1.
+1. **Approve the two-service split** (orchestrator + workers) and Call-centric public API.
+2. **Confirm self-hosted LiveKit** for V1 (Egress for recording, SIP integration available).
+3. **Confirm number → mapping sync mechanism with unpod** (initial sync + webhook on update).
+4. **Confirm telephony team availability** to integrate against `/v1/dispatch` stub by week 3.
+5. **Approve V1.5 / V2 deferrals** as listed (recording, history-forwarding transfer, language switch).
 
-If all four are yes, week 1 starts Monday.
+If approved, week 1 starts Monday.
