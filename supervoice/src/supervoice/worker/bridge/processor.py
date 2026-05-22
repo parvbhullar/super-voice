@@ -33,6 +33,7 @@ from .client import AgentBridgeClient
 from .protocol import (
     AgentTextDeltaEvent,
     AgentTextEndEvent,
+    ErrorEvent,
     HelloAckEvent,
     HelloEvent,
     UserInterruptEvent,
@@ -73,6 +74,36 @@ class AgentBridgeProcessor(FrameProcessor):
     def attach_client(self, client: AgentBridgeClient) -> None:
         """Inject the bridge client after construction."""
         self._client = client
+
+    # ── error emission ────────────────────────────────────
+
+    async def _emit_error(
+        self,
+        severity: str,
+        source: str,
+        code: str,
+        message: str,
+        retriable: bool = False,
+    ) -> None:
+        """Push an ErrorEvent upstream if negotiated."""
+        if self._client is None:
+            return
+        if "error" not in self._client.negotiated_events:
+            return
+        ctx = self._client._context
+        call_id = ctx.session_id if ctx else ""
+        evt = ErrorEvent(
+            call_id=call_id,
+            severity=severity,  # type: ignore[arg-type]
+            source=source,  # type: ignore[arg-type]
+            code=code,
+            message=message,
+            retriable=retriable,
+        )
+        try:
+            await self._client.send(evt)
+        except RuntimeError as e:
+            logger.debug(f"error event send skipped: {e}")
 
     async def start(self) -> None:
         """Start the bridge-consumer task in WSS mode."""
@@ -128,31 +159,42 @@ class AgentBridgeProcessor(FrameProcessor):
         await super().process_frame(frame, direction)
 
         if isinstance(frame, TranscriptionFrame):
-            if self._echo_mode:
-                self._turn_id += 1
-                await self.push_frame(
-                    LLMFullResponseStartFrame(),
-                )
-                await self.push_frame(
-                    TextFrame(f"You said: {frame.text}"),
-                )
-                await self.push_frame(
-                    LLMFullResponseEndFrame(),
-                )
-                return
-            if self._client is not None:
-                self._turn_id += 1
-                await self._client.send(
-                    UserTextEvent(
-                        turn_id=self._turn_id,
-                        text=frame.text,
-                        final=True,
+            try:
+                if self._echo_mode:
+                    self._turn_id += 1
+                    await self.push_frame(
+                        LLMFullResponseStartFrame(),
                     )
+                    await self.push_frame(
+                        TextFrame(f"You said: {frame.text}"),
+                    )
+                    await self.push_frame(
+                        LLMFullResponseEndFrame(),
+                    )
+                    return
+                if self._client is not None:
+                    self._turn_id += 1
+                    await self._client.send(
+                        UserTextEvent(
+                            turn_id=self._turn_id,
+                            text=frame.text,
+                            final=True,
+                        )
+                    )
+                    return
+                # No client attached and not echo: pass through.
+                await self.push_frame(frame, direction)
+                return
+            except Exception as e:
+                logger.error(f"transcription processing error: {e}")
+                await self._emit_error(
+                    severity="error",
+                    source="stt",
+                    code="stt.processing_failed",
+                    message=str(e),
+                    retriable=True,
                 )
                 return
-            # No client attached and not echo: pass through.
-            await self.push_frame(frame, direction)
-            return
 
         if isinstance(frame, InterruptionFrame) and self._client is not None:
             try:
