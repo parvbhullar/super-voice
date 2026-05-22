@@ -2,16 +2,23 @@
 
 Task 14: exponential-backoff reconnect supervisor.
 Task 22: v2 handshake with version negotiation.
+Task 23: HMAC-signed runner connection.
 """
 
 from __future__ import annotations
 
 import asyncio
+import base64
 import contextlib
+import hashlib
+import hmac
 import json
+import os
+import time
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from typing import Any
+from urllib.parse import urlencode, urlparse, urlunparse
 
 import websockets
 from loguru import logger
@@ -65,6 +72,7 @@ class BridgeContext:
     session_id: str
     job_id: str
     room_id: str
+    agent_secret: str = ""
 
 
 class AgentBridgeClient:
@@ -129,13 +137,51 @@ class AgentBridgeClient:
         session_id: str,
         job_id: str,
         room_id: str,
+        agent_secret: str = "",
     ) -> None:
         """Set call context before connect (required for hello.ack)."""
         self._context = BridgeContext(
             session_id=session_id,
             job_id=job_id,
             room_id=room_id,
+            agent_secret=agent_secret,
         )
+
+    # ── HMAC URL signing ────────────────────────────────────
+
+    def _build_signed_url(self) -> str:
+        """Append HMAC query params to the base URL if agent_secret
+        is available. Returns the original URL unchanged when no
+        secret is configured (backward compat)."""
+        ctx = self._context
+        if ctx is None or not ctx.agent_secret:
+            return self._url
+
+        nonce = base64.b64encode(os.urandom(16)).decode()
+        ts = str(int(time.time() * 1000))
+        msg = f"{ctx.session_id}|{ctx.job_id}|{nonce}|{ts}"
+        sig = base64.b64encode(
+            hmac.new(
+                ctx.agent_secret.encode(),
+                msg.encode(),
+                hashlib.sha256,
+            ).digest()
+        ).decode()
+
+        params = urlencode(
+            {
+                "session_id": ctx.session_id,
+                "job_id": ctx.job_id,
+                "nonce": nonce,
+                "ts": ts,
+                "signature": sig,
+            }
+        )
+        parsed = urlparse(self._url)
+        # Preserve any existing query params
+        existing_q = parsed.query
+        new_q = f"{existing_q}&{params}" if existing_q else params
+        return urlunparse(parsed._replace(query=new_q))
 
     # ── lifecycle ──────────────────────────────────────────
 
@@ -168,7 +214,9 @@ class AgentBridgeClient:
         try:
             while not self._closed:
                 try:
-                    self._ws = await websockets.connect(self._url)
+                    self._ws = await websockets.connect(
+                        self._build_signed_url(),
+                    )
                     self._connected.set()
                     attempt = 0
                     await self._handshake()
