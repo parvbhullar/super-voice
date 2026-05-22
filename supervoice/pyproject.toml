@@ -12,6 +12,7 @@ dependencies = [
     "websockets>=13.0",
     "loguru>=0.7",
     "pyyaml>=6.0",
+    "python-multipart>=0.0.29",
 ]
 
 [dependency-groups]
