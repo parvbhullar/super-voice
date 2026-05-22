@@ -25,8 +25,17 @@ def create_app(
     mapping_cache: NumberMappingCache,
     worker_dispatcher: WorkerDispatcher,
     session_registry: SessionRegistry,
+    dev_mode: bool = False,
 ) -> FastAPI:
-    """Build the orchestrator FastAPI app with all dependencies bound."""
+    """Build the orchestrator FastAPI app with all dependencies bound.
+
+    Parameters
+    ----------
+    dev_mode:
+        When ``True``, mounts the ``/v1/dev/*`` router (audio injection
+        and other dev-only endpoints). Disabled by default so production
+        deployments never expose dev routes.
+    """
     app = FastAPI(title="supervoice orchestrator", version="2.0.0")
     app.state.auth_config = auth_config
     app.state.room_engine = room_engine
@@ -34,6 +43,7 @@ def create_app(
     app.state.worker_dispatcher = worker_dispatcher
     app.state.session_registry = session_registry
     app.state.idempotency = {}
+    app.state.dev_mode = dev_mode
 
     # Import here to avoid circular-import surprises at package load time.
     from .api.dispatch import router as dispatch_router
@@ -41,6 +51,11 @@ def create_app(
 
     app.include_router(dispatch_router)
     app.include_router(sessions_router)
+
+    if dev_mode:
+        from .api.dev import router as dev_router
+
+        app.include_router(dev_router)
 
     # -- Backward-compatible endpoints -------------------------------------
 
@@ -171,4 +186,206 @@ def create_app(
     return app
 
 
-__all__ = ["create_app"]
+def create_single_process_app(
+    *,
+    auth_config: AuthConfig | None = None,
+    mapping_cache: NumberMappingCache | None = None,
+    dev_mode: bool = True,
+) -> FastAPI:
+    """Create an app with both orchestrator and worker in one process.
+
+    Wires a ``WorkerRegistry``, ``WorkerDispatcher``, and
+    ``WorkerDispatchServer`` (orchestrator side) together with a
+    ``JobRunner`` + ``WorkerRegistration`` (worker side) using
+    in-memory queues -- no external WSS needed.
+
+    This is the ``--single-process`` convenience for local dev. The
+    returned app has ``app.state.worker_registration`` and
+    ``app.state.job_runner`` for lifecycle management.
+
+    Parameters
+    ----------
+    auth_config:
+        Auth configuration. Defaults to a permissive dev config with
+        a ``dev-mode`` tenant secret.
+    mapping_cache:
+        Number mapping cache. Defaults to ``None`` (a stub is created).
+    dev_mode:
+        Mount dev endpoints. Defaults to ``True`` in single-process.
+    """
+    import asyncio
+    from typing import Any
+
+    from supervoice.orchestrator.room.in_process_engine import (
+        InProcessRoomEngine,
+    )
+    from supervoice.orchestrator.worker_registry import (
+        WorkerDispatchServer,
+        WorkerRegistry,
+    )
+    from supervoice.shared.dispatch_protocol import WorkerCapabilities
+    from supervoice.shared.voice_profile.catalog import VoiceProfileCatalog
+    from supervoice.worker.job_runner import JobRunner
+    from supervoice.worker.registration import WorkerLink, WorkerRegistration
+
+    if auth_config is None:
+        from supervoice.orchestrator.api.auth import TenantSecret
+
+        auth_config = AuthConfig(
+            secrets=[
+                TenantSecret(
+                    tenant_id="dev-mode",
+                    secret="dev-secret",
+                    admin=True,
+                )
+            ]
+        )
+
+    if mapping_cache is None:
+        from supervoice.orchestrator.api.dependencies import AgentConfig
+
+        class _StubMappingCache:
+            """Minimal in-memory mapping cache for dev."""
+
+            def __init__(self) -> None:
+                self._data: dict[tuple[str, str], AgentConfig] = {}
+
+            async def get(
+                self, *, tenant_id: str, to_number: str
+            ) -> AgentConfig | None:
+                return self._data.get((tenant_id, to_number))
+
+            async def upsert(
+                self,
+                *,
+                tenant_id: str,
+                to_number: str,
+                config: AgentConfig,
+            ) -> None:
+                self._data[(tenant_id, to_number)] = config
+
+        mapping_cache = _StubMappingCache()  # type: ignore[assignment]
+
+    # -- Orchestrator services ------------------------------------------------
+    registry = WorkerRegistry(heartbeat_timeout_s=60.0)
+    dispatcher = WorkerDispatcher(registry, dispatch_timeout_s=5.0)
+    shared_secret = "single-process-secret"  # noqa: S105
+    server = WorkerDispatchServer(
+        registry=registry,
+        dispatcher=dispatcher,
+        shared_secret=shared_secret,
+        heartbeat_interval_s=30,
+    )
+
+    room_engine = InProcessRoomEngine()
+    session_registry = SessionRegistry()
+
+    # -- In-memory queues (worker <-> orchestrator) ---------------------------
+    w2o: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
+    o2w: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
+
+    async def server_send(frame: dict[str, Any]) -> None:
+        await o2w.put(frame)
+
+    async def server_recv() -> dict[str, Any]:
+        return await w2o.get()
+
+    # -- Worker services ------------------------------------------------------
+    class _QueueLink:
+        """In-memory WorkerLink for single-process mode."""
+
+        def __init__(
+            self,
+            outbound: asyncio.Queue[dict[str, Any]],
+            inbound: asyncio.Queue[dict[str, Any]],
+        ) -> None:
+            self._outbound = outbound
+            self._inbound = inbound
+            self.closed = False
+
+        async def send(self, frame: dict[str, Any]) -> None:
+            await self._outbound.put(frame)
+
+        async def recv(self) -> dict[str, Any]:
+            return await self._inbound.get()
+
+        async def close(self) -> None:
+            self.closed = True
+
+    async def upstream_send(frame: dict[str, Any]) -> None:
+        await w2o.put(frame)
+
+    job_runner = JobRunner(
+        max_concurrent=2,
+        api_keys={},
+        catalog=VoiceProfileCatalog.load_default(),
+        upstream_send=upstream_send,
+    )
+
+    link = _QueueLink(outbound=w2o, inbound=o2w)
+
+    async def link_factory(
+        _url: str, _secret: str
+    ) -> WorkerLink:
+        return link  # type: ignore[return-value]
+
+    worker_registration = WorkerRegistration(
+        orchestrator_url="ws://localhost",
+        shared_secret=shared_secret,
+        worker_id="w-single-process",
+        pool="default",
+        capabilities=WorkerCapabilities(
+            voice_profiles=["en-female"],
+            max_concurrent=2,
+        ),
+        dispatch_handler=job_runner.accept,
+        active_jobs_counter=job_runner.active_count,
+        link_factory=link_factory,
+        reconnect_delay_s=0.0,
+    )
+
+    # -- Build the app --------------------------------------------------------
+    app = create_app(
+        auth_config=auth_config,
+        room_engine=room_engine,
+        mapping_cache=mapping_cache,
+        worker_dispatcher=dispatcher,
+        session_registry=session_registry,
+        dev_mode=dev_mode,
+    )
+
+    # Expose worker-side handles on app.state for lifecycle management.
+    app.state.worker_registry = registry
+    app.state.worker_dispatch_server = server
+    app.state.worker_registration = worker_registration
+    app.state.job_runner = job_runner
+    app.state.single_process = True
+
+    # Lifespan tasks: start the server accept loop + worker registration
+    # as background tasks when the app starts up.
+    _background_tasks: list[asyncio.Task[None]] = []
+
+    @app.on_event("startup")
+    async def _start_single_process() -> None:
+        server_task = asyncio.create_task(
+            server.accept(
+                server_send,
+                server_recv,
+                presented_secret=shared_secret,
+            )
+        )
+        worker_task = asyncio.create_task(worker_registration.run())
+        _background_tasks.extend([server_task, worker_task])
+        logger.info("single-process mode: worker + server started")
+
+    @app.on_event("shutdown")
+    async def _stop_single_process() -> None:
+        await worker_registration.close()
+        for task in _background_tasks:
+            task.cancel()
+        logger.info("single-process mode: worker + server stopped")
+
+    return app
+
+
+__all__ = ["create_app", "create_single_process_app"]
