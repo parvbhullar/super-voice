@@ -7,15 +7,49 @@ public REST routers plus backward-compatible endpoints (``/health``,
 
 from __future__ import annotations
 
+import uuid
+
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from loguru import logger
+from starlette.middleware.base import (
+    BaseHTTPMiddleware,
+    RequestResponseEndpoint,
+)
+from starlette.requests import Request
+from starlette.responses import Response
 
 from supervoice.orchestrator.api.auth import AuthConfig
 from supervoice.orchestrator.room.engine import RoomEngine
 from supervoice.orchestrator.session.registry import SessionRegistry
 from supervoice.orchestrator.worker_registry.dispatch import WorkerDispatcher
+from supervoice.shared.observability.logging import request_id_var
 
 from .api.dependencies import NumberMappingCache
+
+
+class RequestIdMiddleware(BaseHTTPMiddleware):
+    """Assign a request_id to every request via contextvars.
+
+    If the client sends an ``X-Request-Id`` header it is reused;
+    otherwise a new UUID is generated. The value is echoed back
+    in the response header and available via ``get_request_id()``.
+    """
+
+    async def dispatch(
+        self,
+        request: Request,
+        call_next: RequestResponseEndpoint,
+    ) -> Response:
+        rid = request.headers.get("x-request-id") or str(
+            uuid.uuid4()
+        )
+        token = request_id_var.set(rid)
+        try:
+            response = await call_next(request)
+            response.headers["x-request-id"] = rid
+            return response
+        finally:
+            request_id_var.reset(token)
 
 
 def create_app(
@@ -37,6 +71,7 @@ def create_app(
         deployments never expose dev routes.
     """
     app = FastAPI(title="supervoice orchestrator", version="2.0.0")
+    app.add_middleware(RequestIdMiddleware)
     app.state.auth_config = auth_config
     app.state.room_engine = room_engine
     app.state.mapping_cache = mapping_cache
@@ -94,8 +129,6 @@ def create_app(
 
         # Dispatch internally — reuse the service layer directly
         # instead of making an HTTP round-trip to ourselves.
-        import uuid
-
         from supervoice.orchestrator.api.dispatch import (
             _room_join_from_handle,
             _synthesize_sdp_answer,

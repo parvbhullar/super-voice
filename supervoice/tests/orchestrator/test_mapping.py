@@ -136,10 +136,14 @@ async def test_handle_webhook_missing_fields_raises():
         )
 
 
-async def test_initial_sync_is_noop_v1():
+async def test_initial_sync_raises_on_unreachable_url():
+    """Sync is no longer a no-op (un-stubbed in Task 35); it now makes a real
+    HTTP call. Verify it raises on a dead URL rather than silently succeeding."""
+    import httpx
+
     cache = NumberMappingCache()
-    n = await initial_sync(
-        cache, unpod_url="http://unpod", shared_secret="x"
-    )
-    assert n == 0
+    with pytest.raises(httpx.ConnectError):
+        await initial_sync(
+            cache, unpod_url="http://unreachable-host-that-does-not-exist", shared_secret="x"
+        )
     assert await cache.size() == 0

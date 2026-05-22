@@ -1,9 +1,10 @@
-"""Stubs for unpod control-plane sync (initial pull + webhook handler)."""
+"""Unpod control-plane sync (initial pull + webhook handler)."""
 
 from __future__ import annotations
 
 from typing import Any
 
+import httpx
 from loguru import logger
 
 from .cache import AgentConfig, NumberMappingCache
@@ -17,13 +18,36 @@ async def initial_sync(
 ) -> int:
     """Pull all agent configs from unpod on startup.
 
-    V1: NO-OP -- unpod control-plane endpoint is not built yet.
-    Returns 0 (entries synced). Production wires real HTTP fetch + iteration.
+    Makes a GET to ``{unpod_url}/v1/agents/sync`` with Bearer auth,
+    parses the response, and upserts each entry into the cache.
+
+    Returns the number of entries synced.
     """
-    logger.info(
-        "initial_sync stub -- unpod control plane integration deferred"
-    )
-    return 0
+    async with httpx.AsyncClient() as client:
+        r = await client.get(
+            f"{unpod_url}/v1/agents/sync",
+            headers={"Authorization": f"Bearer {shared_secret}"},
+        )
+        r.raise_for_status()
+        data = r.json()
+
+    count = 0
+    for entry in data.get("agents", []):
+        config = AgentConfig(
+            voice_profile_id=entry["voice_profile_id"],
+            runner_url=entry["runner_url"],
+            agent_secret=entry["agent_secret"],
+            metadata=entry.get("metadata", {}),
+        )
+        await cache.upsert(
+            tenant_id=entry["tenant_id"],
+            to_number=entry["to_number"],
+            config=config,
+        )
+        count += 1
+
+    logger.info("initial_sync: loaded {} agent configs", count)
+    return count
 
 
 async def handle_webhook(
