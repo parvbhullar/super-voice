@@ -3,7 +3,7 @@
 **Companion to:** `2026-05-22-supervoice-v2-twopager.md` + `openspec/changes/supervoice-session-orchestrator/proposal.md` + `design.md`
 **Revised:** 2026-05-22 to reflect Orchestrator + Speech-Worker split + single-endpoint dispatch API
 
-Six diagrams covering the system: topology, inbound dispatch sequence, supervoice internals (two services), worker dispatch protocol, mid-call transfer, cross-call merge, and the dev-mode shortcut.
+Six diagrams covering the system: topology, inbound dispatch sequence, supervoice internals (two services), worker dispatch protocol, mid-session transfer, cross-session merge, and the dev-mode shortcut.
 
 ---
 
@@ -47,7 +47,7 @@ Six diagrams covering the system: topology, inbound dispatch sequence, supervoic
 │  gateway)    │     to, metadata }        │  │  (pool, horizontal)    │ ││
 │              │──────────────────────────►│  │  • Registered with     │ ││
 │ • SIP trunks │                           │  │    orchestrator        │ ││
-│ • FreeSWITCH │   ◄ 201 { call_id,        │  │  • One PipeCat         │ ││
+│ • FreeSWITCH │   ◄ 201 { session_id,        │  │  • One PipeCat         │ ││
 │ • Channel    │       sdp_answer,         │  │    pipeline per job    │ ││
 │   Router     │       room: {url,token},  │  │  • Joins LK room       │ ││
 │              │       state: "ringing"    │  │  • Opens HMAC bridge   │ ││
@@ -128,7 +128,7 @@ caller     carrier     telephony     orchestrator      worker         runner(dev
   │           │            │              │  voice_profile)             │
   │           │            │              │              │              │
   │           │            │              │ ── dispatch ──►│            │
-  │           │            │              │  { job_id, call_id,         │
+  │           │            │              │  { job_id, session_id,         │
   │           │            │              │    room: {url, token, name},│
   │           │            │              │    voice_profile_id,        │
   │           │            │              │    runner_url, agent_secret,│
@@ -138,7 +138,7 @@ caller     carrier     telephony     orchestrator      worker         runner(dev
   │           │            │              │   {status:accepted}         │
   │           │            │              │              │              │
   │           │            │ ◄ 201        │              │              │
-  │           │            │   { call_id,                │              │
+  │           │            │   { session_id,             │              │
   │           │            │     state:"ringing",        │              │
   │           │            │     sdp_answer,             │              │
   │           │            │     room: {url, token},     │              │
@@ -178,7 +178,7 @@ caller     carrier     telephony     orchestrator      worker         runner(dev
   │           │            │              │     state: "connected" }    │
   │           │            │              │              │              │
   │           │            │              │ webhook POST callback_url   │
-  │           │            │              │ { call_id, state:"connected",│
+  │           │            │              │ { session_id, state:"connected",│
   │           │            │              │   ts, ... }                 │
   │           │            │ ─ webhook ──►│              │              │
   │           │            │  notify ack                 │              │
@@ -194,7 +194,7 @@ caller     carrier     telephony     orchestrator      worker         runner(dev
   │ ... continues ...                                                   │
   │                                                                     │
   │── SIP BYE ──►│         │              │              │              │
-  │              │─ DELETE /v1/calls/{call_id}           │              │
+  │              │─ DELETE /v1/sessions/{session_id}           │              │
   │              │         │─────────────►│              │              │
   │              │         │              │ worker.detach │             │
   │              │         │              │  ── job.end ─►│             │
@@ -231,7 +231,7 @@ caller     carrier     telephony     orchestrator      worker         runner(dev
 │                               │                                              │
 │                               ▼                                              │
 │  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐      │
-│  │ /v1/dispatch │  │ /v1/calls/   │  │ /v1/workers  │  │ /v1/rooms    │      │
+│  │ /v1/dispatch │  │ /v1/sessions/   │  │ /v1/workers  │  │ /v1/rooms    │      │
 │  │              │  │   {id}       │  │  (admin)     │  │   (admin)    │      │
 │  │ POST: create │  │   /end       │  │              │  │              │      │
 │  │ Call         │  │   /transfer  │  │  GET pool    │  │  GET debug   │      │
@@ -245,7 +245,7 @@ caller     carrier     telephony     orchestrator      worker         runner(dev
 │  │                                                                      │    │
 │  │   ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐      │    │
 │  │   │ Call Registry   │  │ Number Mapping  │  │ Worker Registry │      │    │
-│  │   │ • call_id state │  │ • local cache   │  │ • registered    │      │    │
+│  │   │ • session_id state │  │ • local cache   │  │ • registered    │      │    │
 │  │   │ • state machine │  │ • synced from   │  │   workers       │      │    │
 │  │   │ • room handle   │  │   unpod (sync + │  │ • capabilities  │      │    │
 │  │   │ • worker job_id │  │   webhook)      │  │ • heartbeats    │      │    │
@@ -344,7 +344,7 @@ voice_profile; if none, fall through                            │
                                                                 │
 frame: { type:"dispatch",
   job_id:"j-xyz",
-  call_id:"c-...",
+  session_id:"s-...",
   room: { url, token, name },
   voice_profile_id:"hi-female",
   runner_url:"wss://...",
@@ -406,7 +406,7 @@ frame: { type:"dispatch",
 ## 5. Mid-call transfer to human
 
 ```
-ACTIVE CALL  C1   (room R1)
+ACTIVE SESSION  S1   (room R1)
                        ┌──────────────────────────────┐
                        │  participants in R1:         │
                        │   • SIP caller               │
@@ -423,7 +423,7 @@ ACTIVE CALL  C1   (room R1)
          warm_handoff_ms:5000 }
                                       │
                                       │  worker forwards to orchestrator:
-                                      │  POST /v1/calls/c1/transfer (internal)
+                                      │  POST /v1/sessions/c1/transfer (internal)
                                       │
                                       ▼
                        ┌──────────────────────────────┐
@@ -476,7 +476,7 @@ ACTIVE CALL  C1   (room R1)
                        │  Worker is GONE.             │
                        └──────────────────────────────┘
 
-   call state still "connected" — note: call C1 lives on
+   call state still "connected" — note: session S1 lives on
    even though the bot worker left. State machine continues
    until both human participants are gone.
 ```
@@ -488,36 +488,36 @@ ACTIVE CALL  C1   (room R1)
 
 ---
 
-## 6. Cross-call merge — `call.migrated_to` event flow
+## 6. Cross-session merge — `call.migrated_to` event flow
 
 ```
    BEFORE                                    AFTER
    ──────                                    ─────
-   CALL C1 (room R1) — primary               CALL C1 (room R1) — surviving
+   SESSION S1 (room R1) — primary               SESSION S1 (room R1) — surviving
    ┌──────────────────┐                      ┌──────────────────┐
    │ • SIP caller A   │                      │ • SIP caller A   │
    │ • worker (j_X)   │                      │ • worker (j_X)   │
-   └──────────────────┘                      │ • SIP caller B   │ ◄── moved from C2
+   └──────────────────┘                      │ • SIP caller B   │ ◄── moved from S2
                                              └──────────────────┘
-   CALL C2 (room R2)
-   ┌──────────────────┐                      CALL C2 → ENDED, room R2 destroyed
+   SESSION S2 (room R2)
+   ┌──────────────────┐                      SESSION S2 → ENDED, room R2 destroyed
    │ • SIP caller B   │
    │ • worker (j_Y)   │ ◄── will be dropped
    └──────────────────┘
 
    ┌─────────────────────────────────────────────────────────────────────────┐
-   │  POST /v1/calls/merge                                                   │
+   │  POST /v1/sessions/merge                                                   │
    │  {                                                                      │
-   │    primary_call_id: C1,                                                 │
-   │    secondary_call_ids: [C2],                                            │
-   │    drop_participants: [{call:C2, type:"agent"}]   ◄── operator-supplied │
+   │    primary_session_id: S1,                                                 │
+   │    secondary_session_ids: [S2],                                            │
+   │    drop_participants: [{session:S2, type:"agent"}]   ◄── operator-supplied │
    │  }                                                                      │
    └─────────────────────────────────────────────────────────────────────────┘
 
    STEP-BY-STEP:
 
    1. orchestrator: ack secondary worker j_Y is going away
-      → send call.migrated_to(C1) on j_Y's bridge to runner R_Y
+      → send call.migrated_to(S1) on j_Y's bridge to runner R_Y
       → wait for ack (or 2s timeout)
       → tell worker: detach (close bridge, leave R2)
       → free j_Y's slot
@@ -526,17 +526,17 @@ ACTIVE CALL  C1   (room R1)
       (LiveKit: removeParticipant + createSIPParticipant; ~300-600ms)
 
    3. orchestrator: engine.destroy_room(R2)
-      → call C2 transitions to "ended"
+      → session S2 transitions to "ended"
 
    4. orchestrator: notify primary worker (j_X) → forwards to runner R_X:
-      send call.merged_in(merged_from_call_id:C2,
+      send call.merged_in(merged_from_session_id:S2,
                           new_participants:[{type:"sip", display:"B"}])
       → runner can update its dialog context to reflect the new participant
 
    5. Response → 207 Multi-Status
-      { primary_call_id: C1,
+      { primary_session_id: S1,
         outcomes: [
-          { call_id: C2, status: "merged",
+          { session_id: S2, status: "merged",
             participants_moved: 1, workers_dropped: 1 }
         ]}
 ```
@@ -562,16 +562,16 @@ ACTIVE CALL  C1   (room R1)
                                   same process; no               "runner_url":
                                   external LiveKit;              "ws://localhost:9000"},
                                   in_process_engine)             "sdp_offer":null}'
-                                                              → { call_id: c-...,
+                                                              → { session_id: s-...,
                                                                   state:"ringing" }
                                                             $
                                                             $ # 2. wait for connected
-                                                            $ curl GET /v1/calls/c-...
+                                                            $ curl GET /v1/sessions/c-...
                                                               → { state:"connected" }
                                                             $
                                                             $ # 3. inject audio
    ◄─── HMAC ──── opens ────►                                  curl POST /v1/dev/inject-audio
-   bridge WSS, hello,                                          -F call_id=c-...
+   bridge WSS, hello,                                          -F session_id=s-...
    call.started fires                                          -F file=@hello.wav
 
    user.text "Hello"           inject_audio
@@ -589,7 +589,7 @@ ACTIVE CALL  C1   (room R1)
                                 runner's hooks)
 
                                                             $ # 4. cleanup
-                                                            $ curl POST /v1/calls/c-.../end
+                                                            $ curl POST /v1/sessions/c-.../end
 ```
 
 **What's exercised:**
@@ -620,8 +620,8 @@ PRODUCT JOURNEY                                              READ
 "What does telephony see when a call lands?"             →   §2 inbound dispatch
 "What's inside supervoice — what are the two services?"  →   §3 internals
 "How does the orchestrator dispatch jobs to workers?"    →   §4 worker protocol
-"How does mid-call transfer work?"                       →   §5 transfer
-"How does cross-call merge work?"                        →   §6 merge
+"How does mid-session transfer work?"                       →   §5 transfer
+"How does cross-session merge work?"                        →   §6 merge
 "How can I test this locally?"                           →   §7 dev mode
 ```
 
