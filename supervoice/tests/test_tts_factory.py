@@ -1,5 +1,5 @@
 from pydantic import SecretStr
-from supervoice.speech.tts_factory import create_tts, TTSProviderConfig
+from supervoice.shared.speech.tts_factory import create_tts, TTSProviderConfig
 
 
 def test_create_cartesia_tts():

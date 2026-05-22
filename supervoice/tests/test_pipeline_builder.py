@@ -1,8 +1,8 @@
 from pydantic import SecretStr
 
-from supervoice.pipeline.builder import PipelineConfig, build_pipeline
-from supervoice.speech.stt_factory import STTProviderConfig
-from supervoice.speech.tts_factory import TTSProviderConfig
+from supervoice.worker.pipeline.builder import PipelineConfig, build_pipeline
+from supervoice.shared.speech.stt_factory import STTProviderConfig
+from supervoice.shared.speech.tts_factory import TTSProviderConfig
 
 
 def test_pipeline_has_expected_processors() -> None:

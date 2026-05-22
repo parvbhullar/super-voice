@@ -19,7 +19,7 @@ from pipecat.transports.base_transport import TransportParams
 from pipecat.transports.smallwebrtc.connection import SmallWebRTCConnection
 from pipecat.transports.smallwebrtc.transport import SmallWebRTCTransport
 
-from supervoice.turn.pipecat_impl import PipecatTurnDetector
+from supervoice.shared.turn.pipecat_impl import PipecatTurnDetector
 
 # Pipeline sample rates (Hz). 16kHz in matches Deepgram/Silero defaults; 24kHz
 # out matches Cartesia's native output rate.

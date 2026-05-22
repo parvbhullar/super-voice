@@ -9,10 +9,10 @@ from pipecat.frames.frames import Frame, TextFrame
 from pipecat.pipeline.pipeline import Pipeline
 from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
 
-from supervoice.bridge.processor import AgentBridgeProcessor
-from supervoice.speech.sanitize import sanitize_for_tts
-from supervoice.speech.stt_factory import STTProviderConfig, create_stt
-from supervoice.speech.tts_factory import TTSProviderConfig, create_tts
+from supervoice.worker.bridge.processor import AgentBridgeProcessor
+from supervoice.shared.speech.sanitize import sanitize_for_tts
+from supervoice.shared.speech.stt_factory import STTProviderConfig, create_stt
+from supervoice.shared.speech.tts_factory import TTSProviderConfig, create_tts
 
 
 class TTSSanitizeFilter(FrameProcessor):

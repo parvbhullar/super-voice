@@ -4,8 +4,8 @@ import json
 import pytest
 import websockets
 
-from supervoice.bridge.client import AgentBridgeClient
-from supervoice.bridge.protocol import (
+from supervoice.worker.bridge.client import AgentBridgeClient
+from supervoice.worker.bridge.protocol import (
     AgentTextDeltaEvent,
     AgentTextEndEvent,
     UserTextEvent,

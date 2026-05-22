@@ -24,8 +24,8 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from loguru import logger
 from pipecat.transports.smallwebrtc.connection import SmallWebRTCConnection
 
-from supervoice.config import Settings
-from supervoice.pipeline.transport import create_webrtc_transport
+from supervoice.shared.config import Settings
+from supervoice.worker.pipeline.transport import create_webrtc_transport
 from supervoice.session.handler import run_call_with_profile
 
 

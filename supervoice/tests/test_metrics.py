@@ -1,5 +1,5 @@
 import time
-from supervoice.observability.metrics import CallMetrics
+from supervoice.shared.observability.metrics import CallMetrics
 
 
 def test_records_ttfa():

@@ -9,9 +9,9 @@ from pipecat.frames.frames import (
 )
 from pipecat.processors.frame_processor import FrameDirection
 
-from supervoice.bridge.client import AgentBridgeClient
-from supervoice.bridge.processor import AgentBridgeProcessor
-from supervoice.bridge.protocol import AgentTextDeltaEvent, AgentTextEndEvent
+from supervoice.worker.bridge.client import AgentBridgeClient
+from supervoice.worker.bridge.processor import AgentBridgeProcessor
+from supervoice.worker.bridge.protocol import AgentTextDeltaEvent, AgentTextEndEvent
 
 
 @pytest.mark.asyncio

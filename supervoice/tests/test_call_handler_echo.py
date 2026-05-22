@@ -8,8 +8,8 @@ import pytest
 from pydantic import SecretStr
 
 from supervoice.session.handler import run_echo_call
-from supervoice.speech.stt_factory import STTProviderConfig
-from supervoice.speech.tts_factory import TTSProviderConfig
+from supervoice.shared.speech.stt_factory import STTProviderConfig
+from supervoice.shared.speech.tts_factory import TTSProviderConfig
 
 
 @pytest.mark.asyncio

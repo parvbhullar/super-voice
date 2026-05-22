@@ -2,7 +2,7 @@ import asyncio
 
 import pytest
 
-from supervoice.session.idle_monitor import IdleMonitor
+from supervoice.worker.idle_monitor import IdleMonitor
 from supervoice.session.state import SessionState
 
 

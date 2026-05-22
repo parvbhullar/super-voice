@@ -3,8 +3,8 @@ import asyncio
 import pytest
 import websockets
 
-from supervoice.bridge.client import AgentBridgeClient
-from supervoice.bridge.protocol import UserTextEvent
+from supervoice.worker.bridge.client import AgentBridgeClient
+from supervoice.worker.bridge.protocol import UserTextEvent
 
 
 @pytest.mark.asyncio

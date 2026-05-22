@@ -4,7 +4,7 @@ import asyncio
 import time
 from typing import Callable
 
-from .state import SessionState
+from supervoice.session.state import SessionState
 
 
 class IdleMonitor:
