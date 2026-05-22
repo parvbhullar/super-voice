@@ -1,5 +1,5 @@
 from pydantic import SecretStr
-from supervoice.speech.stt_factory import create_stt, STTProviderConfig
+from supervoice.shared.speech.stt_factory import create_stt, STTProviderConfig
 
 
 def test_create_deepgram():

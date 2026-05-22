@@ -5,10 +5,10 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from pydantic import SecretStr
 
-from supervoice.bridge.client import AgentBridgeClient
+from supervoice.worker.bridge.client import AgentBridgeClient
 from supervoice.session.handler import run_bridge_call
-from supervoice.speech.stt_factory import STTProviderConfig
-from supervoice.speech.tts_factory import TTSProviderConfig
+from supervoice.shared.speech.stt_factory import STTProviderConfig
+from supervoice.shared.speech.tts_factory import TTSProviderConfig
 
 
 @pytest.mark.asyncio

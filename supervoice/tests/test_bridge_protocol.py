@@ -3,7 +3,7 @@ import json
 import pytest
 from pydantic import ValidationError
 
-from supervoice.bridge.protocol import (
+from supervoice.worker.bridge.protocol import (
     AgentTextDeltaEvent,
     AgentTextEndEvent,
     UserInterruptEvent,

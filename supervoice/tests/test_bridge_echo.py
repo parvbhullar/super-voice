@@ -8,7 +8,7 @@ from pipecat.frames.frames import (
 )
 from pipecat.processors.frame_processor import FrameDirection
 
-from supervoice.bridge.processor import AgentBridgeProcessor
+from supervoice.worker.bridge.processor import AgentBridgeProcessor
 
 
 @pytest.mark.asyncio

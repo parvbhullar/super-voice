@@ -19,17 +19,17 @@ from pipecat.pipeline.runner import PipelineRunner
 from pipecat.pipeline.task import PipelineParams, PipelineTask
 from pydantic import SecretStr
 
-from supervoice.bridge.client import AgentBridgeClient
-from supervoice.pipeline.builder import PipelineConfig, build_pipeline
-from supervoice.session.idle_monitor import IdleMonitor
+from supervoice.worker.bridge.client import AgentBridgeClient
+from supervoice.worker.pipeline.builder import PipelineConfig, build_pipeline
+from supervoice.worker.idle_monitor import IdleMonitor
 from supervoice.session.state import SessionState
-from supervoice.speech.failover import (
+from supervoice.shared.speech.failover import (
     resolve_stt_with_fallback,
     resolve_tts_with_fallback,
 )
-from supervoice.speech.stt_factory import STTProviderConfig
-from supervoice.speech.tts_factory import TTSProviderConfig
-from supervoice.voice_profile.catalog import VoiceProfileCatalog
+from supervoice.shared.speech.stt_factory import STTProviderConfig
+from supervoice.shared.speech.tts_factory import TTSProviderConfig
+from supervoice.shared.voice_profile.catalog import VoiceProfileCatalog
 
 
 async def run_echo_call(
@@ -138,8 +138,8 @@ async def run_call_with_profile(
         # pre-resolved STT/TTS services from the profile).
         from pipecat.pipeline.pipeline import Pipeline
 
-        from supervoice.bridge.processor import AgentBridgeProcessor
-        from supervoice.pipeline.builder import TTSSanitizeFilter
+        from supervoice.worker.bridge.processor import AgentBridgeProcessor
+        from supervoice.worker.pipeline.builder import TTSSanitizeFilter
 
         bridge = AgentBridgeProcessor(echo_mode=False)
         bridge.attach_client(client)

@@ -1,11 +1,11 @@
 import pytest
 from pydantic import SecretStr
 
-from supervoice.speech.failover import (
+from supervoice.shared.speech.failover import (
     resolve_stt_with_fallback,
     resolve_tts_with_fallback,
 )
-from supervoice.voice_profile.catalog import STTSpec, TTSSpec, VoiceProfile
+from supervoice.shared.voice_profile.catalog import STTSpec, TTSSpec, VoiceProfile
 
 
 def test_resolve_stt_uses_first_available_provider():

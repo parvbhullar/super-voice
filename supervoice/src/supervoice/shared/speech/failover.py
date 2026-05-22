@@ -3,7 +3,7 @@ from __future__ import annotations
 from loguru import logger
 from pydantic import SecretStr
 
-from supervoice.voice_profile.catalog import VoiceProfile
+from supervoice.shared.voice_profile.catalog import VoiceProfile
 
 from .stt_factory import STTProviderConfig, create_stt
 from .tts_factory import TTSProviderConfig, create_tts

@@ -5,7 +5,7 @@ import json
 import pytest
 import websockets
 
-from supervoice.bridge.protocol import UserTextEvent
+from supervoice.worker.bridge.protocol import UserTextEvent
 
 
 @pytest.mark.asyncio

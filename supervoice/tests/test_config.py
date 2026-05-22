@@ -1,6 +1,6 @@
 import pytest
 
-from supervoice.config import Settings
+from supervoice.shared.config import Settings
 
 
 def test_settings_loads_from_env(monkeypatch):

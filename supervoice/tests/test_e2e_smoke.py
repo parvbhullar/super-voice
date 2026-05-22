@@ -2,15 +2,15 @@ import pytest
 from unittest.mock import MagicMock
 from pydantic import SecretStr
 
-from supervoice.pipeline.builder import build_pipeline, PipelineConfig
-from supervoice.speech.stt_factory import STTProviderConfig
-from supervoice.speech.tts_factory import TTSProviderConfig
+from supervoice.worker.pipeline.builder import build_pipeline, PipelineConfig
+from supervoice.shared.speech.stt_factory import STTProviderConfig
+from supervoice.shared.speech.tts_factory import TTSProviderConfig
 
 
 def test_pipeline_assembly_for_all_default_profiles():
     """Smoke test: build the pipeline for each profile without crashing."""
-    from supervoice.voice_profile.catalog import VoiceProfileCatalog
-    from supervoice.speech.failover import (
+    from supervoice.shared.voice_profile.catalog import VoiceProfileCatalog
+    from supervoice.shared.speech.failover import (
         resolve_stt_with_fallback,
         resolve_tts_with_fallback,
     )
@@ -33,7 +33,7 @@ def test_pipeline_assembly_for_all_default_profiles():
 @pytest.mark.asyncio
 async def test_full_pipeline_constructs_with_bridge(mock_bridge):
     """E2E: bridge client + pipeline assembly + processor lifecycle."""
-    from supervoice.bridge.client import AgentBridgeClient
+    from supervoice.worker.bridge.client import AgentBridgeClient
 
     client = AgentBridgeClient(url=mock_bridge)
     try:

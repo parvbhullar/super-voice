@@ -1,4 +1,4 @@
-from supervoice.speech.sanitize import sanitize_for_tts
+from supervoice.shared.speech.sanitize import sanitize_for_tts
 
 
 def test_strips_markdown_bold_and_italic():

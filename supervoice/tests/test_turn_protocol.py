@@ -1,4 +1,4 @@
-from supervoice.turn.protocol import TurnDetector
+from supervoice.shared.turn.protocol import TurnDetector
 
 
 def test_protocol_is_runtime_checkable():

@@ -31,7 +31,7 @@ class VoiceProfileCatalog(BaseModel):
 
     @classmethod
     def load_default(cls) -> "VoiceProfileCatalog":
-        text = files("supervoice.voice_profile").joinpath("profiles.yaml").read_text()
+        text = files("supervoice.shared.voice_profile").joinpath("profiles.yaml").read_text()
         return cls.model_validate(yaml.safe_load(text))
 
     @classmethod

@@ -1,6 +1,6 @@
 import pytest
 
-from supervoice.voice_profile.catalog import VoiceProfileCatalog
+from supervoice.shared.voice_profile.catalog import VoiceProfileCatalog
 
 
 def test_load_default_catalog():
