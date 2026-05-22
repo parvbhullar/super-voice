@@ -6,6 +6,7 @@ Re-exports the public types consumed by adjacent orchestrator components
 
 from __future__ import annotations
 
+from .registry import SessionRegistry
 from .state import Session, SessionState
 
-__all__ = ["Session", "SessionState"]
+__all__ = ["Session", "SessionState", "SessionRegistry"]
