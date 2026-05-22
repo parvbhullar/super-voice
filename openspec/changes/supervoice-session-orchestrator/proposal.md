@@ -1,54 +1,55 @@
-# supervoice — Session & Room Orchestrator
+# supervoice — Room Orchestrator
 
 **Status:** Proposal
 **Scope:** `supervoice/` Python service
 **Type:** Re-architecture (V1 → V2 surface)
-**Effort:** ~6 weeks, one engineer
+**Effort:** ~7 weeks, one engineer
 
 ---
 
 ## Why
 
-Today `supervoice/` is a speech-pipeline relay: one WebRTC peer in, one audio↔text bridge to a runner, one TTS path out. The voice-infra PRD (`supervoice/docs/00-overview.md`) describes something larger: a session/room orchestrator where any number of participants of any type — SIP/PSTN, agent, WebRTC, LiveKit, recorder — attach to a shared Room, and where transfers, conferences, escalations, and channel handoffs are all instances of one primitive: `add_participant`.
+Today `supervoice/` is a speech-pipeline relay: one WebRTC peer in, one audio↔text bridge to a runner, one TTS path out. The voice-infra PRD (`supervoice/docs/00-overview.md`) describes something larger: a room orchestrator where any number of participants of any type — SIP/PSTN, WebRTC, LiveKit, recorder — attach to a shared Room, agent participants are dispatched as a distinct lifecycle, and transfers, conferences, escalations, and channel handoffs all reduce to a small set of REST operations.
 
-A third-party developer in the PRD model never calls supervoice directly. They write a `superdialog` runner; `unpod` (control plane) and `telephony` orchestrate calls; supervoice is the service those two delegate to for "create the audio container and stitch the participants in." Today supervoice cannot serve that role — it has no REST surface for session/participant lifecycle, no participant model, no `add_participant` primitive, and is locked to one transport (WebRTC).
+A third-party developer in the PRD model never calls supervoice directly. They write a `superdialog` runner; `unpod` (control plane) and `telephony` orchestrate calls; supervoice is the service those two delegate to for "create the audio container and stitch the participants in." Today supervoice cannot serve that role — it has no REST surface for room/participant/dispatch lifecycle, no participant model, no `add_participant` primitive, and is locked to one transport (WebRTC).
 
-This change reshapes supervoice from "speech relay" to "the session and room orchestrator the PRD describes," while keeping the existing Pipecat-based speech pipeline as a participant adapter (one of several).
+This change reshapes supervoice from "speech relay" to "the room orchestrator the PRD describes," while keeping the existing Pipecat-based speech pipeline as the `AgentAdapter` (one of several).
 
 ---
 
 ## What Changes
 
-### Three separate REST APIs (strict separation of concerns)
+### Four REST resource families (mirror LiveKit's vocabulary, stay engine-agnostic)
 
-1. **Sessions API** — Room lifecycle only.
-2. **Participants API** — declarative add/remove of typed participants.
-3. **Dispatch API** — higher-level operations (`spawn`, `merge`) that compose participant primitives.
-
-Endpoints:
+The API is split into four distinct resource families because their lifecycles differ. LiveKit established this convention with separate `RoomService` / `AgentDispatch` / `SIPService` APIs; we adopt the same conceptual shape with engine-neutral paths so a future swap to FreeSWITCH-conf, Daily.co, or a custom SFU doesn't leak through the URL space.
 
 ```
-SESSIONS
-  POST   /v1/sessions                       create empty Room
-  GET    /v1/sessions/{id}                  status + participants list
-  POST   /v1/sessions/{id}/end              graceful close
-  DELETE /v1/sessions/{id}                  hard tear-down
+ROOMS                                       PARTICIPANTS                                 (room = container only)
+─────                                       ─────────────                                (participants = media legs)
+POST   /v1/rooms                            POST   /v1/rooms/{id}/participants
+GET    /v1/rooms                            GET    /v1/rooms/{id}/participants
+GET    /v1/rooms/{id}                       GET    /v1/rooms/{id}/participants/{pid}
+DELETE /v1/rooms/{id}                       PATCH  /v1/rooms/{id}/participants/{pid}
+       [?graceful=true]                     DELETE /v1/rooms/{id}/participants/{pid}
 
-PARTICIPANTS
-  POST   /v1/sessions/{id}/participants                add
-  GET    /v1/sessions/{id}/participants                list
-  GET    /v1/sessions/{id}/participants/{pid}          fetch
-  PATCH  /v1/sessions/{id}/participants/{pid}          mute / role / voice_profile_id
-  DELETE /v1/sessions/{id}/participants/{pid}          remove
-
-DISPATCH
-  POST   /v1/dispatch                       action: "spawn" | "merge"
-                                            (rotate reserved for V2; returns 501)
+DISPATCH                                    OPERATIONS                                   (cross-cutting verbs)
+─────────                                   ──────────────
+POST   /v1/rooms/{id}/dispatch              POST   /v1/rooms/{id}/transfer
+GET    /v1/rooms/{id}/dispatch              POST   /v1/rooms/merge
+GET    /v1/dispatch/{did}
+PATCH  /v1/dispatch/{did}
+DELETE /v1/dispatch/{did}
 ```
 
-Sessions are empty on creation. Participants attach via separate calls. unpod / telephony / the dev's runner all use the participant API directly; dispatch is sugar over participants for common multi-step patterns.
+**Why Participants and Dispatch are split:** a sip/webrtc/livekit participant is a **media leg** — attach, detach, mute, done. An agent is a **process** — supervoice resolves `agent_id → runner_url`, opens a bridge WSS, manages dispatch state across the call's life, handles runner reconnects. The lifecycle difference is real; collapsing them under one endpoint smudges error semantics and confuses anyone arriving from LiveKit.
 
-Session IDs are issued by supervoice (UUID v7, sortable). `Idempotency-Key` header supported on POST for safe retries.
+**Why Operations is split:** `transfer` (within a room — remove one participant or dispatch, add another) and `merge` (across rooms) are atomic verbs over multiple resources. They're sugar over the lower-level CRUD but exposed at the top level for the common cases. `transfer` covers human handoff, agent-for-agent swap, and channel rotation uniformly — `add + remove` with an optional warm-handoff window.
+
+Participant types in V1: `sip`, `webrtc`, `livekit`. **Agents are NOT participants — they're dispatches.** Adding new participant types (`recorder`, `supervisor-observer`) is a new adapter module.
+
+Rooms are empty on creation. Telephony / unpod / the dev's runner each use the appropriate level. `GET /v1/rooms` is **tenant-scoped** (implicit from auth context). No global admin listing in V1.
+
+Room IDs and dispatch IDs are issued by supervoice (UUID v7, sortable). `Idempotency-Key` header supported on every POST for safe retries.
 
 ### Two new internal protocols (swappable)
 
@@ -75,74 +76,86 @@ class ParticipantAdapter(Protocol):
 
 Initial adapters:
 
-| Type | Adapter | Responsibility |
-|---|---|---|
-| `agent` | `AgentAdapter` | Refactor of current Pipecat pipeline + bridge WSS to runner |
-| `sip` | `SipAdapter` | Bridge SIP leg (from telephony service) into the Room. Mechanism depends on chosen engine (LiveKit-SIP for `livekit` engine). |
-| `webrtc` | `WebRtcAdapter` | Refactor of current `SmallWebRTCTransport` usage |
-| `livekit` | `LiveKitAdapter` | Token mint passthrough — caller brings their own participant via LiveKit client SDK |
+| Type | Adapter | Lives under | Responsibility |
+|---|---|---|---|
+| `sip` | `SipAdapter` | `/participants` | Bridge SIP leg from telephony into the Room. LiveKit-SIP for `livekit` engine. |
+| `webrtc` | `WebRtcAdapter` | `/participants` | Refactor of current `SmallWebRTCTransport` |
+| `livekit` | `LiveKitAdapter` | `/participants` | Token mint — caller brings own participant via LiveKit client SDK |
+| `agent` | `AgentAdapter` | `/dispatch` | Refactor of current Pipecat pipeline + bridge WSS to runner |
 
-Recorder, supervisor-observer, and other types are V1.5 — they slot in as new adapters without changing the protocol.
+Recorder, supervisor-observer, and other types are V1.5. Agents always go through `/dispatch`; sip/webrtc/livekit always through `/participants`.
 
 ### Bridge protocol v2
 
-Minimum deltas to make the developer SDK functional:
+Backward-compatible expansion. Old V1 clients keep working via protocol-version handshake.
 
 **Events upstream (supervoice → runner):**
-- `call.started` — payload includes session_id, call_id, voice_profile_id, metadata, language
-- `call.ended` — reason, duration_s, final metrics snapshot
+- `call.started` — payload includes `room_id`, `dispatch_id`, `call_id`, `voice_profile_id`, `metadata`, `language`
+- `call.ended` — `reason`, `duration_s`, final metrics snapshot
 - `user.text` — ✅ existing, gains `call_id` field
 - `user.interrupted` — ✅ existing, gains `call_id` field
-- `silence` — V1.5, optional but reserved verb name
-- `metric` — V1.5, optional
+- `error` — STT/TTS/transport failures (promoted from V1.5): `severity`, `source`, `code`, `message`, `retriable`
+- `metric` — periodic latency/cost snapshot (promoted from V1.5)
+- `silence` — V1.5, reserved verb name
+- `room.migrated_to` — emitted on the secondary side of a `merge` so the runner can rebind to the surviving room
 
 **Verbs downstream (runner → supervoice):**
 - `agent.text.delta` / `agent.text.end` — ✅ existing, gain `call_id`
-- `agent.say` — verbatim TTS, bypasses sanitize (used for greeting + injected lines)
-- `agent.add_participant` — actuates POST `/v1/sessions/{id}/participants`
-- `agent.remove_participant` — actuates DELETE `/v1/sessions/{id}/participants/{pid}`
-- `agent.merge` — actuates POST `/v1/dispatch` with `action: merge`
-- `agent.end_call` — actuates POST `/v1/sessions/{id}/end`
+- `agent.say` — verbatim TTS, bypasses sanitize (greetings + ad-hoc injected lines)
+- `agent.transfer` — atomic swap; actuates `POST /v1/rooms/{room_id}/transfer`. Covers human handoff, agent-for-agent swap, channel rotation. Body: `{ remove: pid_or_dispatch_id, add: {type, config}, mode: "cold"|"warm", warm_handoff_ms? }`
+- `agent.dispatch` — add another agent to the same room (supervisor, specialist); actuates `POST /v1/rooms/{room_id}/dispatch`
+- `agent.add_participant` — for non-agent additions from the runner (rare; usually unpod/telephony's job); actuates `POST /v1/rooms/{room_id}/participants`
+- `agent.remove_participant` — actuates `DELETE /v1/rooms/{room_id}/participants/{pid}` or `DELETE /v1/dispatch/{did}`
+- `agent.merge` — cross-room merge; actuates `POST /v1/rooms/merge`
+- `agent.end_call` — actuates `DELETE /v1/rooms/{room_id}?graceful=true`
 
 Bridge WSS is **per-call**, not multiplexed. `call_id` is a correlation field, not a routing field.
 
-Protocol-version handshake on connect: `{"event":"hello","protocol_version":2,"supported_events":[...]}`. Old V1 clients with `protocol_version: 1` continue to work; supervoice degrades to legacy event set.
+Protocol-version handshake on connect: `{"event":"hello","protocol_version":2,"supported_events":[...]}`. V1 clients (`protocol_version: 1`) keep working; supervoice degrades to the legacy 4-event set for them.
+
+Runner connection auth (closes a real production gap): supervoice appends `?signature=hmac(agent_secret, call_id || nonce || timestamp)` when opening the WSS to `runner_url`. The dev's runner verifies. `agent_secret` is per-agent, issued by unpod when the agent is registered, shared with the runner via env var.
 
 ### Auth model (lifted from sayna)
 
 - `Authorization: Bearer <api_secret>` — platform-issued, per-tenant, exact match against configured secrets list.
 - `Authorization: Bearer <jwt>` — fallback, validated against external service (control plane).
 - `?api_key=...` — query-param fallback for browsers that can't set headers.
-- `tenant_id` extracted from token claims; stored on the session; all participant/dispatch ops verify tenant match.
+- `tenant_id` extracted from token claims; stored on the room; all participant/dispatch/operation ops verify tenant match.
+- `GET /v1/rooms` is **tenant-scoped** (no cross-tenant listing in V1).
 - Credentials in request bodies (`deepgram_api_key`, etc.) are **optional**; absent → fall back to supervoice's configured providers.
 
-### Session reconnect (lifted from sayna's `SessionMap`)
+### Room reconnect (lifted from sayna's `SessionMap`)
 
-When all participants leave a session, keep the session shell alive for `reconnect_ttl_secs` (default 30s, configurable). A reconnecting client (e.g., flapping browser, transient bridge WSS) can resume by referencing the same `session_id`. After TTL, the session transitions to `ended`.
+When all participants leave a room, keep the room shell alive for `reconnect_ttl_secs` (default 30s, configurable). A reconnecting client (e.g., flapping browser, transient bridge WSS) can resume by referencing the same `room_id`. After TTL, the room transitions to `ended`.
+
+### Dev mode (new)
+
+`--dev-mode` flag enables the `in_process_bus` engine + a `POST /v1/dev/inject-audio` endpoint that feeds a wav file as a synthetic participant. Lets a third-party dev run supervoice + their runner locally and test end-to-end in 5 minutes — no telephony, no LiveKit account, no network. Maps to the PRD's "1-day onboarding" promise.
 
 ### Code organization
 
 ```
 supervoice/src/supervoice/
   api/
-    sessions.py                  # /v1/sessions router
-    participants.py              # /v1/participants router
-    dispatch.py                  # /v1/dispatch router
+    rooms.py                     # /v1/rooms router (incl. operations: transfer, merge)
+    participants.py              # /v1/rooms/{id}/participants router
+    dispatch.py                  # /v1/rooms/{id}/dispatch + /v1/dispatch/{did} routers
+    dev.py                       # /v1/dev/inject-audio (dev-mode only)
     auth.py                      # tenant + API-key + JWT middleware
-  session/
-    registry.py                  # SessionRegistry + SessionMap TTL
-    state.py                     # ✅ existing
-    handler.py                   # refactored: per-session orchestrator
   room/
+    registry.py                  # RoomRegistry + reconnect-TTL map
     engine.py                    # RoomEngine Protocol
     livekit_engine.py            # default impl
-    in_process_engine.py         # zero-infra impl (sip+agent only)
+    in_process_engine.py         # zero-infra impl (1:1 rooms; for dev/test)
+    state.py                     # per-room mutable state (replaces session/state.py)
   participants/
-    adapter.py                   # ParticipantAdapter Protocol
-    agent_adapter.py             # ← refactor of current Pipecat path
+    adapter.py                   # ParticipantAdapter Protocol (media-leg shape)
     sip_adapter.py               # new
     webrtc_adapter.py            # ← refactor of current SmallWebRTC path
     livekit_adapter.py           # new (token mint)
+  dispatch/
+    adapter.py                   # AgentAdapter (specialized — has runner + bridge)
+    agent_adapter.py             # ← refactor of current Pipecat path
   bridge/
     protocol.py                  # v2 events + verbs
     client.py                    # ✅ existing
@@ -157,11 +170,11 @@ supervoice/src/supervoice/
 
 `/call?profile=...` stays as a thin convenience for browser direct test. Internally rewritten as:
 
-1. `POST /v1/sessions`
-2. `POST /v1/sessions/{id}/participants {type: webrtc, sdp_offer}`
-3. `POST /v1/sessions/{id}/participants {type: agent, voice_profile_id, runner_url}`
+1. `POST /v1/rooms`
+2. `POST /v1/rooms/{room_id}/participants {type: webrtc, sdp_offer}`
+3. `POST /v1/rooms/{room_id}/dispatch {voice_profile_id, runner_url}`
 
-So we get one consolidated code path; the WS endpoint becomes a 30-line shim.
+The `/call` WebSocket becomes a ~30-line shim over the new APIs. The wire format on the WebSocket is unchanged; only the internal routing differs.
 
 ---
 
@@ -169,17 +182,19 @@ So we get one consolidated code path; the WS endpoint becomes a 30-line shim.
 
 ### New Capabilities
 
-- `supervoice-session-api` — REST surface for session lifecycle.
-- `supervoice-participant-api` — REST surface for participant CRUD with four participant types.
-- `supervoice-dispatch-api` — Higher-level `spawn` / `merge` operations; `rotate` reserved for V2.
+- `supervoice-rooms-api` — REST surface for room lifecycle (`/v1/rooms`).
+- `supervoice-participants-api` — REST surface for media-leg participants (sip/webrtc/livekit).
+- `supervoice-dispatch-api` — REST surface for agent participants (separate lifecycle, has runner + bridge WSS).
+- `supervoice-operations-api` — Cross-cutting verbs: `transfer` (within a room) and `merge` (across rooms).
 - `supervoice-room-engine` — Swappable Room engine abstraction with LiveKit + in-process implementations.
-- `supervoice-auth-multitenancy` — API-secret + JWT bearer auth with tenant isolation at session/participant level.
-- `supervoice-bridge-protocol-v2` — Expanded wire protocol with lifecycle events and `add_participant`-style verbs, with version handshake.
-- `supervoice-session-reconnect-ttl` — Session-shell preservation across transient disconnects.
+- `supervoice-auth-multitenancy` — API-secret + JWT bearer auth with tenant isolation; `GET /v1/rooms` is tenant-scoped.
+- `supervoice-bridge-protocol-v2` — Expanded wire protocol with lifecycle events, error/metric upstream, `transfer`/`dispatch`/`merge` verbs, version handshake, and HMAC-signed runner connection.
+- `supervoice-room-reconnect-ttl` — Room-shell preservation across transient disconnects.
+- `supervoice-dev-mode` — `--dev-mode` flag + audio injection harness for local testing without telephony or LiveKit.
 
 ### Modified Capabilities
 
-- The current speech pipeline becomes the **AgentAdapter** — its public entry point shifts from `run_call_with_profile()` to `AgentAdapter.attach()`. Logic is preserved; wiring changes.
+- The current speech pipeline becomes the **AgentAdapter** under `/dispatch` — its public entry point shifts from `run_call_with_profile()` to `AgentAdapter.attach()`. Logic preserved; wiring changes.
 - Voice profile catalog resolution stays file-based for V1; in V1.5 it queries unpod's control plane endpoint.
 - `/call` endpoint becomes a thin compatibility shim over the new APIs.
 
@@ -192,59 +207,63 @@ So we get one consolidated code path; the WS endpoint becomes a 30-line shim.
 | # | Workstream | Days |
 |---|---|---|
 | 1 | RoomEngine protocol + LiveKit impl + in-process-bus impl | 5 |
-| 2 | ParticipantAdapter protocol + 4 impls | 6 |
-| 3 | Session Registry + SessionMap-style TTL | 3 |
-| 4 | Sessions REST API | 2 |
-| 5 | Participants REST API | 3 |
-| 6 | Dispatch REST API (spawn + merge; rotate=501) | 3 |
-| 7 | Auth middleware (lift from sayna) | 2 |
-| 8 | Bridge protocol v2 + handshake + migration | 4 |
-| 9 | `/call` migration to new code path | 1 |
-| 10 | Telephony integration contract docs + stub test | 1 |
-| **Total** | | **~30 d / ~6 weeks** |
+| 2 | ParticipantAdapter protocol + 3 media-leg impls (sip/webrtc/livekit) | 5 |
+| 3 | AgentAdapter (refactor of Pipecat path under `/dispatch`) | 2 |
+| 4 | RoomRegistry + reconnect-TTL | 3 |
+| 5 | Rooms REST API | 2 |
+| 6 | Participants REST API | 3 |
+| 7 | Dispatch REST API | 3 |
+| 8 | Operations REST API (`transfer` + `merge`) | 3 |
+| 9 | Auth middleware (lift from sayna) + tenant scoping | 2 |
+| 10 | Bridge protocol v2 + handshake + HMAC runner auth + error/metric events | 5 |
+| 11 | Dev-mode + audio injection harness | 2 |
+| 12 | `/call` migration to new code path | 1 |
+| 13 | Telephony integration contract docs + stub test | 1 |
+| **Total** | | **~37 d / ~7 weeks** |
 
 ### Blast radius
 
-- **Existing tests**: 65 currently green. After this change, expect ~30 tests to migrate (handler-level, pipeline-builder, processor) and ~50 new tests across the API + adapter layer. Net test count ≈ 110-120.
+- **Existing tests**: 65 currently green. After this change, expect ~30 tests to migrate (handler-level, pipeline-builder, processor) and ~55 new tests across the API + adapter layer. Net test count ≈ 120-130.
 - **External contracts**: Bridge protocol v1 stays supported via the version handshake — no breaking change for any runner already coded against v1.
 - **Existing `/call` consumers**: WebRTC clients pointing at `/call?profile=…` continue to work; the route is rewritten internally but the wire is unchanged.
 
 ### Why Python (not Rust / not lift sayna)
 
-The orchestration layer is greenfield in either language. Sayna's session model is strictly 1:1 — its mature pieces (auth, `SessionMap`, transport traits, LiveKit endpoints) are **infrastructure** worth porting as patterns, but its **architecture** (`CallSession` immutability) is the trap we're explicitly avoiding. The speech-pipeline Pipecat investment (provider matrix, VAD, EOU, sanitize, failover) is a real moat that we should not rebuild in Rust to gain orchestrator efficiency that is mostly I/O-bound anyway.
+The orchestration layer is greenfield in either language. Sayna's session model is strictly 1:1 — its mature pieces (auth, `SessionMap`, transport traits, LiveKit endpoints) are **infrastructure** worth porting as patterns, but its **architecture** (`CallSession` immutability) is the trap we're explicitly avoiding. The speech-pipeline Pipecat investment (provider matrix, VAD, EOU, sanitize, failover) is a real moat we should not rebuild in Rust to gain orchestrator efficiency that is mostly I/O-bound anyway.
 
-If the orchestrator becomes a measured bottleneck at >2k concurrent sessions per box, extract it as a separate Rust service later. The trait-shaped `RoomEngine` and `ParticipantAdapter` boundaries leave that door open without forcing it now.
+If the orchestrator becomes a measured bottleneck at >2k concurrent rooms per box, extract it as a separate Rust service later. The trait-shaped `RoomEngine` and `ParticipantAdapter` boundaries leave that door open without forcing it now.
 
 ---
 
 ## Non-goals (this change)
 
-- **Rotate** dispatch action — reserved verb, returns 501 in V1. V2 will add transcript/history forwarding on the bridge so the new runner picks up state.
-- **Recording** — separate change; will slot in as a new `recorder` participant type without modifying any of the above protocols.
-- **Mid-call language switch / voice swap** — V2; the participant `PATCH voice_profile_id` endpoint is the design hook.
+- **Transfer with history preservation** — V2 will add a transcript snapshot on the wire so a rotated agent picks up state. V1's `agent.transfer` is atomic but stateless.
+- **Recording** — separate change; will slot in as an engine-level capability (LiveKit Egress for `livekit` engine, no recording on `in_process` engine) rather than a participant type.
+- **Mid-call language switch / voice swap** — V2; the `PATCH /v1/dispatch/{did}` endpoint is the design hook.
 - **Outbound call origination** — owned by telephony service; supervoice only receives a `sip` participant with `direction: outbound` after telephony has placed the leg.
 - **Number management, agent registry, transcripts, recordings APIs** — owned by `unpod` (control plane).
 - **SDK** — owned by `superdialog`; this proposal only commits to the WSS bridge protocol shape that the SDK depends on.
 - **Replacing Pipecat** — speech pipeline stays.
+- **Multi-party in `in_process` engine** — punt to LiveKit engine for any 3+ participant Room. The in-process engine supports 1:1 only (sip+agent, webrtc+agent, dev-mode audio-injection+agent).
 
 ---
 
 ## Open questions
 
-1. **Merge edge cases.** When S1 has `{sip_user_A, agent_X}` and S2 has `{sip_user_B, agent_Y}` and a merge is requested:
-   - Default: all four participants end up in surviving Room.
+1. **Merge edge cases.** When R1 has `{sip_user_A, agent_X}` and R2 has `{sip_user_B, agent_Y}` and a merge is requested:
+   - Default: all four end up in surviving Room.
    - Likely desired: caller specifies `drop_participants` to remove duplicate agents.
-   - Need a default policy and a way to override per request. Lean on `drop_participants: [...]` explicit, no implicit drops.
+   - Resolution: no implicit drops. Caller specifies `drop_participants: [...]` and/or `drop_dispatches: [...]` explicitly. Documented behavior.
 
-2. **Cross-room merge — does `call_id` change?** When S2 dissolves, the bridge WSS for S2's agent loses its `session_id`. We need a `session.migrated_to(new_session_id)` event so the runner can rebind references and not see a stale call as still-active.
+2. **Cross-room merge — does `call_id` change?** When R2 dissolves, the bridge WSS for R2's agent loses its `room_id`. Resolution: emit `room.migrated_to(new_room_id)` on the secondary side so the runner can rebind references; supervoice keeps the merged-from `dispatch_id` alive in the surviving Room (no fresh dispatch).
 
-3. **LiveKit room mapping for merge.** LiveKit can't literally merge two rooms server-side; merge means "take participants from R2, add them to R1, destroy R2." Need to verify LiveKit's `LocalParticipant.disconnect()` + `RoomServiceClient.create_participant()` round-trip is acceptable latency (~hundreds of ms in worst case). If unacceptable, fall back to "merge means move audio tracks via a programmatic SFU forward," which is harder.
+3. **LiveKit room mapping for merge.** LiveKit can't literally merge two rooms server-side; merge means "take participants from R2, add them to R1, destroy R2." Need to verify LiveKit's `RoomServiceClient` round-trip latency for participant move (~hundreds of ms in worst case). If unacceptable, fall back to "merge means move audio tracks via a programmatic SFU forward."
 
-4. **Idempotency keys at the participant level too?** POST `/sessions/{id}/participants` with the same key shouldn't double-attach. Sayna doesn't do this. Probably want it.
+4. **Idempotency keys at the participant/dispatch level.** POST `/v1/rooms/{id}/participants` and POST `/v1/rooms/{id}/dispatch` with the same key shouldn't double-attach. Sayna doesn't do this. We will — `Idempotency-Key` on every POST.
 
-5. **`livekit` participant type semantics.** Is it pure token-mint (caller brings their own LiveKit client), or does supervoice broker the connection? Pure token-mint is simpler; broker-mode adds value for cross-tenant LiveKit federation. Default to token-mint for V1.
+5. **`livekit` participant type semantics.** Pure token-mint (caller brings their own LiveKit client) vs broker-mode (supervoice brokers the connection). Default to token-mint for V1; broker-mode is a V2 capability for cross-tenant federation.
 
-6. **In-process-bus engine capabilities.** This is the no-infra path; how multi-party does it need to be? Minimum: support sip+agent (1:1) and agent-only (warm-up / unit-test mode). Mixing 3 participants in-process gets us close to writing a small SFU — probably not worth it; punt to LiveKit for any 3+ participant Room.
+6. **In-process-bus engine capabilities.** 1:1 only (sip+agent, webrtc+agent, dev-mode-injection+agent). 3-participant in-process gets us close to writing a small SFU — not worth it.
 
 ---
 
@@ -254,12 +273,12 @@ Recommended order — each item leaves the codebase in a green-tests state.
 
 **Week 1** — protocols & registries
 - RoomEngine protocol + in-process-bus impl (LiveKit deferred to W3)
-- ParticipantAdapter protocol + AgentAdapter refactor of current pipeline
-- Session Registry + SessionMap TTL
+- ParticipantAdapter protocol + AgentAdapter refactor of current pipeline (lives under /dispatch internally)
+- RoomRegistry + reconnect-TTL
 
 **Week 2** — REST APIs
-- Sessions, Participants, Dispatch routers
-- Auth middleware
+- Rooms / Participants / Dispatch / Operations routers
+- Auth middleware + tenant scoping
 - `/call` migrated as a shim
 
 **Week 3** — engine + adapters complete
@@ -268,29 +287,37 @@ Recommended order — each item leaves the codebase in a green-tests state.
 - LiveKitAdapter (token mint)
 
 **Week 4** — bridge protocol v2
-- Protocol module updated, version handshake
-- All new verbs (`agent.say`, `agent.add_participant`, `agent.remove_participant`, `agent.merge`, `agent.end_call`)
+- Protocol module updated, version handshake, HMAC runner auth
+- `error` + `metric` events upstream
+- New verbs (`agent.say`, `agent.transfer`, `agent.dispatch`, `agent.add_participant`, `agent.remove_participant`, `agent.merge`, `agent.end_call`)
 - Old V1 runners still work (compat mode)
 
-**Week 5** — SIP integration
-- SipAdapter (depends on chosen engine's SIP support; LiveKit-SIP if `livekit` engine)
+**Week 5** — SIP integration + dev mode
+- SipAdapter (LiveKit-SIP if `livekit` engine)
 - Telephony integration test stub
-- End-to-end flow test: telephony → POST /sessions → 2× POST /participants → audio works
+- Dev-mode: `in_process_bus` engine + `POST /v1/dev/inject-audio`
+- End-to-end flow test: telephony → POST /rooms → POST /participants (sip) → POST /dispatch (agent) → audio works
 
 **Week 6** — polish
 - Tenant isolation tests
 - Reconnect TTL tests
-- Documentation: API reference, bridge protocol v2 spec, adapter authoring guide
+- Observability polish
+
+**Week 7** — design-partner readiness
+- Documentation: API reference, bridge protocol v2 spec, adapter authoring guide, dev-mode quickstart
+- First design partner can run hello-world in 1 day
 
 ---
 
 ## References
 
-- `supervoice/docs/00-overview.md` — the PRD positioning supervoice as Speech Service + Room
-- `supervoice/docs/sdk-session-runtime-spec.md` — the hooks/controls the bridge protocol must support
-- `supervoice/docs/service-telephony-prd.md` — the upstream caller's contract
+- `supervoice/docs/00-overview.md` — PRD positioning supervoice as Speech Service + Room orchestrator
+- `supervoice/docs/sdk-session-runtime-spec.md` — hooks/controls the bridge protocol must support
+- `supervoice/docs/service-telephony-prd.md` — upstream caller's contract
+- `supervoice/docs/plans/2026-05-22-supervoice-v2-twopager.md` — stakeholder summary of this proposal
 - `third-party/sayna/src/pipeline/session_map.rs` — TTL reconnect pattern to lift
 - `third-party/sayna/src/middleware/auth.rs` — auth model to lift
-- `third-party/sayna/src/pipeline/transport/traits.rs` — `AudioSink` trait shape that informs `RoomEngine`
+- `third-party/sayna/src/pipeline/transport/traits.rs` — `AudioSink` trait shape informing `RoomEngine`
 - `third-party/sayna/src/handlers/livekit/` — endpoint structure for `/livekit/*` operations
-- `supervoice/docs/plans/2026-05-21-supervoice-v1.md` — the V1 plan this re-architecture supersedes
+- LiveKit Server API — `RoomService`, `AgentDispatch`, `SIPService` — vocabulary we mirror
+- `supervoice/docs/plans/2026-05-21-supervoice-v1.md` — V1 plan this re-architecture supersedes
