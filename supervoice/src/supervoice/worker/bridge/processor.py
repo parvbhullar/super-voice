@@ -17,6 +17,7 @@ import asyncio
 
 from loguru import logger
 from pipecat.frames.frames import (
+    EndFrame,
     Frame,
     InterruptionFrame,
     LLMFullResponseEndFrame,
@@ -33,8 +34,15 @@ from supervoice.shared.observability.metrics import CallMetrics
 
 from .client import AgentBridgeClient
 from .protocol import (
+    AgentAddParticipantVerb,
+    AgentDispatchVerb,
+    AgentEndCallVerb,
+    AgentMergeVerb,
+    AgentRemoveParticipantVerb,
+    AgentSayVerb,
     AgentTextDeltaEvent,
     AgentTextEndEvent,
+    AgentTransferVerb,
     ErrorEvent,
     HelloAckEvent,
     HelloEvent,
@@ -78,6 +86,12 @@ class AgentBridgeProcessor(FrameProcessor):
         self._metric_interval_s = metric_interval_s
         self._call_metrics = call_metrics
         self._response_started = False
+        self._end_call_requested = False
+
+    @property
+    def end_call_requested(self) -> bool:
+        """True after an agent.end_call verb has been processed."""
+        return self._end_call_requested
 
     def attach_client(self, client: AgentBridgeClient) -> None:
         """Inject the bridge client after construction."""
@@ -184,6 +198,8 @@ class AgentBridgeProcessor(FrameProcessor):
                 # (they are handled by the client internally).
                 if isinstance(evt, (HelloEvent, HelloAckEvent)):
                     continue
+
+                # ── v1 events ─────────────────────────────
                 if isinstance(evt, AgentTextDeltaEvent):
                     if not self._response_started:
                         await self.push_frame(
@@ -191,14 +207,63 @@ class AgentBridgeProcessor(FrameProcessor):
                         )
                         self._response_started = True
                     await self.push_frame(TextFrame(evt.text))
+
                 elif isinstance(evt, AgentTextEndEvent):
                     if self._response_started:
                         await self.push_frame(
                             LLMFullResponseEndFrame(),
                         )
                         self._response_started = False
+
+                # ── v2 verbs ──────────────────────────────
+                elif isinstance(evt, AgentSayVerb):
+                    await self._handle_agent_say(evt)
+
+                elif isinstance(evt, AgentEndCallVerb):
+                    await self._handle_agent_end_call(evt)
+
+                elif isinstance(
+                    evt,
+                    (
+                        AgentTransferVerb,
+                        AgentDispatchVerb,
+                        AgentAddParticipantVerb,
+                        AgentRemoveParticipantVerb,
+                        AgentMergeVerb,
+                    ),
+                ):
+                    # TODO(phase-5): wire to orchestrator REST API
+                    logger.info(
+                        "verb %s received; ack only (not wired)",
+                        evt.event,
+                    )
+
+                else:
+                    logger.warning(
+                        "unrecognized bridge event: %s",
+                        getattr(evt, "event", type(evt).__name__),
+                    )
         except asyncio.CancelledError:
             return
+
+    # ── verb handlers ─────────────────────────────────────
+
+    async def _handle_agent_say(self, verb: AgentSayVerb) -> None:
+        """Push verbatim text through the TTS pipeline."""
+        await self.push_frame(LLMFullResponseStartFrame())
+        await self.push_frame(TextFrame(verb.text))
+        await self.push_frame(LLMFullResponseEndFrame())
+
+    async def _handle_agent_end_call(
+        self, verb: AgentEndCallVerb
+    ) -> None:
+        """Signal the pipeline to terminate."""
+        self._end_call_requested = True
+        logger.info(
+            "agent.end_call received (reason=%s); pushing EndFrame",
+            verb.reason,
+        )
+        await self.push_frame(EndFrame())
 
     async def process_frame(
         self,
