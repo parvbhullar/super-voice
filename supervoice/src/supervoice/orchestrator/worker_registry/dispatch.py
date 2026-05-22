@@ -104,8 +104,10 @@ class WorkerDispatcher:
         tried: set[str] = set()
         job_id = f"j-{uuid.uuid4().hex[:12]}"
         while True:
-            worker = await self._registry.pick(voice_profile_id, pool=pool)
-            if worker is None or worker.worker_id in tried:
+            worker = await self._registry.pick(
+                voice_profile_id, pool=pool, exclude=tried
+            )
+            if worker is None:
                 return DispatchResult(
                     accepted=False,
                     job_id=job_id,

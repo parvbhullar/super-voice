@@ -81,10 +81,17 @@ class WorkerRegistry:
                 w.last_heartbeat = time.monotonic()
 
     async def pick(
-        self, voice_profile_id: str, pool: str = "default"
+        self,
+        voice_profile_id: str,
+        pool: str = "default",
+        *,
+        exclude: set[str] | None = None,
     ) -> RegisteredWorker | None:
         """Return the least-loaded worker in ``pool`` that supports
         ``voice_profile_id`` and has capacity.
+
+        Workers whose ``worker_id`` is in *exclude* are skipped (used by
+        the dispatcher to avoid re-picking a worker that already rejected).
 
         Returns ``None`` if no candidate matches. Sweeps stale workers as
         a side-effect.
@@ -97,6 +104,7 @@ class WorkerRegistry:
                 if w.pool == pool
                 and voice_profile_id in w.capabilities.voice_profiles
                 and w.has_capacity
+                and (exclude is None or w.worker_id not in exclude)
             ]
             if not candidates:
                 return None
