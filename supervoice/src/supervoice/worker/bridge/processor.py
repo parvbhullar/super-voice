@@ -29,6 +29,8 @@ from pipecat.processors.frame_processor import (
     FrameProcessor,
 )
 
+from supervoice.shared.observability.metrics import CallMetrics
+
 from .client import AgentBridgeClient
 from .protocol import (
     AgentTextDeltaEvent,
@@ -36,6 +38,7 @@ from .protocol import (
     ErrorEvent,
     HelloAckEvent,
     HelloEvent,
+    MetricEvent,
     UserInterruptEvent,
     UserTextEvent,
 )
@@ -63,12 +66,17 @@ class AgentBridgeProcessor(FrameProcessor):
         self,
         echo_mode: bool = False,
         client: AgentBridgeClient | None = None,
+        metric_interval_s: float = 10.0,
+        call_metrics: CallMetrics | None = None,
     ) -> None:
         super().__init__()
         self._echo_mode = echo_mode
         self._client = client
         self._turn_id = 0
         self._consumer_task: asyncio.Task[None] | None = None
+        self._metric_task: asyncio.Task[None] | None = None
+        self._metric_interval_s = metric_interval_s
+        self._call_metrics = call_metrics
         self._response_started = False
 
     def attach_client(self, client: AgentBridgeClient) -> None:
@@ -106,7 +114,7 @@ class AgentBridgeProcessor(FrameProcessor):
             logger.debug(f"error event send skipped: {e}")
 
     async def start(self) -> None:
-        """Start the bridge-consumer task in WSS mode."""
+        """Start the bridge-consumer and metric-emission tasks."""
         if not self._echo_mode and self._client is None:
             raise RuntimeError(
                 "AgentBridgeProcessor in WSS mode requires a "
@@ -117,15 +125,56 @@ class AgentBridgeProcessor(FrameProcessor):
             self._consumer_task = asyncio.create_task(
                 self._consume_bridge(),
             )
+            self._metric_task = asyncio.create_task(
+                self._emit_metrics_loop(),
+            )
 
     async def stop(self) -> None:
-        """Cancel and await the bridge-consumer task."""
-        if self._consumer_task is not None:
-            self._consumer_task.cancel()
-            try:
-                await self._consumer_task
-            except asyncio.CancelledError:
-                pass
+        """Cancel and await the bridge-consumer and metric tasks."""
+        for task in (self._consumer_task, self._metric_task):
+            if task is not None:
+                task.cancel()
+                try:
+                    await task
+                except asyncio.CancelledError:
+                    pass
+        self._consumer_task = None
+        self._metric_task = None
+
+    # ── periodic metric emission ──────────────────────────
+
+    async def _emit_metrics_loop(self) -> None:
+        """Emit MetricEvent snapshots at a configurable interval."""
+        try:
+            while True:
+                await asyncio.sleep(self._metric_interval_s)
+                await self._emit_metric()
+        except asyncio.CancelledError:
+            return
+
+    async def _emit_metric(self) -> None:
+        """Push a single MetricEvent upstream if negotiated."""
+        if self._client is None:
+            return
+        if "metric" not in self._client.negotiated_events:
+            return
+        ctx = self._client._context
+        call_id = ctx.session_id if ctx else ""
+        snap = (
+            self._call_metrics.snapshot()
+            if self._call_metrics
+            else {}
+        )
+        evt = MetricEvent(
+            call_id=call_id,
+            ttfa_ms=snap.get("ttfa_ms"),
+            asr_p95_ms=snap.get("asr_final_ms"),
+            turns=self._turn_id,
+        )
+        try:
+            await self._client.send(evt)
+        except RuntimeError as e:
+            logger.debug(f"metric event send skipped: {e}")
 
     async def _consume_bridge(self) -> None:
         assert self._client is not None
