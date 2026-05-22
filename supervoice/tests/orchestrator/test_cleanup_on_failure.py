@@ -37,9 +37,7 @@ from supervoice.orchestrator.room.engine import RoomHandle, RoomOpts
 from supervoice.orchestrator.room.in_process_engine import InProcessRoomEngine
 from supervoice.orchestrator.session.registry import SessionRegistry
 from supervoice.orchestrator.session.state import Session
-from supervoice.shared.dispatch_protocol import WorkerCapabilities
 from supervoice.shared.voice_profile.catalog import VoiceProfileCatalog
-from supervoice.worker.agent_adapter import JobContext
 from supervoice.worker.job_runner import JobRunner
 
 
@@ -123,7 +121,7 @@ def test_engine_destroy_failure_still_ends_session() -> None:
     engine = InProcessRoomEngine()
 
     # Patch destroy_room to explode.
-    original_destroy = engine.destroy_room
+    _original_destroy = engine.destroy_room  # noqa: F841
 
     async def _exploding_destroy(
         room: RoomHandle, *, graceful: bool = True
