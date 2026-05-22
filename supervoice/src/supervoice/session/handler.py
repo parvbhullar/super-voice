@@ -129,6 +129,7 @@ async def run_call_with_profile(
     client = AgentBridgeClient(url=agent_bridge_url)
     bridge: Any = None
     monitor_task: asyncio.Task[None] | None = None
+    runner_task: asyncio.Task[None] | None = None
 
     try:
         await client.connect()
@@ -155,6 +156,19 @@ async def run_call_with_profile(
 
         await bridge.start()
 
+        task = PipelineTask(pipeline)
+        runner = runner_factory()
+        logger.info(
+            f"starting profile call session_id={session_id} profile={profile_id}"
+        )
+        runner_task = asyncio.create_task(runner.run(task))
+
+        def on_idle_disconnect() -> None:
+            logger.info(f"idle disconnect session_id={session_id}")
+            state.shutdown = True
+            if runner_task is not None:
+                runner_task.cancel()
+
         # Idle monitor: shutdown the runner if user goes silent too long.
         state.mark_idle()
         monitor_task = asyncio.create_task(
@@ -165,19 +179,16 @@ async def run_call_with_profile(
                 on_warning=lambda lvl: logger.warning(
                     f"idle warning level {lvl} session_id={session_id}"
                 ),
-                on_disconnect=lambda: logger.info(
-                    f"idle disconnect session_id={session_id}"
-                ),
+                on_disconnect=on_idle_disconnect,
                 poll_interval_s=1.0,
             ).run()
         )
 
-        task = PipelineTask(pipeline)
-        runner = runner_factory()
-        logger.info(
-            f"starting profile call session_id={session_id} profile={profile_id}"
-        )
-        await runner.run(task)
+        try:
+            await runner_task
+        except asyncio.CancelledError:
+            # Idle disconnect cancelled the runner — clean shutdown.
+            logger.info(f"runner cancelled by idle disconnect session_id={session_id}")
     finally:
         if monitor_task is not None:
             monitor_task.cancel()

@@ -15,27 +15,27 @@ profiles:
       - {provider: deepgram, language: hi}
       - {provider: cartesia, language: hi}
     tts_preference:
-      - {provider: cartesia, voice_id: sonic-hindi-female}
-      - {provider: elevenlabs, voice_id: hi-female-rachel}
+      - {provider: cartesia, voice_id: REPLACE_ME_cartesia_hi_warm}
+      - {provider: elevenlabs, voice_id: REPLACE_ME_elevenlabs_hi_warm}
   - id: hi-male
     language: hi
     persona: deep
     stt_preference:
       - {provider: deepgram, language: hi}
     tts_preference:
-      - {provider: cartesia, voice_id: sonic-hindi-male}
+      - {provider: cartesia, voice_id: REPLACE_ME_cartesia_hi_deep}
   - id: en-female
     language: en
     persona: warm
     stt_preference:
       - {provider: deepgram, language: en}
     tts_preference:
-      - {provider: cartesia, voice_id: sonic-english-female}
-      - {provider: elevenlabs, voice_id: rachel}
+      - {provider: cartesia, voice_id: REPLACE_ME_cartesia_en_warm}
+      - {provider: elevenlabs, voice_id: REPLACE_ME_elevenlabs_en_warm}
   - id: en-male
     language: en
     persona: deep
     stt_preference:
       - {provider: deepgram, language: en}
     tts_preference:
-      - {provider: cartesia, voice_id: sonic-english-male}
+      - {provider: cartesia, voice_id: REPLACE_ME_cartesia_en_deep}

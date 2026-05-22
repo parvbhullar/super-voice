@@ -19,6 +19,8 @@ uv sync
 cp .env.example .env  # fill in keys
 ```
 
+Optional `CALL_BEARER_TOKEN` env var — when set, `/call` requires it via `Authorization: Bearer <token>` header or `?token=<token>` query.
+
 ## Run
 
 ```bash
@@ -46,7 +48,7 @@ Profiles are defined in `src/supervoice/voice_profile/profiles.yaml`. V1 ships f
 
 Select per-call via WebSocket query: `ws://host:8080/call?profile=hi-female`.
 
-> ⚠ **Warning:** The `voice_id` values in `profiles.yaml` are placeholders. Replace them with real Cartesia / ElevenLabs voice IDs before production deployment.
+> ⚠ **Warning:** The `voice_id` values in `profiles.yaml` ship as `REPLACE_ME_*` placeholders. Replace them with real Cartesia / ElevenLabs voice IDs before production deployment. Operators can call `VoiceProfileCatalog.load_default().validate_no_placeholders()` in their deployment script to fail loudly if any placeholders remain.
 
 ## Bridge wire protocol
 

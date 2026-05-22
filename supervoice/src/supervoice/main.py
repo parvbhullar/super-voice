@@ -61,6 +61,20 @@ async def call_endpoint(ws: WebSocket, profile: str = "en-female") -> None:
     settings: Settings = app.state.settings
     await ws.accept()
 
+    configured = settings.call_bearer_token
+    if configured is not None:
+        # Prefer Authorization header; fall back to query param.
+        auth_header = ws.headers.get("authorization", "")
+        provided: str | None = None
+        if auth_header.lower().startswith("bearer "):
+            provided = auth_header[7:].strip()
+        if provided is None:
+            provided = ws.query_params.get("token")
+        if provided != configured.get_secret_value():
+            logger.warning("call rejected: invalid bearer token")
+            await ws.close(code=1008)
+            return
+
     connection = SmallWebRTCConnection()
 
     # v1 only does single-shot SDP offer/answer over the WS. Trickle ICE

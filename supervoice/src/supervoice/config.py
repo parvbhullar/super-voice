@@ -25,3 +25,5 @@ class Settings(BaseSettings):
 
     idle_warning_timeout_s: int = 30
     idle_disconnect_timeout_s: int = 60
+
+    call_bearer_token: SecretStr | None = None
