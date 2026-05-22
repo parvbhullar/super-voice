@@ -6,9 +6,7 @@ def test_protocol_is_runtime_checkable():
         async def is_speech(self, frame_pcm: bytes) -> bool:
             return True
 
-        async def is_turn_end(
-            self, transcript_so_far: str, silence_ms: int
-        ) -> bool:
+        async def is_turn_end(self, transcript_so_far: str, silence_ms: int) -> bool:
             return False
 
     d = StubDetector()

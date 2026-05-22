@@ -17,4 +17,4 @@ def test_health_endpoint(monkeypatch) -> None:
         response = client.get("/health")
         assert response.status_code == 200
         assert response.json() == {"status": "ok"}
-        assert client.app.state.settings is not None
+        assert client.app.state.settings is not None  # pyrefly: ignore[missing-attribute]

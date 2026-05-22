@@ -18,9 +18,7 @@ from supervoice.speech.tts_factory import TTSProviderConfig, create_tts
 class TTSSanitizeFilter(FrameProcessor):
     """Strip markdown/URLs from TextFrames before they hit TTS."""
 
-    async def process_frame(
-        self, frame: Frame, direction: FrameDirection
-    ) -> None:
+    async def process_frame(self, frame: Frame, direction: FrameDirection) -> None:
         await super().process_frame(frame, direction)
         # NOTE: TranscriptionFrame inherits from TextFrame — use exact-type
         # check so we only sanitize agent text, not user transcripts.

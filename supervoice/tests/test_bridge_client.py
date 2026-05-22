@@ -28,7 +28,7 @@ async def test_client_send_user_text_and_receive_agent_text():
             await ws.send(json.dumps(evt))
 
     server = await websockets.serve(handler, "127.0.0.1", 0)
-    port = server.sockets[0].getsockname()[1]
+    port = server.sockets[0].getsockname()[1]  # pyrefly: ignore[bad-index]
 
     client = AgentBridgeClient(url=f"ws://127.0.0.1:{port}")
     await client.connect()
@@ -64,7 +64,7 @@ async def test_events_iterator_terminates_on_server_close():
         await ws.close()  # immediate close
 
     server = await websockets.serve(handler, "127.0.0.1", 0)
-    port = server.sockets[0].getsockname()[1]
+    port = server.sockets[0].getsockname()[1]  # pyrefly: ignore[bad-index]
     client = AgentBridgeClient(
         url=f"ws://127.0.0.1:{port}",
         reconnect_max_attempts=0,

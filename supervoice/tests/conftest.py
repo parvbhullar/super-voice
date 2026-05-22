@@ -1,7 +1,8 @@
 """Shared pytest fixtures for supervoice tests."""
+
 import pytest_asyncio
 
-from fixtures.mock_bridge import start_mock_bridge
+from fixtures.mock_bridge import start_mock_bridge  # pyrefly: ignore[missing-import]
 
 
 @pytest_asyncio.fixture

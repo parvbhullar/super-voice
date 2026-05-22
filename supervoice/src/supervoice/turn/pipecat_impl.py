@@ -37,9 +37,7 @@ class PipecatTurnDetector:
             "Pipecat v1 drives VAD inside transport; use .vad directly."
         )
 
-    async def is_turn_end(
-        self, transcript_so_far: str, silence_ms: int
-    ) -> bool:
+    async def is_turn_end(self, transcript_so_far: str, silence_ms: int) -> bool:
         """Stub — Pipecat transport drives EOU internally in v1."""
         raise NotImplementedError(
             "Pipecat v1 drives EOU inside transport; use .turn directly."

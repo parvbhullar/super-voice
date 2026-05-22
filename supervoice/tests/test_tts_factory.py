@@ -23,9 +23,7 @@ def test_create_elevenlabs_tts():
 
 
 def test_unknown_tts_provider_raises():
-    cfg = TTSProviderConfig(
-        provider="acme", api_key=SecretStr("x"), voice_id="v"
-    )
+    cfg = TTSProviderConfig(provider="acme", api_key=SecretStr("x"), voice_id="v")
     try:
         create_tts(cfg)
     except ValueError:

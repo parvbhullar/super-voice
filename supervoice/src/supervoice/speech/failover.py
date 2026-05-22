@@ -21,9 +21,7 @@ def resolve_stt_with_fallback(
     for spec in profile.stt_preference:
         key = api_keys.get(spec.provider)
         if key is None:
-            logger.info(
-                f"stt provider not configured, trying next: {spec.provider}"
-            )
+            logger.info(f"stt provider not configured, trying next: {spec.provider}")
             continue
         try:
             return create_stt(
@@ -48,9 +46,7 @@ def resolve_tts_with_fallback(
     for spec in profile.tts_preference:
         key = api_keys.get(spec.provider)
         if key is None:
-            logger.info(
-                f"tts provider not configured, trying next: {spec.provider}"
-            )
+            logger.info(f"tts provider not configured, trying next: {spec.provider}")
             continue
         try:
             return create_tts(

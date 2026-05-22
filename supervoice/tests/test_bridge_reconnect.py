@@ -24,7 +24,7 @@ async def test_client_reconnects_after_server_drop():
         received_on_second.append(msg)
 
     server = await websockets.serve(handler, "127.0.0.1", 0)
-    port = server.sockets[0].getsockname()[1]
+    port = server.sockets[0].getsockname()[1]  # pyrefly: ignore[bad-index]
 
     client = AgentBridgeClient(
         url=f"ws://127.0.0.1:{port}",

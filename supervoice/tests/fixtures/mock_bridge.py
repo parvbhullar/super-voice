@@ -2,6 +2,7 @@
 
 Used by E2E tests in place of a real LLM-backed Agent Bridge.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -32,9 +33,7 @@ async def mock_bridge_handler(ws):
                 )
             )
             await asyncio.sleep(0.01)
-        await ws.send(
-            json.dumps({"event": "agent.text.end", "turn_id": turn_id})
-        )
+        await ws.send(json.dumps({"event": "agent.text.end", "turn_id": turn_id}))
 
 
 async def start_mock_bridge(host: str = "127.0.0.1", port: int = 0):
@@ -43,5 +42,5 @@ async def start_mock_bridge(host: str = "127.0.0.1", port: int = 0):
     Returns (server, url) — caller is responsible for closing the server.
     """
     server = await websockets.serve(mock_bridge_handler, host, port)
-    bound_port = server.sockets[0].getsockname()[1]
+    bound_port = server.sockets[0].getsockname()[1]  # pyrefly: ignore[bad-index]
     return server, f"ws://{host}:{bound_port}"

@@ -42,10 +42,7 @@ class IdleMonitor:
                 await asyncio.sleep(self._poll)
                 continue
             elapsed = time.time() - self._state.idle_since
-            if (
-                elapsed >= self._warn_at
-                and self._state.idle_warning_count == 0
-            ):
+            if elapsed >= self._warn_at and self._state.idle_warning_count == 0:
                 self._state.idle_warning_count = 1
                 self._on_warning(1)
             if elapsed >= self._disconnect_at:

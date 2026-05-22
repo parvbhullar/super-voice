@@ -99,9 +99,7 @@ class AgentBridgeProcessor(FrameProcessor):
         except asyncio.CancelledError:
             return
 
-    async def process_frame(
-        self, frame: Frame, direction: FrameDirection
-    ) -> None:
+    async def process_frame(self, frame: Frame, direction: FrameDirection) -> None:
         await super().process_frame(frame, direction)
 
         if isinstance(frame, TranscriptionFrame):
@@ -114,23 +112,16 @@ class AgentBridgeProcessor(FrameProcessor):
             if self._client is not None:
                 self._turn_id += 1
                 await self._client.send(
-                    UserTextEvent(
-                        turn_id=self._turn_id, text=frame.text, final=True
-                    )
+                    UserTextEvent(turn_id=self._turn_id, text=frame.text, final=True)
                 )
                 return
             # No client attached and not echo: pass through (pre-Task-15 behavior).
             await self.push_frame(frame, direction)
             return
 
-        if (
-            isinstance(frame, InterruptionFrame)
-            and self._client is not None
-        ):
+        if isinstance(frame, InterruptionFrame) and self._client is not None:
             try:
-                await self._client.send(
-                    UserInterruptEvent(turn_id=self._turn_id)
-                )
+                await self._client.send(UserInterruptEvent(turn_id=self._turn_id))
             except RuntimeError as e:
                 # Client closed; nothing to do here.
                 logger.debug(f"interrupt send skipped: {e}")

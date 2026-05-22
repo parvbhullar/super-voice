@@ -19,9 +19,7 @@ def test_create_cartesia():
 
 
 def test_unknown_provider_raises():
-    cfg = STTProviderConfig(
-        provider="acme", api_key=SecretStr("x"), language="en"
-    )
+    cfg = STTProviderConfig(provider="acme", api_key=SecretStr("x"), language="en")
     try:
         create_stt(cfg)
     except ValueError as e:

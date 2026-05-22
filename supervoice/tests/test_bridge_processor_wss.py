@@ -29,7 +29,7 @@ async def test_bridge_processor_streams_agent_text_downstream():
             await ws.send(evt.model_dump_json())
 
     server = await websockets.serve(handler, "127.0.0.1", 0)
-    port = server.sockets[0].getsockname()[1]
+    port = server.sockets[0].getsockname()[1]  # pyrefly: ignore[bad-index]
 
     client = AgentBridgeClient(
         url=f"ws://127.0.0.1:{port}",

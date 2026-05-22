@@ -1,4 +1,5 @@
 """Smoke test for the mock Agent Bridge fixture."""
+
 import json
 
 import pytest

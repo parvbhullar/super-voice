@@ -35,9 +35,7 @@ class TurnDetector(Protocol):
         """
         ...
 
-    async def is_turn_end(
-        self, transcript_so_far: str, silence_ms: int
-    ) -> bool:
+    async def is_turn_end(self, transcript_so_far: str, silence_ms: int) -> bool:
         """Decide whether the user has finished their turn.
 
         Uses any audio context the implementation has accumulated via prior

@@ -50,9 +50,7 @@ async def run_echo_call(
             Injected so tests can substitute a mock.
     """
     state = SessionState(session_id=session_id)
-    config = PipelineConfig(
-        stt=stt, tts=tts, transport=transport, echo_mode=True
-    )
+    config = PipelineConfig(stt=stt, tts=tts, transport=transport, echo_mode=True)
     pipeline, _bridge = build_pipeline(config)
 
     task = PipelineTask(pipeline, params=PipelineParams())
@@ -81,9 +79,7 @@ async def run_bridge_call(
     try:
         await client.connect()
 
-        config = PipelineConfig(
-            stt=stt, tts=tts, transport=transport, echo_mode=False
-        )
+        config = PipelineConfig(stt=stt, tts=tts, transport=transport, echo_mode=False)
         pipeline, bridge = build_pipeline(config)
         # The pipeline builder creates a fresh bridge processor in echo or
         # WSS mode. For WSS mode (echo_mode=False), the bridge has no client
@@ -125,9 +121,7 @@ async def run_call_with_profile(
     """
     catalog = VoiceProfileCatalog.load_default()
     profile = catalog.get(profile_id)  # raises KeyError if unknown
-    state = SessionState(
-        session_id=session_id, voice_profile_id=profile_id
-    )
+    state = SessionState(session_id=session_id, voice_profile_id=profile_id)
 
     stt_service = resolve_stt_with_fallback(profile, api_keys)
     tts_service = resolve_tts_with_fallback(profile, api_keys)
@@ -181,8 +175,7 @@ async def run_call_with_profile(
         task = PipelineTask(pipeline)
         runner = runner_factory()
         logger.info(
-            f"starting profile call session_id={session_id} "
-            f"profile={profile_id}"
+            f"starting profile call session_id={session_id} profile={profile_id}"
         )
         await runner.run(task)
     finally:
