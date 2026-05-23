@@ -97,8 +97,8 @@ WebSocketRunner(
 # ── Step 6: bind everything into an agent (one-time, can also be in portal)
 agent = client.agents.create(
     name="kerali-kyc-bot",
-    voice_profile=vp.id,
-    number=num.id,
+    voice_profile="hindi-female-warm-hd",  # profile key from catalog, not an opaque ID
+    number=num.number,                     # the actual phone number string
     runner_agent_id="kerali-kyc-bot",      # matches WebSocketRunner(agent_id=...)
     first_speaker="agent",
 )

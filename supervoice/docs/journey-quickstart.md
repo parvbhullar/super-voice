@@ -195,17 +195,17 @@ An **agent** is the binding object: name + voice profile + number + endpoint (or
 # Runner mode (matches the runner you started in step 5)
 agent = client.agents.create(
     name="kerali-kyc-bot",
-    voice_profile=vp.id,
-    number=num.id,
-    runner_agent_id="kerali-kyc-bot",    # links to WebSocketRunner(agent_id=...)
+    voice_profile="hindi-female-warm-hd",   # profile key, not opaque ID
+    number=num.number,                      # actual phone number string
+    runner_agent_id="kerali-kyc-bot",       # links to WebSocketRunner(agent_id=...)
     first_speaker="agent",
 )
 
 # OR endpoint mode (no runner needed)
 agent = client.agents.create(
     name="kerali-kyc-bot",
-    voice_profile=vp.id,
-    number=num.id,
+    voice_profile="hindi-female-warm-hd",
+    number=num.number,
     agent_endpoint="wss://kerali.io/agents/kyc",
     first_speaker="agent",
 )

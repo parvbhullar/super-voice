@@ -189,10 +189,10 @@ The binding object. **An agent = dialog machine + voice profile + (optional) num
 agent = client.agents.create(
     name="kerali-kyc-bot",
     dialog_machine_endpoint="wss://kerali.io/agents/kyc",  # runner URL
-    voice_profile=vp.id,            # required
-    number=num.id,                  # optional — inbound binding
-    tools=[...],                    # optional — platform-side tools (MCP URLs)
-    first_speaker="agent",          # or "user"
+    voice_profile="hindi-female-warm-hd",   # profile key from catalog, not an opaque ID
+    number="+91XXXXXXXXXX",                 # the actual phone number, not num.id
+    tools=[...],                            # optional — platform-side tools (MCP URLs)
+    first_speaker="agent",                  # or "user"
     fillers={"enabled": True, "threshold_ms": 800},
 )
 
@@ -224,7 +224,7 @@ client.calls.list(
     to_date="2026-05-19",
     agent=agent.id,
     user_number="+91...",
-    agent_number=num.id,
+    agent_number="+91XXXXXXXXXX",  # the actual number
     status="completed",
 )
 
@@ -328,8 +328,8 @@ num = client.numbers.purchase(country="IN")
 agent = client.agents.create(
     name="appointment-bot",
     dialog_machine_endpoint=endpoint,
-    voice_profile=vp.id,
-    number=num.id,
+    voice_profile=vp.key,              # e.g. "hindi-female-warm-hd"
+    number=num.number,                 # e.g. "+91XXXXXXXXXX"
 )
 
 # 4. Trigger
