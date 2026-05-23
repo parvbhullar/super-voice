@@ -2,6 +2,8 @@
 
 Reference page for every named concept in the Unpod platform. Each entry: one paragraph definition, where it lives, who owns it, and which docs go deeper.
 
+> **V2 implementation note (2026-05-23):** Several concepts below describe the *platform vision*. The supervoice V2 codebase implements a subset with some vocabulary refinements. Implementation-specific notes are marked with a **[V2]** tag. Where the code diverges from the PRD, the code is the source of truth for what actually runs; the PRD remains the design target.
+
 ---
 
 ## Identity
@@ -13,6 +15,8 @@ The binding configuration object stored in the Control Plane. One Identity = one
 **Lives in:** Control Plane.
 **Resolved at:** Routing time, when a call lands on a number or channel.
 **Deep ref:** [01-architecture.md §5](../01-architecture.md).
+
+> **[V2]** supervoice does not use "Identity" as a first-class object. Instead, the orchestrator maintains a `NumberMappingCache` keyed by `(tenant_id, phone_number) → AgentConfig {voice_profile_id, runner_url, agent_secret, metadata}` — synced from unpod's control plane. The Identity concept lives in unpod; supervoice resolves numbers to agent configs at dispatch time.
 
 ---
 
@@ -48,6 +52,8 @@ A member of a Room. Heterogeneous — can be any of:
 | `agent` | Developer's `AgentRunner` replica (Session leg) |
 
 **Why heterogeneous:** because the same Room may need to host a phone caller (SIP) plus an agent (text/AI), plus optionally a supervisor (SIP) and a WhatsApp channel that proxies messages into the same conversation.
+
+> **[V2]** In the supervoice codebase, `ParticipantType = Literal["sip", "webrtc", "livekit"]` — agents are NOT participants. Agents are **dispatched** via the worker dispatch protocol and connect to the room via a text bridge (WSS), not as a media-leg participant. The `/v1/rooms/{id}/participants` API handles media legs; `/v1/rooms/{id}/dispatch` handles agents. This split reflects the fundamentally different lifecycle: a SIP leg is a media attachment; an agent is a process with a runner, a bridge WSS, and dispatch state.
 
 ---
 
@@ -202,5 +208,92 @@ An Identity references an `agent_id`. The AgentRunner registers under that `agen
             │      │                                       │
             │      ▼                                       │
             │   Participants (SIP/WebRTC/text/Agent)       │
+            └──────────────────────────────────────────────┘
+```
+
+---
+
+## V2 implementation concepts (not in original PRD)
+
+The following concepts are introduced by the supervoice V2 codebase but were not part of the original platform PRD. They live entirely inside supervoice.
+
+### Session (supervoice-internal, distinct from SDK Session)
+
+The orchestrator's primary key for one orchestration unit. One Session owns one Room, a set of participants, one worker Job, and one bridge WSS to the dev's runner. **Not the same** as the SDK's `Session` (which is the dev-facing object inside `CallContext`).
+
+**State machine:** `incoming → ringing → connected → ended` (plus `rejected`, `timed_out`, `failed` as terminal states).
+
+**Lives in:** `orchestrator/session/state.py` (`Session` dataclass) + `orchestrator/session/registry.py` (`SessionRegistry` with tenant-scoped storage + reconnect TTL).
+
+### Job
+
+One dispatched assignment from orchestrator to a speech worker. One Job per Session. Created by a `Dispatch` frame, completed by a `JobCompleted` frame.
+
+**Lives in:** `shared/dispatch_protocol.py` (`Dispatch`, `JobCompleted` frames) + `worker/job_runner.py` (`JobRunner` manages active jobs).
+
+### Worker
+
+A long-lived process that registers with the orchestrator via WSS, advertises capabilities (voice profiles, max concurrency), accepts dispatched Jobs, and runs PipeCat pipelines. Multiple workers form a pool; the orchestrator picks the least-loaded worker matching the requested voice profile.
+
+**Lives in:** `worker/main.py` (entrypoint) + `worker/registration.py` (WSS registration + heartbeat) + `orchestrator/worker_registry/registry.py` (`WorkerRegistry`).
+
+### Dispatch Protocol
+
+The internal WSS wire format between orchestrator and workers. JSON frames: `Register`, `Registered`, `Heartbeat`, `Dispatch`, `DispatchAck`, `StateChanged`, `JobCompleted`. Mirrors LiveKit Agent Dispatch shape.
+
+**Lives in:** `shared/dispatch_protocol.py` (frame types + `parse_frame()` discriminator).
+
+### AgentAdapter
+
+Inside a worker, wraps one PipeCat pipeline + one bridge WSS client for one Job. Owns: voice profile resolution → STT/TTS, pipeline lifecycle, bridge handshake (HMAC), `call.started`/`call.ended` events.
+
+**Lives in:** `worker/agent_adapter.py`.
+
+### RoomEngine
+
+The swappable audio-bus abstraction. Protocol with 7 methods (`create_room`, `destroy_room`, `add_media_participant`, `remove_participant`, `mute_participant`, `move_participants`, `get_room`). Two implementations: `livekit_engine` (production) and `in_process_engine` (dev/test, 1:1 rooms only).
+
+**Lives in:** `orchestrator/room/engine.py` (Protocol) + `orchestrator/room/livekit_engine.py` + `orchestrator/room/in_process_engine.py`.
+
+### Bridge Protocol v2
+
+The per-session WSS wire format between a speech worker and the dev's runner (superdialog). HMAC-signed connections, version handshake (`hello`/`hello.ack`), 7 events upstream, 9 verbs downstream. V1 runners continue to work in degraded mode.
+
+**Lives in:** `worker/bridge/protocol.py` + `worker/bridge/client.py` + `worker/bridge/processor.py`.
+
+### V2 mental map
+
+```
+            ┌──────────────────────────────────────────────┐
+            │   Concepts visible to developer              │
+            │   (unchanged from PRD)                       │
+            │                                              │
+            │   AgentRunner ─▶ CallContext ─▶ Session ─▶   │
+            │                                  │           │
+            │                                  ▼           │
+            │                         SuperDialog          │
+            └──────────────────────────────────────────────┘
+                              ▲ bridge protocol v2 (WSS, HMAC)
+                              │
+            ┌──────────────────────────────────────────────┐
+            │   V2 concepts inside supervoice              │
+            │                                              │
+            │   POST /v1/dispatch                          │
+            │      │                                       │
+            │      ▼                                       │
+            │   Session (state machine)                    │
+            │      │                                       │
+            │      ├── Room (RoomEngine: LK / in-process)  │
+            │      │     ├── SIP participant               │
+            │      │     ├── WebRTC participant             │
+            │      │     └── LiveKit participant            │
+            │      │                                       │
+            │      └── Job (dispatched to Worker)          │
+            │            └── AgentAdapter                  │
+            │                  ├── PipeCat pipeline         │
+            │                  └── Bridge WSS to runner     │
+            │                                              │
+            │   Worker Registry ◀── Workers (pool)         │
+            │   Number Mapping Cache ◀── unpod sync        │
             └──────────────────────────────────────────────┘
 ```

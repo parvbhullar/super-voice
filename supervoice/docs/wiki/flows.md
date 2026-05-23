@@ -275,3 +275,226 @@ Every flow above reuses the same primitives:
 - **WSS text channel** as the boundary
 
 If a future flow does not fit on these four primitives, that is a signal we are about to fork the architecture and should reconsider before shipping.
+
+---
+
+## V2 implementation flows (not in original PRD)
+
+The flows above describe the platform vision. Below are the V2-specific flows that map to actual code paths in supervoice. Where the PRD flow says "infra picks a free AgentRunner replica," the V2 code does it via a concrete dispatch protocol.
+
+### 11. V2 inbound voice call (actual code path)
+
+```
+Caller dials +91-XXX
+       │
+       ▼
+[1] Telephony / SIP trunk → FreeSWITCH answers
+       │
+       ▼
+[2] Telephony POST /v1/dispatch to supervoice
+       { direction: "inbound", from_number, to_number,
+         sdp_offer, external_call_id, callback_url }
+       │
+       ▼
+[3] Orchestrator:
+       a. Auth → tenant_id
+       b. NumberMappingCache lookup: to_number → {voice_profile_id,
+          runner_url, agent_secret}
+       c. Create Session (state=incoming)
+       d. RoomEngine.create_room (LiveKit or in-process)
+       e. RoomEngine.add_media_participant(type=sip, sdp_offer)
+          → sdp_answer
+       f. WorkerDispatcher.dispatch(session_id, room, voice_profile_id,
+          runner_url, agent_secret, metadata)
+       g. Session.transition("ringing")
+       │
+       ▼
+[4] Worker (via dispatch protocol):
+       a. Receives Dispatch frame
+       b. JobRunner.accept → spawns AgentAdapter
+       c. AgentAdapter.attach:
+          - Resolves voice profile → STT/TTS via failover
+          - Builds PipeCat pipeline (VAD/EOU/STT → bridge → sanitize → TTS)
+          - Joins LiveKit room as participant
+          - Opens HMAC-signed bridge WSS to runner_url
+          - Sends hello.ack + call.started to runner
+       d. Sends StateChanged(connected) to orchestrator
+       │
+       ▼
+[5] Orchestrator:
+       - Session.transition("connected")
+       - Webhook POST to callback_url: {session_id, state:"connected"}
+       - Returns 201 to telephony: {session_id, sdp_answer, room, state_url}
+       │
+       ▼
+[6] Telephony forwards sdp_answer to carrier (200 OK)
+       Caller's audio flows to LiveKit room via SIP
+       │
+       ▼
+[7] Audio loop:
+       Caller speaks → PipeCat STT (in worker) → user.text event
+       → bridge WSS → runner → dialog_machine.turn(text)
+       → agent.text.delta chunks → bridge → PipeCat TTS
+       → LiveKit audio track → caller hears reply
+       │
+       ▼
+[8] On hangup:
+       SIP BYE → telephony → DELETE /v1/sessions/{id}
+       → Orchestrator marks draining → tells worker end_job
+       → Worker sends call.ended to runner, leaves room
+       → Orchestrator destroys room → Session.transition("ended")
+```
+
+**Code refs:** `orchestrator/api/dispatch.py`, `orchestrator/session/state.py`, `orchestrator/worker_registry/dispatch.py`, `worker/agent_adapter.py`, `worker/bridge/processor.py`
+
+---
+
+### 12. Worker registration + dispatch protocol
+
+```
+Worker starts up
+       │
+       ▼
+[1] Opens WSS to orchestrator at /v1/internal/workers
+       Presents shared_secret via Authorization header
+       │
+       ▼
+[2] Sends Register frame:
+       { type: "register", worker_id: "w-abc",
+         pool: "default",
+         capabilities: { voice_profiles: ["hi-female", "en-female"],
+                         max_concurrent: 50 }}
+       │
+       ▼
+[3] Orchestrator validates secret, adds to WorkerRegistry
+       Responds: { type: "registered", heartbeat_interval_s: 10 }
+       │
+       ▼
+[4] Heartbeat loop: every 10s, worker sends
+       { type: "heartbeat", active_jobs: N }
+       │
+       ▼
+[5] On incoming call:
+       Orchestrator picks least-loaded worker matching voice_profile
+       Sends: { type: "dispatch", job_id, session_id, room, voice_profile_id,
+                runner_url, agent_secret, metadata }
+       │
+       ▼
+[6] Worker checks capacity:
+       If slot available → { type: "dispatch.ack", status: "accepted" }
+       If full → { type: "dispatch.ack", status: "rejected", reason: "no_slot" }
+         (orchestrator tries next worker)
+       │
+       ▼
+[7] On job completion:
+       Worker sends: { type: "job.completed", job_id, duration_s, final_state }
+       Orchestrator updates session state, frees worker slot
+```
+
+**Code refs:** `shared/dispatch_protocol.py`, `orchestrator/worker_registry/registry.py`, `orchestrator/worker_registry/dispatch.py`, `worker/registration.py`, `worker/job_runner.py`
+
+---
+
+### 13. Bridge WSS handshake (v2)
+
+```
+Worker's AgentAdapter opens WSS to runner_url
+       │
+       ▼
+[1] Connection URL carries HMAC:
+       ws://runner:8080/agent?session_id=...&job_id=...
+         &nonce=<base64>&ts=<unix-ms>&signature=<hmac-sha256>
+       │
+       ▼
+[2] Runner verifies HMAC against agent_secret
+       If invalid → close with 401
+       │
+       ▼
+[3] Runner sends first frame:
+       { event: "hello", protocol_version: 2,
+         supported_events: [...], supported_verbs: [...] }
+       │
+       ▼
+[4] Worker responds:
+       { event: "hello.ack", protocol_version: 2,
+         negotiated_events: [...], negotiated_verbs: [...],
+         call_id, session_id, job_id, room_id }
+       │
+       ▼
+[5] Worker sends: { event: "call.started", voice_profile_id, metadata, language }
+       │
+       ▼
+[6] Text events flow bidirectionally:
+       user.text / user.interrupted (worker → runner)
+       agent.text.delta / agent.text.end / agent.say (runner → worker)
+       error / metric (worker → runner, periodic)
+```
+
+If runner sends `protocol_version: 1`, worker degrades to 4-event set (user.text, user.interrupted, agent.text.delta, agent.text.end).
+
+**Code refs:** `worker/bridge/protocol.py`, `worker/bridge/client.py`
+
+---
+
+### 14. V2 transfer (actual code path)
+
+```
+Runner sends agent.transfer verb over bridge WSS:
+       { event: "agent.transfer",
+         remove: { dispatch_id: "current-agent" },
+         add: { type: "sip", config: { to: "+91-helpdesk" }},
+         mode: "warm", warm_handoff_ms: 5000 }
+       │
+       ▼
+[1] Worker forwards to orchestrator:
+       POST /v1/sessions/{id}/transfer (internal)
+       │
+       ▼
+[2] Orchestrator:
+       a. engine.add_media_participant(room, "sip", {to: "+91-helpdesk"})
+       b. SIP dial; on answer, new participant joins room
+       c. If warm: signal worker to start warm window
+       │
+       ▼
+[3] Worker:
+       a. Sends agent.say("Connecting you now")
+       b. Waits warm_handoff_ms
+       c. Sends call.ended(reason:"transferred") to runner
+       d. Closes bridge, leaves room, frees job slot
+       │
+       ▼
+[4] Room now has: SIP caller + SIP helpdesk
+       They converse directly — no agent in the loop
+       Session stays "connected" until both hang up
+```
+
+Same `transfer` endpoint handles: human handoff (`add.type=sip`), agent swap (`add.type=agent`), channel rotation (`add.type=webrtc`).
+
+**Code refs:** `orchestrator/api/sessions.py`, `orchestrator/operations/transfer.py`
+
+---
+
+### 15. Dev-mode flow (no LiveKit, no telephony)
+
+```
+Terminal 1: dev's runner              Terminal 2: supervoice              Terminal 3: test driver
+─────────────────                     ─────────────────                   ─────────────────
+$ python my_runner.py                 $ ./scripts/dev.sh                  $ curl POST /v1/dispatch
+  serving on :9000                      (single-process,                    → { session_id: s-... }
+                                         in_process engine,
+                                         dev-mode enabled)                $ curl POST /v1/dev/inject-audio
+                                                                            -F session_id=s-...
+                                      ◄── worker registers ──►             -F file=@hello.wav
+                                      ◄── dispatch accepted ──►
+                                      ◄── HMAC bridge WSS ────►
+                                                                          Runner sees user.text fire
+                                                                          dialog_machine.turn() runs
+                                                                          agent.text.delta streams back
+                                                                          TTS runs end-to-end
+
+                                                                        $ curl POST /v1/sessions/s-.../end
+```
+
+**No LiveKit, no telephony, no SIP.** The in_process_engine substitutes for LiveKit; inject-audio substitutes for a real caller. Time to verified runner: ~5 minutes.
+
+**Code refs:** `orchestrator/main.py` (`create_single_process_app`), `orchestrator/api/dev.py`

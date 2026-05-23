@@ -174,3 +174,31 @@ Compared to the earlier single-platform decisions log:
 - **Open questions §6 #1, #2, #3, #13:** newly surfaced from 2026-05-19 discussion.
 
 If you implement off the older single-platform docs, you will be wrong on roughly 6 of the 17 resolved decisions above. Use this log as the source of truth.
+
+---
+
+## 8. V2 implementation decisions (2026-05-22 — 2026-05-23)
+
+Decisions made during V2 build that are not in the original PRD. These are **code-level architectural choices** inside supervoice.
+
+| # | Decision | Resolution | Where in code |
+|---|---|---|---|
+| 18 | **Session ≠ Call vocabulary** | Session is supervoice's primary key. Call is telephony/unpod's concept. `external_call_id` echoes telephony's UUID. Three services, three IDs, explicit cross-references. | `orchestrator/session/state.py`, `api/dispatch.py` |
+| 19 | **Agents are dispatches, not participants** | `ParticipantType = ["sip", "webrtc", "livekit"]`. Agents go through `/dispatch` with a separate lifecycle (runner + bridge WSS + job state). LiveKit recognized this with separate RoomService/AgentDispatch APIs; we mirror. | `orchestrator/room/engine.py:14`, `orchestrator/worker_registry/` |
+| 20 | **RoomEngine is swappable** | Protocol-based abstraction. LiveKit is the default; `in_process_bus` ships for dev/test. Engine selected via host config. FreeSWITCH or Daily.co can be added as new modules. | `orchestrator/room/engine.py` |
+| 21 | **Two-service split: Orchestrator + Speech Workers** | Orchestrator is stateful + I/O-bound (REST, WSS, DB). Workers are stateless per-job + CPU-bound (audio frames). Communicate via dispatch protocol. Scale independently. | `orchestrator/main.py`, `worker/main.py` |
+| 22 | **Worker dispatch protocol mirrors LiveKit Agent Dispatch** | JSON frames over long-lived WSS: Register/Registered/Heartbeat/Dispatch/DispatchAck/StateChanged/JobCompleted. One WSS per worker (not per call). | `shared/dispatch_protocol.py` |
+| 23 | **Bridge protocol v2 with HMAC** | Per-session WSS to runner. HMAC-signed connection (`?session_id&nonce&ts&signature`). Version handshake (hello/hello.ack). V1 runners degrade gracefully. | `worker/bridge/protocol.py`, `worker/bridge/client.py` |
+| 24 | **`POST /v1/dispatch` is the single entry point** | Telephony makes one REST call per inbound call. Room creation, worker dispatch, SDP handling — all internal to supervoice. | `orchestrator/api/dispatch.py` |
+| 25 | **Number → agent mapping is locally cached** | In-memory TTL cache synced from unpod (initial sync + webhook). Avoids cross-service latency at PSTN answer time. | `orchestrator/mapping/cache.py`, `orchestrator/mapping/sync.py` |
+| 26 | **Dev mode: `--single-process` + audio injection** | One process runs orchestrator + one worker via in-memory dispatch. `POST /v1/dev/inject-audio` feeds a wav file as a synthetic participant. No LiveKit, no telephony needed for local testing. | `orchestrator/main.py`, `orchestrator/api/dev.py` |
+| 27 | **`transfer` is one verb for three use cases** | `POST /v1/sessions/{id}/transfer` with `add: {type}` discriminates: human handoff (type=sip), agent swap (type=agent), channel rotation (type=webrtc). Mode: cold/warm with `warm_handoff_ms`. | `orchestrator/operations/transfer.py` |
+| 28 | **Python stays for V1; Rust is a V2 optimization** | Orchestrator is I/O-bound — Python fine. Workers are CPU-bound on audio frames but PipeCat (Python) covers the hot path. Rust workers are a scale-driven V2 decision (>2k concurrent per box). | proposal.md §Why Python |
+
+### Resolved open questions from §6
+
+| # | Original question | Resolution |
+|---|---|---|
+| 1 | Voice Room location | **Inside supervoice.** Orchestrator creates LiveKit rooms via `RoomEngine`. Telephony sends SDP; supervoice generates the answer. |
+| 7 | gRPC vs WebSocket | **WebSocket.** Both dispatch protocol (orchestrator↔worker) and bridge protocol (worker↔runner) use WSS. |
+| 15 | Webhook event format | **Defined in bridge protocol v2.** Events: `call.started`, `call.ended`, `user.text`, `user.interrupted`, `error`, `metric`. Callback URL per-session via `POST /v1/dispatch`. |
